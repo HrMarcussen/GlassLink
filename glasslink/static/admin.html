@@ -40,6 +40,11 @@
   .banner { margin:0 0 12px; padding:12px 14px; border-radius:10px; border:1px solid var(--warn); color:var(--fg); background:#2a2412; display:flex; gap:14px; align-items:center; }
   .banner.done { border-color:var(--ok); background:#13261a; } .banner.bad { border-color:var(--bad); background:#2a1414; }
   .banner b { font-size:15px; }
+  nav { display:flex; gap:4px; padding:0 22px; border-bottom:1px solid var(--line); background:var(--bg); position:sticky; top:0; z-index:5; }
+  nav a { padding:11px 16px; color:var(--dim); border-bottom:2px solid transparent; font-size:13px; text-transform:uppercase; letter-spacing:.1em; }
+  nav a:hover { color:var(--fg); } nav a.on { color:var(--fg); border-bottom-color:var(--acc); }
+  nav a .count { color:var(--dim); font-size:11px; margin-left:4px; }
+  section.tab { display:none; } section.tab.on { display:block; }
   details > summary { cursor:pointer; color:var(--dim); font-size:13px; text-transform:uppercase; letter-spacing:.12em; margin:18px 0 10px; }
   details[open] > summary { color:var(--fg); }
 </style>
@@ -51,28 +56,46 @@
   <span class="pill" id="usb-pill">USB</span>
   <span class="dim" style="margin-left:auto" id="clock"></span>
 </header>
+<nav id="tabs">
+  <a href="#displays" data-tab="displays">Displays<span class="count" id="n-displays"></span></a>
+  <a href="#dus" data-tab="dus">Display units<span class="count" id="n-dus"></span></a>
+  <a href="#setup" data-tab="setup">Setup</a>
+  <a href="#system" data-tab="system">System</a>
+</nav>
 <main>
+  <div id="learn-banner" hidden style="margin-top:14px"></div>
+
+  <section class="tab" data-tab="displays">
   <h2>Displays <span class="pill" id="popout-pill" style="margin-left:8px;text-transform:none;letter-spacing:0"></span></h2>
   <div class="grid" id="displays"></div>
+  </section>
 
-  <details id="editor">
-    <summary>Manage displays</summary>
-    <div id="learn-banner" hidden></div>
+  <section class="tab" data-tab="setup">
+  <h2>Manage displays</h2>
+  <div id="editor">
     <div id="editor-table"></div>
     <div style="margin-top:10px">
       <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24">
       <button id="add-display">Add display</button>
       <span class="dim" style="margin-left:10px;font-size:12.5px">A new display gets 768 x 768 and the next free off-screen parking slot.
-        Then press <b>Learn</b> and Right-Alt + click it once in the cockpit.</span>
+        Then press <b>Learn</b> and Right-Alt + click it once in the cockpit. For a display you cannot reach from the
+        captain's seat view, look at it first and use <b>Learn from my view</b>.</span>
     </div>
-  </details>
+  </div>
+  </section>
 
+  <section class="tab" data-tab="dus">
   <h2>Display units (DUs)</h2>
   <div id="modules"></div>
+  </section>
 
+  <section class="tab" data-tab="system">
+  <h2>System</h2>
+  <div class="kv" id="system-kv" style="max-width:900px;font-size:13.5px"></div>
   <h2>Links</h2>
   <div class="dim">Status JSON: <a href="/status">/status</a> &nbsp; Modules JSON: <a href="/modules">/modules</a> &nbsp;
     Viewer: <code>/view/&lt;display&gt;</code> (add <code>?fps=1</code> for the overlay) &nbsp; MJPEG: <code>/stream/&lt;display&gt;</code></div>
+  </section>
 </main>
 <footer>Refreshes every 2 s. Assignments and settings are saved to config.json immediately.</footer>
 <script>
@@ -82,28 +105,69 @@
 
   function pill(text, cls) { return `<span class="pill ${cls}">${text}</span>`; }
 
+  // Cards are built once per set of display names and then only patched: rebuilding them every refresh made the
+  // whole page jump while the new images loaded.
+  let cardsKey = null; const lastSeq = {};
   function renderDisplays(d) {
     displaysOrder = Object.keys(d);
-    const html = displaysOrder.map(name => {
-      const s = d[name];
-      const found = !!s.window.hwnd;
-      const status = !found ? pill(s.error || 'no window', 'bad')
-                   : (!s.in_use ? pill(`idle · capture ${s.capture_fps} fps`, '')
-                      : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn')));
-      const c = s.counters || {};
-      const bust = found ? `?t=${Date.now()}` : '';
-      return `<div class="card">
-        <div class="title"><span>${name}</span>${status}</div>
-        <a href="/view/${name}" target="_blank" title="open viewer"><img src="${found ? `/snapshot/${name}.jpg${bust}` : ''}" alt=""></a>
+    const key = displaysOrder.join(',');
+    if (key !== cardsKey) {
+      cardsKey = key;
+      $('#displays').innerHTML = displaysOrder.map(name => `<div class="card" data-name="${name}">
+        <div class="title"><span>${name}</span><span class="st"></span></div>
+        <a href="/view/${name}" target="_blank" title="open viewer"><img alt=""></a>
         <div class="kv">
-          <span>window</span><span>${found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>'}</span>
-          <span>size</span><span>${s.size[0]}x${s.size[1]}</span>
-          <span>backend</span><span>${s.backend || '-'}</span>
-          <span>frames</span><span>${c.received || 0} in / ${c.published || 0} sent / ${c.unchanged || 0} unchanged</span>
-          <span>clients</span><span>${s.clients}</span>
-        </div></div>`;
-    }).join('');
-    $('#displays').innerHTML = html || '<div class="empty">No displays configured.</div>';
+          <span>window</span><span class="win"></span>
+          <span>size</span><span class="size"></span>
+          <span>backend</span><span class="backend"></span>
+          <span>frames</span><span class="frames"></span>
+          <span>in use by</span><span class="users"></span>
+        </div></div>`).join('') || '<div class="empty">No displays configured. Add one under Setup.</div>';
+    }
+    for (const name of displaysOrder) {
+      const s = d[name]; const card = document.querySelector(`#displays .card[data-name="${name}"]`);
+      if (!card) continue;
+      const found = !!s.window.hwnd; const c = s.counters || {};
+      card.querySelector('.st').innerHTML = !found ? pill(s.error || 'no window', 'bad')
+        : (!s.in_use ? pill(`idle · capture ${s.capture_fps} fps`, '')
+           : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn')));
+      card.querySelector('.win').innerHTML = found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>';
+      card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
+      card.querySelector('.backend').textContent = s.backend || '-';
+      card.querySelector('.frames').textContent = `${c.received || 0} in / ${c.published || 0} sent / ${c.unchanged || 0} unchanged`;
+      card.querySelector('.users').textContent = `${s.du_assigned || 0} DU · ${s.clients || 0} viewer`;
+      const img = card.querySelector('img');
+      if (!found) { img.removeAttribute('src'); lastSeq[name] = null; }
+      else if (lastSeq[name] !== s.seq) {              // load the new picture off-screen, then swap: no flicker, no jump
+        lastSeq[name] = s.seq;
+        const pre = new Image(); pre.onload = () => { img.src = pre.src; }; pre.src = `/snapshot/${name}.jpg?seq=${s.seq}`;
+      }
+    }
+  }
+
+  // ---- tabs ------------------------------------------------------------------------------------------------
+  function showTab(name) {
+    if (!document.querySelector(`section.tab[data-tab="${name}"]`)) name = 'displays';
+    document.querySelectorAll('section.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
+    document.querySelectorAll('#tabs a').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
+    try { localStorage.setItem('glasslink.tab', name); } catch (e) {}
+    if (name === 'setup') { editorKey = ''; if (typeof refresh === 'function') refresh(); }
+  }
+  const currentTab = () => (document.querySelector('section.tab.on') || {}).dataset?.tab;
+  window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+
+  function renderSystem(s) {
+    const br = s.brightness || {}; const pr = s.process || {}; const fi = s.firmware_image || {};
+    const rows = [
+      ['DMC version', `${s.version}${s.build ? ' (' + s.build + ')' : ''}`],
+      ['Process', `priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`],
+      ['Auto pop-out', `${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`],
+      ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
+      ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
+      ['Current DU firmware', s.firmware_version || '-'],
+      ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning') : 'off'],
+    ];
+    $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   }
 
   function renderModules(m) {
@@ -157,7 +221,7 @@
   const api = (url, method, body) => fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
     .then(async r => { if (!r.ok) { alert(await r.text()); throw new Error('request failed'); } return r.json(); });
   async function renderEditor(learn) {
-    if (!$('#editor').open) return;
+    if (currentTab() !== 'setup') return;
     let data;
     try { data = await (await fetch('/displays', { cache: 'no-store' })).json(); } catch (e) { return; }
     const busy = ['preparing', 'waiting', 'adopting'].includes((learn || {}).status);
@@ -209,7 +273,6 @@
   }
   $('#add-display').onclick = () => { const n = $('#new-name').value.trim(); if (!n) return;
     api('/displays', 'POST', { name: n }).then(() => { $('#new-name').value = ''; editorKey = ''; refresh(); }).catch(() => {}); };
-  $('#editor').addEventListener('toggle', () => { editorKey = ''; refresh(); });
 
   let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {};
   async function refresh() {
@@ -228,8 +291,10 @@
       bp.title = br.dll || br.aircraft || '';
       renderDisplays(s.displays || {});
       renderLearn(s.learn);
-      if (['preparing', 'waiting', 'adopting'].includes((s.learn || {}).status)) $('#editor').open = true;
       renderEditor(s.learn);
+      renderSystem(s);
+      $('#n-displays').textContent = Object.keys(s.displays || {}).length || '';
+      $('#n-dus').textContent = Object.values(s.modules || {}).filter(x => x.alive).length || '';
       const po = s.popout || {}; const pp = $('#popout-pill');
       pp.textContent = `auto pop-out: ${po.status || '?'}${po.detail ? ' · ' + po.detail : ''}${po.last_attempt ? ' · last ' + po.last_attempt : ''}`;
       pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
@@ -263,6 +328,7 @@
       $('#version').textContent = 'server unreachable';
     }
   }
+  showTab(location.hash.slice(1) || (() => { try { return localStorage.getItem('glasslink.tab'); } catch (e) { return null; } })() || 'displays');
   refresh();
   setInterval(refresh, 2000);
 })();

@@ -44,6 +44,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
   aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).
 
+### Changed
+- The status page is split into four tabs: **Displays** (live pictures), **Display units**, **Setup** (the display
+  editor and Learn) and **System** (version, process priority and CPUs, auto pop-out, brightness link, firmware
+  image, links). The tab is part of the address (`/#dus`) and remembered. The learn banner shows on every tab.
+
+### Fixed
+- The status page no longer jumps every two seconds. The display cards were rebuilt on each refresh, so the page
+  height collapsed while the five pictures reloaded. Cards are now built once and patched; a new picture is loaded
+  in the background and swapped in only when the display's frame number has changed.
+
 ## [0.3.0] - 2026-09-18
 
 Firmware updates without a serial cable.
