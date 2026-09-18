@@ -295,3 +295,11 @@ is not needed and hung on WebSocket upgrades here). The pop-out profile carries 
 sim value x the module's trim slider, sent as SET_BRIGHTNESS whenever it changes (host polls at 10 Hz); the
 module dims every frame through a lookup table, redraws its last frame at once on a change, and does not
 persist the value.
+
+### Pop-outs and the brightness knobs, measured (18 Sept 2026)
+With the real cockpit knob and the PFD pop-out visible on the main monitor, three measurements were recorded twice
+a second: the DMC's capture, a PrintWindow of the same window, and the screen pixels at that spot. From 100% down to
+15% none of them changed; at 0% the DU switches off and the pop-out goes black, and it comes back at full brightness
+after the Fenix's power-up delay. So in MSFS 2024 1.8.16 with Fenix 2.4 a pop-out is either on or off and never
+dimmed, which is why the DMC applies brightness itself. Thomas's earlier monitor-behind-the-MIP setup did dim the
+pop-outs gradually; pop-outs were also taskbar windows then, so the sim or Fenix has since changed how they are made.

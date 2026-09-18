@@ -17,6 +17,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Changed
+- Docs: measured behaviour of pop-outs under the brightness knobs (on/off only, never dimmed) and notes on manual
+  pop-outs for the display editor.
+
 ## [0.2.2] - 2026-09-18
 
 Dimming in hardware on the DU. Found by cycling a DU through all displays with the sim running.
