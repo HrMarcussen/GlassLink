@@ -118,7 +118,10 @@ POPOUT_DEFAULTS: dict[str, Any] = {
     # `camera_slot` (Ctrl+Alt+N) before the reset and load it again (Alt+N) afterwards; an integer 0-9 =
     # load that custom camera slot afterwards; null/"" = just reset and restore the zoom.
     "camera_restore": "current",
-    "camera_slot": 9        # unused since 0.4 (kept so old configs load),
+    "camera_slot": 9,       # unused since 0.4 (kept so old configs load)
+    # Key combination that loads the user's own flying view (a sim custom camera) after a pop-out or Learn, exactly as
+    # bound in the sim's controls, e.g. "shift+f1". None = stay in the pilot seat view.
+    "camera_restore_key": None,
 }
 
 
@@ -275,6 +278,44 @@ def send_key(sim_hwnd: int, vk: int, ctrl: bool = False, alt: bool = False) -> b
     for m in reversed(mods):
         time.sleep(0.05)
         win32api.keybd_event(m, win32api.MapVirtualKey(m, 0), win32con.KEYEVENTF_KEYUP, 0)
+    return True
+
+
+_MOD_VK = {"shift": 0x10, "ctrl": 0x11, "control": 0x11, "alt": 0x12}
+
+
+def parse_combo(text: str) -> list[int]:
+    """'shift+f1' -> virtual key codes, modifiers first. Keys: a-z, 0-9, f1-f24. Raises ValueError otherwise."""
+    parts = [p.strip().lower() for p in str(text).split("+") if p.strip()]
+    if not parts:
+        raise ValueError("empty key combination")
+    mods, keys = [], []
+    for p in parts:
+        if p in _MOD_VK:
+            mods.append(_MOD_VK[p])
+        elif len(p) == 1 and (p.isdigit() or "a" <= p <= "z"):
+            keys.append(ord(p.upper()))
+        elif p[0] == "f" and p[1:].isdigit() and 1 <= int(p[1:]) <= 24:
+            keys.append(0x70 + int(p[1:]) - 1)
+        else:
+            raise ValueError(f"unknown key '{p}' (use shift, ctrl, alt, a-z, 0-9, f1-f24)")
+    if len(keys) != 1:
+        raise ValueError("a key combination needs exactly one key besides shift/ctrl/alt")
+    return mods + keys
+
+
+def send_combo(sim_hwnd: int, combo: str) -> bool:
+    """Press a key combination such as 'shift+f1' in the sim window using real input events."""
+    vks = parse_combo(combo)
+    if not bring_to_front(sim_hwnd):
+        return False
+    for vk in vks:
+        win32api.keybd_event(vk, win32api.MapVirtualKey(vk, 0), 0, 0)
+        time.sleep(0.06)
+    time.sleep(0.1)
+    for vk in reversed(vks):
+        win32api.keybd_event(vk, win32api.MapVirtualKey(vk, 0), win32con.KEYEVENTF_KEYUP, 0)
+        time.sleep(0.06)
     return True
 
 
@@ -466,11 +507,17 @@ def restore_camera(cam: "SimCamera", old_view, old_zoom, pcfg: dict[str, Any], s
     if old_zoom is not None:
         time.sleep(0.5)
         cam.zoom = old_zoom
+    combo = pcfg.get("camera_restore_key")
     slot = pcfg.get("camera_restore")
-    if isinstance(slot, int) or (isinstance(slot, str) and slot.isdigit()):
-        time.sleep(0.5)
-        say(f"camera: loading custom camera {slot} (Alt+{slot})")
-        custom_camera(sim_hwnd, int(slot), save=False)
+    if not combo and (isinstance(slot, int) or (isinstance(slot, str) and slot.isdigit())):
+        combo = f"alt+{int(slot) % 10}"                  # the MSFS 2020 default binding
+    if combo:
+        time.sleep(0.8)
+        say(f"camera: back to your view with {combo}")
+        try:
+            send_combo(sim_hwnd, str(combo))
+        except ValueError as exc:
+            say(f"camera_restore_key: {exc}")
 
 
 def normalise_points(points: dict[str, tuple[int, int]], sim: win.WindowInfo) -> dict[str, list[float]]:
@@ -645,6 +692,7 @@ class AutoPopout:
         self._stop = threading.Event()
         self._missing_since: float | None = None
         self._last_attempt = -1e9
+        self._next_probe = 0.0
         self._fails: dict[str, int] = {}         # display -> consecutive attempts that opened no window
         self._fail_spec: dict[str, Any] = {}     # the click point those attempts used: a new point is a new chance
         self.paused = False              # set while the display editor is learning a click point
@@ -663,6 +711,7 @@ class AutoPopout:
             self._fails.pop(n, None)
             self._fail_spec.pop(n, None)
         self._last_attempt = -1e9
+        self._next_probe = 0.0
 
     def _missing(self) -> list[str]:
         out = []
@@ -706,6 +755,9 @@ class AutoPopout:
         if now - self._last_attempt < float(self.pcfg["retry_s"]):
             self.state.update(status="waiting", detail=f"retry in {int(self.pcfg['retry_s'] - (now - self._last_attempt))} s", missing=missing)
             return
+        if now < self._next_probe:
+            return                                 # nothing to do last time we looked: do not reconnect every 5 s
+        self._next_probe = now + 20.0
         cam = try_sim_camera()
         if cam is None:
             self.state.update(status="waiting", detail="SimConnect not available yet", missing=missing)

@@ -83,6 +83,12 @@
         display, and Right-Alt + click it once when the banner says so. The DMC sets the camera itself.</span>
     </div>
   </div>
+  <h2>Camera after a pop-out</h2>
+  <div style="margin:4px 0 18px">
+    <input id="restore-key" placeholder="e.g. shift+f1" style="width:150px"> <button id="restore-save">Save</button>
+    <span class="dim" style="margin-left:10px">The key that loads <b>your own flying view</b> (a sim custom camera), exactly as bound in the
+      sim's controls. The DMC presses it when it has finished popping out displays. Empty = stay in the pilot seat view.</span>
+  </div>
   </section>
 
   <section class="tab" data-tab="dus">
@@ -275,6 +281,10 @@
       (['preparing', 'waiting'].includes(st) ? '<button id="learn-cancel" style="margin-left:auto">Cancel</button>' : '');
     const c = $('#learn-cancel'); if (c) c.onclick = () => api('/learn/cancel', 'POST').then(() => refresh()).catch(() => {});
   }
+  fetch('/popout/settings').then(r => r.json()).then(d => { $('#restore-key').value = d.camera_restore_key || ''; }).catch(() => {});
+  $('#restore-save').onclick = (e) => { e.target.blur();
+    api('/popout/settings', 'POST', { camera_restore_key: $('#restore-key').value })
+      .then(d => { $('#restore-key').value = d.camera_restore_key || ''; e.target.textContent = 'Saved'; setTimeout(() => { e.target.textContent = 'Save'; }, 1500); }).catch(() => {}); };
   $('#add-display').onclick = () => { const n = $('#new-name').value.trim(); if (!n) return;
     api('/displays', 'POST', { name: n }).then(() => { $('#new-name').value = ''; editorKey = ''; refresh(); }).catch(() => {}); };
 

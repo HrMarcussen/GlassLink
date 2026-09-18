@@ -38,6 +38,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   codes), so that was removed, together with the Ctrl+Alt+9 / Alt+9 "restore my view" that never did anything.
   `SimConnect_CameraSetRelative6DOF` was tried too: it moves an outside camera without the cockpit.
   `popout.camera_restore: <number>` still loads that custom camera after a pop-out, for setups where the key works.
+- **Back to your own view after a pop-out**: `popout.camera_restore_key` (Setup tab, "Camera after a pop-out") is
+  the key combination that loads your flying view, exactly as bound in the sim, e.g. `shift+f1` for custom camera 1
+  in the MSFS 2024 keyboard profile (Alt+number is the 2020 binding, which is why the earlier attempts did nothing).
+  For cockpits whose flying view has no instruments on the monitor.
+- The automatic pop-out looks at the sim at most every 20 s while it has nothing to do (it opened a new SimConnect
+  connection every 5 s while a display had no click point).
 - Learning again closes the display's previous pop-out window first, so no duplicate is left behind.
 - The automatic pop-out waits until the cockpit camera has really stopped moving (it compares grabs of the sim)
   instead of a fixed 2 s, and if the displays are lit and the PFD is not where the profile expects it, it waits and

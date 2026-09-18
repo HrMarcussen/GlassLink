@@ -153,6 +153,26 @@ async def strays_close(request: web.Request) -> web.Response:
     return web.json_response({"closed": n})
 
 
+async def popout_settings(request: web.Request) -> web.Response:
+    """GET/POST /popout/settings: the key that loads the user's own view after a pop-out (camera_restore_key)."""
+    from .config import save_config
+    from .popout import parse_combo
+
+    cfg = request.app["cfg"]
+    pc = cfg.setdefault("popout", {})
+    if request.method == "POST":
+        body = await request.json()
+        key = str(body.get("camera_restore_key") or "").strip().lower()
+        if key:
+            try:
+                parse_combo(key)
+            except ValueError as exc:
+                raise web.HTTPBadRequest(text=str(exc))
+        pc["camera_restore_key"] = key or None
+        save_config(cfg, cfg.get("_path"))
+    return web.json_response({"camera_restore_key": pc.get("camera_restore_key")})
+
+
 async def displays_close(request: web.Request) -> web.Response:
     """POST /displays/<name>/close closes the display's pop-out window. The windows are parked off-screen, so the user
     cannot do it by hand. The automatic pop-out opens it again if the display has a click point."""
@@ -424,6 +444,8 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             web.post("/learn/cancel", displays_learn),
             web.post("/displays/{name}/close", displays_close),
             web.post("/popouts/close-strays", strays_close),
+            web.get("/popout/settings", popout_settings),
+            web.post("/popout/settings", popout_settings),
             web.static("/static", STATIC_DIR),
         ]
     )

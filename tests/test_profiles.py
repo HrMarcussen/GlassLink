@@ -149,5 +149,17 @@ class PopoutDimmingTests(unittest.TestCase):
         self.assertIsNone(popout.popout_dims_itself(None))
 
 
+class KeyComboTests(unittest.TestCase):
+    def test_parse_combo(self):
+        from glasslink.popout import parse_combo
+
+        self.assertEqual(parse_combo("Shift + F1"), [0x10, 0x70])
+        self.assertEqual(parse_combo("ctrl+alt+9"), [0x11, 0x12, ord("9")])
+        self.assertEqual(parse_combo("f12"), [0x7B])
+        for bad in ("", "shift", "shift+f1+f2", "win+x", "f99"):
+            with self.assertRaises(ValueError, msg=bad):
+                parse_combo(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
