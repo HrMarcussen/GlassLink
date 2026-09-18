@@ -85,5 +85,26 @@ class PopmImportTests(unittest.TestCase):
         self.assertEqual(p.camera_key(p.point_spec(prof, "ecam_lower")["camera"]), "view:2:7")
 
 
+class PopoutDimmingTests(unittest.TestCase):
+    def test_home_cockpit_mode_is_read_from_the_settings_file(self):
+        import os
+        import tempfile
+        import time
+
+        from glasslink import popout
+
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "persistancy.xml")
+            prof = {"popout_dimming": {"file": f, "xml_tag": "homeCockpitMode", "on_value": "true", "name": "HCM"}}
+            self.assertIsNone(popout.popout_dims_itself(prof))                  # file missing
+            for value, expected in (("false", None), ("true", "HCM"), (" TRUE ", "HCM")):
+                open(f, "w").write(f"<fenix><fdLsSync>false</fdLsSync><homeCockpitMode>{value}</homeCockpitMode></fenix>")
+                os.utime(f, (time.time() + len(value), time.time() + len(value)))   # make the change visible
+                popout._pd_cache.clear()
+                self.assertEqual(popout.popout_dims_itself(prof), expected, value)
+        self.assertIsNone(popout.popout_dims_itself({}))
+        self.assertIsNone(popout.popout_dims_itself(None))
+
+
 if __name__ == "__main__":
     unittest.main()

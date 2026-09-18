@@ -17,6 +17,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- The brightness link stands down when the aircraft dims its own pop-outs. For the Fenix that is the EFB setting
+  "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
+  aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).
+
 ## [0.3.0] - 2026-09-18
 
 Firmware updates without a serial cable.

@@ -16,6 +16,7 @@ Camera pitch/yaw cannot be written on MSFS 2024, hence the reset + zoom approach
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Callable
 
@@ -63,8 +64,45 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
             "fo_pfd": "N_DISPLAY_BRIGHTNESS_FO",
             "fo_nd": "N_DISPLAY_BRIGHTNESS_FI",
         },
+        # Fenix EFB setting "Home Cockpit Mode" makes the pop-outs dim with the knobs themselves. It is persisted
+        # in this file; while it is on, the DMC must not dim a second time.
+        "popout_dimming": {
+            "file": r"C:\ProgramData\Fenix\FenixSim A320\persistancy.xml",
+            "xml_tag": "homeCockpitMode",
+            "on_value": "true",
+            "name": "Fenix Home Cockpit Mode",
+        },
     },
 }
+
+
+_pd_cache: dict[str, tuple[float, float, bool]] = {}     # file -> (checked at, mtime, result)
+
+
+def popout_dims_itself(prof: dict[str, Any] | None) -> str | None:
+    """Name of the aircraft feature that already dims the pop-out picture, if it is switched on; else None.
+    Reads the aircraft's settings file at most every 5 s and only re-parses it when it changed."""
+    import re
+    import time as _time
+
+    spec = (prof or {}).get("popout_dimming") or {}
+    path, tag = spec.get("file"), spec.get("xml_tag")
+    if not path or not tag:
+        return None
+    now = _time.time()
+    checked, mtime, result = _pd_cache.get(path, (0.0, -1.0, False))
+    if now - checked > 5:
+        try:
+            m = os.path.getmtime(path)
+            if m != mtime:
+                text = open(path, encoding="utf-8", errors="replace").read()
+                found = re.search(r"<%s>\s*([^<]*?)\s*</%s>" % (re.escape(tag), re.escape(tag)), text)
+                result = bool(found) and found.group(1).strip().lower() == str(spec.get("on_value", "true")).lower()
+                mtime = m
+        except OSError:
+            result, mtime = False, -1.0
+        _pd_cache[path] = (now, mtime, result)
+    return str(spec.get("name") or "aircraft setting") if result else None
 
 POPOUT_DEFAULTS: dict[str, Any] = {
     "auto": False,          # server pops missing displays out by itself (needs SimConnect)

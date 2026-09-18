@@ -630,11 +630,18 @@ class ModuleManager(threading.Thread):
 
         title = sv.title()
         if title is not None:
+            from .popout import popout_dims_itself
+
             key, prof = select_profile(self.cfg, title)
-            if key != getattr(self, "_bright_key", None):
-                self._bright_key = key
-                self._bright_map = dict((prof or {}).get("brightness") or {})
-                log.info("brightness: aircraft '%s' -> profile %s, variables %s", title, key, self._bright_map)
+            standdown = popout_dims_itself(prof)
+            if (key, standdown) != getattr(self, "_bright_key", None):
+                self._bright_key = (key, standdown)
+                self._bright_standdown = standdown
+                self._bright_map = {} if standdown else dict((prof or {}).get("brightness") or {})
+                if standdown:
+                    log.info("brightness: %s is on, the pop-outs dim themselves; DUs use their trim slider only", standdown)
+                else:
+                    log.info("brightness: aircraft '%s' -> profile %s, variables %s", title, key, self._bright_map)
             return self._bright_map
         if not sv.names:
             self._bright_map = {}
@@ -651,7 +658,8 @@ class ModuleManager(threading.Thread):
         return self._bright_map
 
     def brightness_status(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"enabled": self.simvars is not None, "map": dict(self._bright_map)}
+        out: dict[str, Any] = {"enabled": self.simvars is not None, "map": dict(self._bright_map),
+                               "standdown": getattr(self, "_bright_standdown", None)}
         if self.simvars:
             out.update(self.simvars.status())
         return out
