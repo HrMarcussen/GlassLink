@@ -11,7 +11,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from . import __version__
+from . import __version__, build_id
 from .display import DisplayWorker
 from .hub import FrameHub
 
@@ -35,6 +35,7 @@ async def status(request: web.Request) -> web.Response:
     mm = request.app.get("modules")
     return web.json_response({
         "version": __version__,
+        "build": build_id(),
         "displays": hub.status(),
         "modules": mm.status() if mm else {},
         "usb": {"enabled": mm is not None, "scan_error": mm.last_scan_error if mm else ""},
@@ -328,7 +329,7 @@ def serve(cfg: dict[str, Any]) -> None:
         _install_console_handler()
     except Exception:  # noqa: BLE001
         log.debug("console control handler not installed", exc_info=True)
-    log.info("GlassLink %s listening on http://%s:%s/  (displays: %s)", __version__, host, port,
+    log.info("GlassLink DMC %s (%s) listening on http://%s:%s/  (displays: %s)", __version__, build_id() or "no git", host, port,
              ", ".join(cfg["displays"]) or "none")
     try:
         web.run_app(build_app(cfg), host=host, port=port, print=None, access_log=None)

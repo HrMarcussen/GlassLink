@@ -25,7 +25,12 @@
 
 static const char *TAG = "main";
 
-#define FW_VERSION "0.1.0"
+#ifndef FW_VERSION              /* both come from CMake: ../VERSION and git describe */
+#define FW_VERSION "0.0.0"
+#endif
+#ifndef FW_BUILD
+#define FW_BUILD "nogit"
+#endif
 #define HW_NAME "p4-nano+lt8912b"
 #define RX_BUF_SIZE (512 * 1024)     /* one JPEG frame (768x768 q85 is 30-60 KB; allow headroom) */
 
@@ -117,8 +122,8 @@ static void send_info(void)
     display_info_t di = display_get_info();
     char buf[256];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d}",
-                     FW_VERSION, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d}",
+                     FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
                      esp_timer_get_time() < s_ident_until_us ? 1 : 0);
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }
@@ -428,7 +433,7 @@ void app_main(void)
     }
     load_or_create_serial();
     const esp_app_desc_t *app = esp_app_get_description();
-    ESP_LOGI(TAG, "GlassLink module fw %s (%s) serial %s", FW_VERSION, app->version, s_serial);
+    ESP_LOGI(TAG, "GlassLink DU fw %s (%s, app %s) serial %s", FW_VERSION, FW_BUILD, app->version, s_serial);
 
     s_rx = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);
     s_last_jpeg = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);

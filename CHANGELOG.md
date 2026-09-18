@@ -1,0 +1,65 @@
+# Changelog
+
+All notable changes to GlassLink. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versions follow [Semantic Versioning](https://semver.org/) with one version for the whole repository:
+
+- The file `VERSION` is the single source of truth. The DMC (`glasslink.__version__`, status page) and the DU
+  firmware (`fw` in the INFO message, shown per DU on the status page) are both built from it, and each reports
+  the git commit it was built from as `build`.
+- While the project is 0.x: **minor** (0.2 -> 0.3) for new features or any change to the USB protocol or the
+  config format, **patch** (0.2.0 -> 0.2.1) for fixes and internal work. 1.0.0 is reserved for the first version
+  that runs a full cockpit day to day.
+- Every released version is a git tag `vX.Y.Z`. Work in progress is collected under "Unreleased".
+- Entries that need the DUs reflashed say so: **[DU firmware]**. A DU on older firmware keeps working as long as
+  the protocol version (currently 1) is unchanged; the status page marks it as outdated.
+
+## [Unreleased]
+
+## [0.2.0] - 2026-09-18
+
+First version under the name GlassLink and the first one in git. Everything since the panel bring-up.
+
+### Added
+- Project renamed from ExtDisplay to **GlassLink**; the server is the DMC, a module with its panel is a DU.
+  Python package `glasslink`, firmware project `glasslink_du`, USB strings "GlassLink" / "GlassLink DU",
+  pop-out windows titled `GlassLink:<display>`. Protocol magic, USB IDs and interface GUID unchanged. **[DU firmware]**
+- Brightness follows the cockpit knobs: L:vars read through SimConnect (no WASM module or FSUIPC needed; FSUIPC's
+  WASM interface remains as an optional source), per-DU variable names in the aircraft profile, the DU's slider
+  acts as a trim. DUs redraw at once on a brightness change and no longer write it to flash. **[DU firmware]**
+- Identify as a real on/off toggle reported by the DU itself, shown as a banner with the DU's label over the
+  live picture. **[DU firmware]**
+- `SET_ASSIGNED` message: an unassigned DU shows its NOT ASSIGNED screen instead of the last frame. **[DU firmware]**
+- Ping with round-trip time, Forget for disconnected DUs; unconfigured DUs disappear from the list when unplugged.
+- Per-DU health log (stall and recovery lines with numbers) and a rolling history on the status endpoint.
+- `POST /shutdown` and `tools/stop_server.py`: stop the DMC without killing a process that holds capture sessions.
+- Versioning: `VERSION` file, this changelog, build id in DMC and DU, outdated-firmware marker on the status page.
+
+### Fixed
+- DU stream fell to under 1 fps after a DMC restart: the DU's resync could never find a message boundary while
+  frames kept arriving. Now a byte-wise header resync on the DU **[DU firmware]** and the same on the host reader.
+- DU received 4-10 fps from a 20 fps source: the host waited on an event that stayed set after a send. Now a
+  condition with a predicate.
+- Red and blue swapped on the panel (frame buffer byte order is B,G,R). **[DU firmware]**
+- Reassigning a DU to another display did nothing until that display's frame counter caught up.
+- LT8912B test-pattern generator left enabled by a diagnostic build masked the picture across reboots; cleared at
+  every boot. Frame copies now wait for the DMA transfer to finish. **[DU firmware]**
+- Status page: buttons and dropdowns no longer fight the 2 s refresh.
+
+### Changed
+- Change detection compares the capture buffer in place, samples rows first, copies only changed frames and
+  encodes BGRX directly: DMC CPU 37% -> 27% of one core with four displays.
+- Test pattern carries red and blue reference blocks so a channel swap cannot hide.
+
+## [0.1.0] - 2026-09-14
+
+The proof of concept and the first DU on the bench (not tagged; predates the git repository).
+
+### Added
+- Window capture of MSFS pop-outs (Windows.Graphics.Capture, PrintWindow fallback), off-screen parking, client-area
+  crop, change detection, JPEG streaming over WebSocket and MJPEG, browser viewer and Raspberry Pi viewer.
+- Automatic pop-out through SimConnect camera control and Right-Alt clicks, per-aircraft profiles with fixed click
+  points, optional PFD detection, import of Pop Out Panel Manager profiles, camera restore.
+- USB DU protocol (16-byte header, latest-frame-only flow control, WinUSB through MS OS 2.0 descriptors) and the
+  host side: hot-plug, assignment by serial, status page.
+- DU firmware for ESP32-P4: LT8912B HDMI bridge at a custom 768x768 timing, hardware JPEG decode, DMA2D frame copy,
+  idle screens, serial in NVS, OTA partitions.

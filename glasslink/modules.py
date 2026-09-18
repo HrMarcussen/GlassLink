@@ -118,6 +118,12 @@ class Transport(Protocol):
     def close(self) -> None: ...
 
 
+def _dmc_version() -> str:
+    from . import __version__
+
+    return __version__
+
+
 class MessageReader:
     """Reassembles messages from bulk-IN chunks. If the stream is out of step (a previous host session ended in
     the middle of a message, so its tail is still in the DU's send buffer), the garbage is skipped up to the next
@@ -353,6 +359,7 @@ class ModuleWorker(threading.Thread):
             "last_seq_sent": self.last_seq_sent,
             "ident_active": bool(self.stats["ident"]) if "ident" in self.stats else time.time() < self.ident_until,
             "ping_ms": self.ping_ms,
+            "fw_outdated": bool(self.info.get("fw")) and self.info.get("fw") != _dmc_version(),
             "brightness": {"sent": self.brightness_sent, "sim": self.brightness_sim, "source": self.brightness_source},
             "connected_s": round(time.time() - self.connected_at, 1),
             "last_msg_age_s": round(time.time() - self.last_msg_at, 1),
