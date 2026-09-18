@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "driver/i2c_master.h"
 #include "driver/jpeg_decode.h"
+#include "driver/ppa.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_mipi_dsi.h"
@@ -50,7 +51,15 @@ static uint8_t *s_rgb;              /* decoder output buffer (RGB888, DMA capabl
 static size_t s_rgb_size;
 static SemaphoreHandle_t s_draw_done;   /* given by the DPI driver when a draw_bitmap copy has finished */
 static int s_brightness = 100;
-static uint8_t s_lut[256];          /* brightness lookup, rebuilt by display_set_brightness */
+static uint8_t s_lut[256];          /* brightness lookup (CPU fallback), rebuilt by display_set_brightness */
+/* Hardware dimming: the PPA blends the decoded frame over black with alpha = brightness. The CPU loop over
+ * 1.7 MB of PSRAM cost ~78 ms per frame (9 fps cap at any brightness below 100); the PPA does it in a few ms. */
+static ppa_client_handle_t s_ppa;
+static uint8_t *s_dim;              /* PPA output buffer (same size/alignment as s_rgb) */
+static size_t s_dim_size;
+static uint8_t *s_black;            /* all-zero background picture for the blend */
+static void *s_fb[2];               /* the DPI panel's two frame buffers */
+static int s_front;                 /* index of the one on screen; full-size dimmed frames render into the other and flip */
 static char s_overlay1[40], s_overlay2[40];   /* banner stamped on every frame while non-empty (IDENT) */
 static int s_rotation = 0;
 
@@ -235,6 +244,11 @@ void display_diag_test_pattern(void)
 
 static bool IRAM_ATTR on_draw_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *ctx)
 {
+    /* DMA2D copies complete in an ISR; the no-copy (frame buffer flip) path calls this from the drawing task */
+    if (!xPortInIsrContext()) {
+        xSemaphoreGive(s_draw_done);
+        return false;
+    }
     BaseType_t hp = pdFALSE;
     xSemaphoreGiveFromISR(s_draw_done, &hp);
     return hp == pdTRUE;
@@ -269,6 +283,21 @@ esp_err_t display_init(int mode, int dsivar)
     jpeg_decode_memory_alloc_cfg_t mem = {.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER};
     s_rgb = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &s_rgb_size);
     ESP_RETURN_ON_FALSE(s_rgb, ESP_ERR_NO_MEM, TAG, "rgb buffer");
+    /* hardware dimming resources; if any of this fails the CPU lookup table is used instead */
+    size_t black_size = 0;
+    s_dim = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &s_dim_size);
+    s_black = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &black_size);
+    ppa_client_config_t ppa_cfg = {.oper_type = PPA_OPERATION_BLEND};
+    if (s_dim && s_black && ppa_register_client(&ppa_cfg, &s_ppa) == ESP_OK) {
+        memset(s_black, 0, black_size);
+        if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &s_fb[0], &s_fb[1]) != ESP_OK) {
+            s_fb[0] = s_fb[1] = NULL;
+        }
+        ESP_LOGI(TAG, "hardware dimming (PPA blend) ready%s", s_fb[1] ? ", rendering into the back buffer" : "");
+    } else {
+        s_ppa = NULL;
+        ESP_LOGW(TAG, "PPA not available: dimming on the CPU");
+    }
     display_fill(0x000000);
     return ESP_OK;
 }
@@ -362,19 +391,57 @@ esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     int64_t t0 = esp_timer_get_time();
     uint32_t out_len = 0;
     ESP_RETURN_ON_ERROR(jpeg_decoder_process(s_jpeg, &cfg, jpeg, len, s_rgb, s_rgb_size, &out_len), TAG, "jpeg decode");
+    uint8_t *shown = s_rgb;             /* the buffer that goes to the panel */
     if (s_brightness < 100) {
-        size_t n = (size_t)pic.width * pic.height * 3;
-        for (size_t i = 0; i < n; i++) {
-            s_rgb[i] = s_lut[s_rgb[i]];
+        bool done = false;
+        if (s_ppa) {
+            ppa_blend_oper_config_t b = {
+                .in_bg = {.buffer = s_black, .pic_w = pic.width, .pic_h = pic.height, .block_w = pic.width,
+                          .block_h = pic.height, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
+                .in_fg = {.buffer = s_rgb, .pic_w = pic.width, .pic_h = pic.height, .block_w = pic.width,
+                          .block_h = pic.height, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
+                .out = {.buffer = s_dim, .buffer_size = s_dim_size, .pic_w = pic.width, .pic_h = pic.height,
+                        .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
+                .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .bg_alpha_fix_val = 255,
+                .fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .fg_alpha_fix_val = (uint32_t)(s_brightness * 255 / 100),
+                .mode = PPA_TRANS_MODE_BLOCKING,
+            };
+            /* A full-size frame goes straight into the frame buffer that is not on screen; drawing a buffer
+             * that lies inside a frame buffer makes the panel driver flip to it instead of copying: no 12 ms
+             * copy and no tearing. Smaller pictures keep the copy path so the surround stays intact. */
+            size_t fb_bytes = (size_t)s_info.width * s_info.height * 3;
+            bool flip = s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
+                        && fb_bytes % 64 == 0;
+            if (flip) {
+                b.out.buffer = s_fb[1 - s_front];
+                b.out.buffer_size = fb_bytes;
+            }
+            esp_err_t perr = ppa_do_blend(s_ppa, &b);
+            if (perr == ESP_OK) {
+                shown = flip ? (uint8_t *)s_fb[1 - s_front] : s_dim;
+                done = true;
+            } else {
+                ESP_LOGW(TAG, "PPA blend failed (%s): CPU dimming from now on", esp_err_to_name(perr));
+                s_ppa = NULL;
+            }
+        }
+        if (!done) {
+            size_t n = (size_t)pic.width * pic.height * 3;
+            for (size_t i = 0; i < n; i++) {
+                s_rgb[i] = s_lut[s_rgb[i]];
+            }
         }
     }
-    stamp_overlay(s_rgb, pic.width, pic.height);
+    stamp_overlay(shown, pic.width, pic.height);
     if (decode_ms) {
         *decode_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
     }
     int x = (s_info.width - pic.width) / 2, y = (s_info.height - pic.height) / 2;
     int64_t t1 = esp_timer_get_time();
-    esp_err_t err = draw_sync(x, y, pic.width, pic.height, s_rgb);
+    esp_err_t err = draw_sync(x, y, pic.width, pic.height, shown);
+    if (err == ESP_OK && s_fb[1] && shown == (uint8_t *)s_fb[1 - s_front]) {
+        s_front = 1 - s_front;          /* the driver flipped to the buffer we rendered into */
+    }
     s_last_draw_us = (uint32_t)(esp_timer_get_time() - t1);
     return err;
 }

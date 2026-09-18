@@ -17,6 +17,21 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-18
+
+Dimming in hardware on the DU. Found by cycling a DU through all displays with the sim running.
+
+### Fixed
+- A dimmed DU was capped at 9 fps: software dimming rewrote 1.7 MB of external RAM per frame (85 ms). The ESP32-P4's
+  pixel accelerator now blends each frame over black at the brightness ratio and writes it straight into the
+  display's back buffer, which the panel driver then flips to: 27 ms per frame instead of 98, no copy, no tearing.
+  The CPU lookup table remains as a fallback. **[DU firmware]**
+
+### Added
+- `tools/du_cycle_test.py`: assigns a DU to each display in turn and records DMC CPU, source and capture rate, and
+  the DU's fps, decode, draw and transfer times. Measured with the sim and four pop-outs: DMC 10-13% of one core
+  with a display in use, 6-8% with nothing assigned (0.2.0: 27%).
+
 ## [0.2.1] - 2026-09-18
 
 Lower CPU cost and no competition with the simulator. No firmware change.
