@@ -124,9 +124,10 @@ static void send_info(void)
     display_info_t di = display_get_info();
     char buf[256];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"slot\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
-                     esp_timer_get_time() < s_ident_until_us ? 1 : 0);
+                     esp_timer_get_time() < s_ident_until_us ? 1 : 0,
+                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?");
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }
 
