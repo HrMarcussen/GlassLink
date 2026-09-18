@@ -44,6 +44,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
   aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).
 
+- **Close window** button per display (Setup tab, `POST /displays/<name>/close`). The pop-outs are parked off-screen
+  where you cannot reach them; the DMC closes the window for you, and the automatic pop-out opens it again if the
+  display has a click point. Handy for testing the automatic pop-out and for getting rid of a wrong window.
+
 ### Changed
 - The status page is split into four tabs: **Displays** (live pictures), **Display units**, **Setup** (the display
   editor and Learn) and **System** (version, process priority and CPUs, auto pop-out, brightness link, firmware

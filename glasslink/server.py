@@ -126,6 +126,19 @@ async def displays_edit(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text=f"invalid value: {exc}")
 
 
+async def displays_close(request: web.Request) -> web.Response:
+    """POST /displays/<name>/close closes the display's pop-out window. The windows are parked off-screen, so the user
+    cannot do it by hand. The automatic pop-out opens it again if the display has a click point."""
+    name = request.match_info["name"]
+    if name not in request.app["cfg"].get("displays", {}):
+        raise web.HTTPNotFound(text=f"unknown display '{name}'")
+    learner = request.app["learner"]
+    if learner.busy:
+        raise web.HTTPConflict(text="busy learning a display")
+    closed = await asyncio.get_running_loop().run_in_executor(None, learner.io.close_existing, name)
+    return web.json_response({"closed": bool(closed)})
+
+
 async def displays_learn(request: web.Request) -> web.Response:
     """POST /displays/<name>/learn starts learning that display's pop-out click point; POST /learn/cancel stops it."""
     from .learn import LearnError
@@ -380,6 +393,7 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             web.delete("/displays/{name}", displays_edit),
             web.post("/displays/{name}/learn", displays_learn),
             web.post("/learn/cancel", displays_learn),
+            web.post("/displays/{name}/close", displays_close),
             web.static("/static", STATIC_DIR),
         ]
     )
