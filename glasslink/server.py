@@ -1,0 +1,340 @@
+"""aiohttp server: viewer page, WebSocket (pull/ack, latest-only), MJPEG, snapshot, status."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import struct
+import time
+from pathlib import Path
+from typing import Any
+
+from aiohttp import WSMsgType, web
+
+from . import __version__
+from .display import DisplayWorker
+from .hub import FrameHub
+
+log = logging.getLogger(__name__)
+STATIC_DIR = Path(__file__).parent / "static"
+
+# Binary WebSocket frame layout: uint32 seq | uint32 server_ms | JPEG bytes
+HEADER = struct.Struct("<II")
+
+
+def _server_ms() -> int:
+    return int(time.monotonic() * 1000) & 0xFFFFFFFF
+
+
+async def index(request: web.Request) -> web.Response:
+    return web.FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-cache"})
+
+
+async def status(request: web.Request) -> web.Response:
+    hub: FrameHub = request.app["hub"]
+    mm = request.app.get("modules")
+    return web.json_response({
+        "version": __version__,
+        "displays": hub.status(),
+        "modules": mm.status() if mm else {},
+        "usb": {"enabled": mm is not None, "scan_error": mm.last_scan_error if mm else ""},
+        "brightness": mm.brightness_status() if mm else {},
+        "popout": (request.app.get("auto_popout").state if request.app.get("auto_popout") else {"status": "off", "detail": "auto pop-out disabled"}),
+    })
+
+
+async def modules_list(request: web.Request) -> web.Response:
+    mm = request.app.get("modules")
+    if mm is None:
+        raise web.HTTPServiceUnavailable(text="usb modules disabled")
+    return web.json_response({"modules": mm.status(), "displays": list(request.app["hub"].displays)})
+
+
+async def modules_update(request: web.Request) -> web.Response:
+    """POST /modules/<serial>  {"display": "pfd", "brightness": 80, "rotation": 0, "label": "...", "command": "ident"}"""
+    mm = request.app.get("modules")
+    if mm is None:
+        raise web.HTTPServiceUnavailable(text="usb modules disabled")
+    serial = request.match_info["serial"]
+    body = await request.json()
+    try:
+        if any(k in body for k in ("display", "brightness", "rotation", "label")):
+            mm.assign(serial, body.get("display"), brightness=body.get("brightness"),
+                      rotation=body.get("rotation"), label=body.get("label"))
+        if body.get("command"):
+            if not mm.command(serial, body["command"], int(body.get("arg", 0))):
+                raise web.HTTPNotFound(text="module not connected")
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc))
+    return web.json_response(mm.status().get(serial, {}))
+
+
+async def shutdown(request: web.Request) -> web.Response:
+    """POST /shutdown (localhost only): stop capture sessions and exit exactly like Ctrl+C in the console.
+    Lets a launcher or tooling stop the server without killing a process that holds capture sessions."""
+    if request.remote not in ("127.0.0.1", "::1"):
+        raise web.HTTPForbidden(text="local only")
+    import signal
+
+    log.info("shutdown requested over http")
+    loop = asyncio.get_running_loop()
+
+    def _go() -> None:
+        for hook in list(_shutdown_hooks):
+            try:
+                hook()
+            except Exception:  # noqa: BLE001
+                pass
+        # Same as Ctrl+C: KeyboardInterrupt in the main thread, which aiohttp's run_app turns into a clean
+        # cleanup (the console ctrl event route is not reliable when the process has no interactive console).
+        signal.raise_signal(signal.SIGINT)
+
+    loop.call_later(0.2, _go)
+    return web.json_response({"stopping": True})
+
+
+async def modules_forget(request: web.Request) -> web.Response:
+    """DELETE /modules/<serial>: forget a disconnected module (its assignment and label)."""
+    mm = request.app.get("modules")
+    if mm is None:
+        raise web.HTTPServiceUnavailable(text="usb modules disabled")
+    try:
+        removed = mm.forget(request.match_info["serial"])
+    except ValueError as exc:
+        raise web.HTTPConflict(text=str(exc))
+    if not removed:
+        raise web.HTTPNotFound(text="unknown module")
+    return web.json_response({"removed": True})
+
+
+async def view(request: web.Request) -> web.Response:
+    name = request.match_info["name"]
+    if name not in request.app["hub"].displays:
+        raise web.HTTPNotFound(text=f"unknown display '{name}'")
+    return web.FileResponse(STATIC_DIR / "viewer.html", headers={"Cache-Control": "no-cache"})
+
+
+async def snapshot(request: web.Request) -> web.Response:
+    hub: FrameHub = request.app["hub"]
+    st = hub.get(request.match_info["name"])
+    if st is None:
+        raise web.HTTPNotFound()
+    if st.jpeg is None:
+        raise web.HTTPServiceUnavailable(text="no frame yet")
+    return web.Response(body=st.jpeg, content_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+async def ws_handler(request: web.Request) -> web.WebSocketResponse:
+    hub: FrameHub = request.app["hub"]
+    st = hub.get(request.match_info["name"])
+    if st is None:
+        raise web.HTTPNotFound()
+    ws = web.WebSocketResponse(heartbeat=15, max_msg_size=0)
+    await ws.prepare(request)
+    st.clients += 1
+    peer = request.remote
+    log.info("[%s] ws client connected: %s", st.name, peer)
+
+    credit = asyncio.Event()   # set when the client asks for the next frame ("n")
+    closed = asyncio.Event()
+
+    async def reader() -> None:
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT and msg.data == "n":
+                    credit.set()
+                elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                    break
+        finally:
+            closed.set()
+            credit.set()
+
+    reader_task = asyncio.create_task(reader())
+    last_seq = 0
+    try:
+        await ws.send_json({"type": "hello", "name": st.name, "size": [st.width, st.height], "version": __version__})
+        while not closed.is_set():
+            await credit.wait()
+            if closed.is_set():
+                break
+            credit.clear()
+            while not closed.is_set():
+                res = await hub.wait_newer(st, last_seq, timeout=1.0)
+                if res is not None:
+                    break
+            if closed.is_set():
+                break
+            seq, jpeg = res
+            await ws.send_bytes(HEADER.pack(seq, _server_ms()) + jpeg)
+            st.bytes_out += len(jpeg)
+            last_seq = seq
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    except Exception:  # noqa: BLE001
+        log.exception("[%s] ws error", st.name)
+    finally:
+        reader_task.cancel()
+        st.clients -= 1
+        log.info("[%s] ws client disconnected: %s", st.name, peer)
+        if not ws.closed:
+            await ws.close()
+    return ws
+
+
+async def mjpeg(request: web.Request) -> web.StreamResponse:
+    hub: FrameHub = request.app["hub"]
+    st = hub.get(request.match_info["name"])
+    if st is None:
+        raise web.HTTPNotFound()
+    boundary = "glasslinkframe"
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": f"multipart/x-mixed-replace; boundary={boundary}",
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache",
+        },
+    )
+    await resp.prepare(request)
+    st.clients += 1
+    last_seq = 0
+    try:
+        while True:
+            res = await hub.wait_newer(st, last_seq, timeout=1.0)
+            if res is None:
+                continue
+            seq, jpeg = res
+            await resp.write(
+                f"--{boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n".encode() + jpeg + b"\r\n"
+            )
+            st.bytes_out += len(jpeg)
+            last_seq = seq
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        st.clients -= 1
+    return resp
+
+
+def build_app(cfg: dict[str, Any]) -> web.Application:
+    app = web.Application()
+
+    async def on_startup(app: web.Application) -> None:
+        loop = asyncio.get_running_loop()
+        hub = FrameHub(loop)
+        app["hub"] = hub
+        workers = []
+        for name, dcfg in cfg["displays"].items():
+            w = DisplayWorker(name, dcfg, cfg, hub)
+            w.start()
+            workers.append(w)
+        app["workers"] = workers
+
+        def stop_all() -> None:
+            for w in workers:
+                w.stop()
+            if app.get("modules"):
+                app["modules"].stop()
+
+        _shutdown_hooks.append(stop_all)
+        app["modules"] = None
+        if cfg.get("usb", {}).get("enabled", True):
+            from .modules import ModuleManager
+
+            kwargs = {}
+            n_fake = int(cfg["usb"].get("fake_modules", 0) or 0)
+            if n_fake:
+                from .modules import fake_module_finder
+
+                kwargs = {"finder": fake_module_finder(n_fake), "transport_factory": lambda d: d}
+                log.warning("using %d FAKE usb modules (usb.fake_modules) - no real hardware is served", n_fake)
+            mm = ModuleManager(cfg, hub, cfg.get("_path"), scan_interval=float(cfg["usb"].get("scan_interval_s", 2)), **kwargs)
+            mm.start()
+            app["modules"] = mm
+            log.info("usb module manager started")
+        app["auto_popout"] = None
+        if cfg.get("popout", {}).get("auto") and workers:
+            from .popout import AutoPopout
+
+            app["auto_popout"] = AutoPopout(cfg, hub, cfg.get("_path"))
+            app["auto_popout"].start()
+            log.info("auto pop-out enabled (aircraft '%s')", cfg["popout"].get("aircraft"))
+        if not workers:
+            log.warning("no displays configured - run `python -m glasslink assign <name>` first")
+
+    async def on_cleanup(app: web.Application) -> None:
+        if app.get("modules"):
+            app["modules"].stop()
+        if app.get("auto_popout"):
+            app["auto_popout"].stop()
+        for w in app.get("workers", []):
+            w.stop()
+        await asyncio.sleep(0.5)  # let capture threads release their sessions before the process exits
+        log.info("capture sessions stopped, exiting")
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+    app.add_routes(
+        [
+            web.get("/", index),
+            web.get("/status", status),
+            web.get("/view/{name}", view),
+            web.get("/ws/{name}", ws_handler),
+            web.get("/stream/{name}", mjpeg),
+            web.get("/snapshot/{name}.jpg", snapshot),
+            web.get("/modules", modules_list),
+            web.post("/modules/{serial}", modules_update),
+            web.delete("/modules/{serial}", modules_forget),
+            web.post("/shutdown", shutdown),
+            web.static("/static", STATIC_DIR),
+        ]
+    )
+    return app
+
+
+_shutdown_hooks: list = []
+
+
+def _install_console_handler() -> None:
+    """Windows: when the console window is closed (or the user logs off / shuts down), stop all capture
+    sessions before the process dies. Killing a process that holds Windows.Graphics.Capture sessions on the
+    sim's DirectX 12 windows has been observed to trigger GPU driver timeouts on this machine."""
+    import ctypes
+    import ctypes.wintypes as wt
+
+    HANDLER = ctypes.WINFUNCTYPE(wt.BOOL, wt.DWORD)
+
+    def handler(ctrl_type: int) -> bool:
+        # 0 = Ctrl+C, 1 = Ctrl+Break, 2 = close window, 5 = logoff, 6 = shutdown
+        log.info("console event %s: stopping capture sessions", ctrl_type)
+        for hook in list(_shutdown_hooks):
+            try:
+                hook()
+            except Exception:  # noqa: BLE001
+                pass
+        if ctrl_type in (0, 1):
+            return False  # let Python raise KeyboardInterrupt -> aiohttp cleanup runs too
+        time.sleep(0.5)  # give the capture threads a moment to release their sessions
+        return True
+
+    _install_console_handler.ref = HANDLER(handler)  # keep alive
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(_install_console_handler.ref, True)
+
+
+def serve(cfg: dict[str, Any]) -> None:
+    host = cfg["server"]["host"]
+    port = int(cfg["server"]["port"])
+    try:
+        _install_console_handler()
+    except Exception:  # noqa: BLE001
+        log.debug("console control handler not installed", exc_info=True)
+    log.info("GlassLink %s listening on http://%s:%s/  (displays: %s)", __version__, host, port,
+             ", ".join(cfg["displays"]) or "none")
+    try:
+        web.run_app(build_app(cfg), host=host, port=port, print=None, access_log=None)
+    except OSError as exc:
+        if getattr(exc, "errno", None) in (10048, 98):
+            log.error("Port %s is already in use: another GlassLink server is probably still running. "
+                      "Close its window (or the tray icon) and start again, or use --port to pick another port.", port)
+            raise SystemExit(2)
+        raise

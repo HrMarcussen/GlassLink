@@ -1,0 +1,178 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GlassLink DMC</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e6e6e6; --dim:#8a93a6; --ok:#39d353; --warn:#f0b429; --bad:#ff5c5c; --acc:#4ea1ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font: 14px/1.4 system-ui, Segoe UI, sans-serif; }
+  header { display:flex; align-items:baseline; gap:16px; padding:14px 22px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; letter-spacing:.3px; }
+  header .dim { color:var(--dim); }
+  main { padding:18px 22px; max-width:1400px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim); margin:22px 0 10px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .card .title { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-weight:600; }
+  .card img { width:100%; aspect-ratio:1/1; object-fit:contain; background:#000; border-radius:6px; display:block; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin-top:8px; font-size:12.5px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+  .pill { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+  .pill.ok { color:var(--ok); border-color:var(--ok); }
+  .pill.warn { color:var(--warn); border-color:var(--warn); }
+  .pill.bad { color:var(--bad); border-color:var(--bad); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  select, input[type=range], button, input[type=text] { background:#0f1115; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  button { cursor:pointer; } button:hover { border-color:var(--acc); color:var(--acc); }
+  input[type=range] { padding:0; width:110px; vertical-align:middle; }
+  code { color:var(--acc); font-size:12px; }
+  .empty { color:var(--dim); padding:14px; background:var(--card); border:1px dashed var(--line); border-radius:10px; }
+  a { color:var(--acc); text-decoration:none; }
+  footer { color:var(--dim); font-size:12px; padding:20px 22px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GlassLink <span style="font-weight:400;opacity:.6">DMC</span></h1>
+  <span class="dim" id="version"></span>
+  <span class="pill" id="usb-pill">USB</span>
+  <span class="dim" style="margin-left:auto" id="clock"></span>
+</header>
+<main>
+  <h2>Displays <span class="pill" id="popout-pill" style="margin-left:8px;text-transform:none;letter-spacing:0"></span></h2>
+  <div class="grid" id="displays"></div>
+
+  <h2>Display units (DUs)</h2>
+  <div id="modules"></div>
+
+  <h2>Links</h2>
+  <div class="dim">Status JSON: <a href="/status">/status</a> &nbsp; Modules JSON: <a href="/modules">/modules</a> &nbsp;
+    Viewer: <code>/view/&lt;display&gt;</code> (add <code>?fps=1</code> for the overlay) &nbsp; MJPEG: <code>/stream/&lt;display&gt;</code></div>
+</main>
+<footer>Refreshes every 2 s. Assignments and settings are saved to config.json immediately.</footer>
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  let displaysOrder = [];
+
+  function pill(text, cls) { return `<span class="pill ${cls}">${text}</span>`; }
+
+  function renderDisplays(d) {
+    displaysOrder = Object.keys(d);
+    const html = displaysOrder.map(name => {
+      const s = d[name];
+      const found = !!s.window.hwnd;
+      const status = !found ? pill(s.error || 'no window', 'bad')
+                   : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn'));
+      const c = s.counters || {};
+      const bust = found ? `?t=${Date.now()}` : '';
+      return `<div class="card">
+        <div class="title"><span>${name}</span>${status}</div>
+        <a href="/view/${name}" target="_blank" title="open viewer"><img src="${found ? `/snapshot/${name}.jpg${bust}` : ''}" alt=""></a>
+        <div class="kv">
+          <span>window</span><span>${found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>'}</span>
+          <span>size</span><span>${s.size[0]}x${s.size[1]}</span>
+          <span>backend</span><span>${s.backend || '-'}</span>
+          <span>frames</span><span>${c.received || 0} in / ${c.published || 0} sent / ${c.unchanged || 0} unchanged</span>
+          <span>clients</span><span>${s.clients}</span>
+        </div></div>`;
+    }).join('');
+    $('#displays').innerHTML = html || '<div class="empty">No displays configured.</div>';
+  }
+
+  function renderModules(m) {
+    const serials = Object.keys(m);
+    if (!serials.length) {
+      $('#modules').innerHTML = '<div class="empty">No DUs connected. Plug a GlassLink DU into any USB port; it appears here within a few seconds and can then be assigned to a display.</div>';
+      return;
+    }
+    const opts = (cur) => ['<option value="">— not assigned —</option>']
+      .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${n}</option>`)).join('');
+    const rows = serials.map(serial => {
+      const x = m[serial];
+      const alive = x.alive ? pill('connected', 'ok') : pill(x.error || 'not connected', 'bad');
+      const info = x.info || {}; const st = x.stats || {};
+      return `<tr data-serial="${serial}">
+        <td><code>${serial.slice(0, 8)}…</code><br><span class="dim" style="font-size:11px">${x.description || ''}</span></td>
+        <td><input type="text" class="label" value="${x.label || ''}" placeholder="label" size="12"></td>
+        <td>${alive}</td>
+        <td><select class="display">${opts(x.display)}</select></td>
+        <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="trim: max brightness; the cockpit knob scales below it"><br><span class="dim bval" style="font-size:11px"></span></td>
+        <td>${info.fw ? `fw ${info.fw} · ${info.hw} · ${(info.panel || []).join('x')}` : '<span class="dim">-</span>'}</td>
+        <td class="stats">${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim" style="font-size:11px">${x.frames_sent || 0} frames sent</span></td>
+        <td>${x.alive ? `<button class="ident${x.ident_active ? ' on' : ''}">${x.ident_active ? 'Stop identify' : 'Identify'}</button> <button class="ping">Ping</button> <span class="dim pingms" style="font-size:11px">${x.ping_ms != null ? x.ping_ms + ' ms' : ''}</span>` : `<button class="forget" title="remove this module's assignment and label from the config">Forget</button>`}</td>
+      </tr>`;
+    }).join('');
+    $('#modules').innerHTML = `<table><thead><tr><th>Module</th><th>Label</th><th>State</th><th>Display</th><th>Brightness</th><th>Firmware</th><th>Stats</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    document.querySelectorAll('#modules tr[data-serial]').forEach(tr => {
+      const serial = tr.dataset.serial;
+      const post = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
+      tr.querySelector('.display').onchange = (e) => post({ display: e.target.value });
+      tr.querySelector('.label').onchange = (e) => post({ label: e.target.value });
+      tr.querySelector('.brightness').onchange = (e) => post({ brightness: parseInt(e.target.value, 10) });
+      const ib0 = tr.querySelector('.ident');
+      if (ib0) ib0.onclick = (e) => { e.target.blur(); post({ command: 'ident', arg: e.target.classList.contains('on') ? 0 : 600 }).then(() => setTimeout(refresh, 300)); };
+      const pb0 = tr.querySelector('.ping');
+      if (pb0) pb0.onclick = (e) => { e.target.blur(); post({ command: 'ping', arg: Date.now() & 0xffff }).then(() => setTimeout(refresh, 300)); };
+      const fb0 = tr.querySelector('.forget');
+      if (fb0) fb0.onclick = (e) => { e.target.blur(); if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${serial}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
+    });
+  }
+
+  let modulesHtmlKey = '';
+  async function refresh() {
+    try {
+      const s = await (await fetch('/status', { cache: 'no-store' })).json();
+      $('#version').textContent = `v${s.version}`;
+      const usb = s.usb || {};
+      const up = $('#usb-pill');
+      up.textContent = usb.enabled ? (usb.scan_error ? 'USB error' : 'USB scanning') : 'USB off';
+      up.className = 'pill ' + (usb.enabled ? (usb.scan_error ? 'bad' : 'ok') : '');
+      up.title = usb.scan_error || '';
+      const br = s.brightness || {}; let bp = $('#bright-pill');
+      if (!bp) { bp = document.createElement('span'); bp.id = 'bright-pill'; up.insertAdjacentElement('afterend', bp); bp.style.marginLeft = '6px'; }
+      bp.textContent = !br.enabled ? 'knobs off' : (br.running ? `knobs: ${Object.keys(br.map || {}).length ? 'linked' : 'no profile for ' + (br.aircraft || 'aircraft')} via ${br.source || '?'}` : `knobs: ${br.error || 'waiting for sim'}`);
+      bp.className = 'pill ' + (!br.enabled ? '' : (br.running && Object.keys(br.map || {}).length ? 'ok' : 'warn'));
+      bp.title = br.dll || br.aircraft || '';
+      renderDisplays(s.displays || {});
+      const po = s.popout || {}; const pp = $('#popout-pill');
+      pp.textContent = `auto pop-out: ${po.status || '?'}${po.detail ? ' · ' + po.detail : ''}${po.last_attempt ? ' · last ' + po.last_attempt : ''}`;
+      pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
+      // Re-render the module table only when something structural changed (assignment, state, settings,
+      // ident); the live numbers are patched in place so dropdowns and inputs are never disturbed.
+      const mods = s.modules || {};
+      const key = JSON.stringify(Object.fromEntries(Object.entries(mods).map(([k, x]) => [k, {
+        display: x.display, alive: x.alive, error: x.error, label: x.label, settings: x.settings, info: x.info,
+        ident: x.ident_active, description: x.description, hasStats: !!(x.stats && x.stats.fps !== undefined) }])));
+      // an input or dropdown being edited blocks a rebuild; a focused button does not
+      const busy = document.activeElement && document.activeElement.closest?.('#modules') && document.activeElement.tagName !== 'BUTTON';
+      if (key !== modulesHtmlKey && !busy) { modulesHtmlKey = key; renderModules(mods); }
+      for (const [serial, x] of Object.entries(mods)) {
+        const tr = document.querySelector(`#modules tr[data-serial="${serial}"]`);
+        if (!tr) continue;
+        const st = x.stats || {};
+        tr.querySelector('.stats').innerHTML = `${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim" style="font-size:11px">${x.frames_sent || 0} frames sent</span>`;
+        const ib = tr.querySelector('.ident');
+        if (ib) { ib.textContent = x.ident_active ? 'Stop identify' : 'Identify'; ib.classList.toggle('on', !!x.ident_active); }
+        const pm = tr.querySelector('.pingms');
+        if (pm) pm.textContent = x.ping_ms != null ? x.ping_ms + ' ms' : '';
+        const bv = tr.querySelector('.bval'); const b = x.brightness || {};
+        if (bv) bv.textContent = b.source === 'sim' ? `knob ${Math.round((b.sim || 0) * 100)}% → DU ${b.sent ?? '-'}%` : (b.sent != null ? `manual ${b.sent}%` : '');
+      }
+      $('#clock').textContent = new Date().toLocaleTimeString();
+    } catch (e) {
+      $('#version').textContent = 'server unreachable';
+    }
+  }
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "capture": {
+    "backend": "auto",
+    "fps": 30,
+    "quality": 85,
+    "subsampling": "420"
+  },
+  "popout": {
+    "auto": true,
+    "aircraft": "Fenix",
+    "zoom": 30,
+    "grace_s": 10,
+    "retry_s": 60,
+    "camera_restore": "current",
+    "camera_slot": 9
+  },
+  "displays": {
+    "pfd": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:pfd"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        2600,
+        0
+      ]
+    },
+    "nd": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:nd"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        3400,
+        0
+      ]
+    },
+    "ecam_upper": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:ecam_upper"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        2600,
+        820
+      ]
+    },
+    "ecam_lower": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:ecam_lower"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        3400,
+        820
+      ]
+    }
+  }
+}

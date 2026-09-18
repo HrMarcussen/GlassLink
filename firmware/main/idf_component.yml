@@ -1,0 +1,5 @@
+## GlassLink module firmware dependencies (ESP-IDF component manager)
+dependencies:
+  idf: ">=5.5"
+  espressif/esp_tinyusb: "^2.0"
+  espressif/esp_lcd_lt8912b: "^0.2.1"

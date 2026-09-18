@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GlassLink viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas, img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: auto; }
+  #overlay { position: fixed; left: 6px; top: 6px; color: #0f0; font: 12px monospace; background: rgba(0,0,0,.5);
+             padding: 2px 6px; display: none; white-space: pre; }
+  #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+         color: #888; font: 14px sans-serif; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="overlay"></div>
+<div id="msg"></div>
+<script>
+(() => {
+  const name = location.pathname.split('/').pop();
+  const q = new URLSearchParams(location.search);
+  const showFps = q.get('fps') === '1';
+  const rotate = parseInt(q.get('rotate') || '0', 10) || 0;
+  const mode = q.get('mode') || 'ws';
+  const wrap = document.getElementById('wrap');
+  const overlay = document.getElementById('overlay');
+  const msg = document.getElementById('msg');
+  overlay.style.display = showFps ? 'block' : 'none';
+
+  function applyRotate(el) {
+    if (!rotate) return;
+    el.style.transform = `rotate(${rotate}deg)`;
+    if (rotate % 180 !== 0) { el.style.maxWidth = '100vh'; el.style.maxHeight = '100vw'; }
+  }
+  function setMsg(t) { msg.textContent = t; msg.style.display = t ? 'flex' : 'none'; }
+  document.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.();
+  });
+
+  if (mode === 'mjpeg') {
+    const img = document.createElement('img');
+    img.src = `/stream/${name}`;
+    wrap.replaceChildren(img);
+    applyRotate(img);
+    return;
+  }
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  applyRotate(canvas);
+
+  let frames = 0, bytes = 0, lastStat = performance.now(), fps = 0, kbps = 0, lastSeq = 0, lag = 0;
+  let backoff = 500;
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/${name}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { setMsg(''); backoff = 500; ws.send('n'); };
+    ws.onmessage = async (ev) => {
+      if (typeof ev.data === 'string') { return; }  // hello / info json
+      const buf = ev.data;
+      const dv = new DataView(buf);
+      const seq = dv.getUint32(0, true);
+      const jpeg = new Blob([buf.slice(8)], { type: 'image/jpeg' });
+      try {
+        const bmp = await createImageBitmap(jpeg);
+        if (canvas.width !== bmp.width || canvas.height !== bmp.height) {
+          canvas.width = bmp.width; canvas.height = bmp.height;
+        }
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close?.();
+      } catch (e) { console.warn('decode failed', e); }
+      frames++; bytes += buf.byteLength; lag = seq - lastSeq - 1; lastSeq = seq;
+      if (ws.readyState === 1) ws.send('n');
+      const now = performance.now();
+      if (showFps && now - lastStat >= 1000) {
+        fps = frames * 1000 / (now - lastStat); kbps = bytes * 8 / (now - lastStat);
+        frames = 0; bytes = 0; lastStat = now;
+        overlay.textContent = `${name}  ${canvas.width}x${canvas.height}  ${fps.toFixed(1)} changed frames/s  ${kbps.toFixed(0)} kbit/s  seq ${seq}  skipped ${Math.max(0, lag)}`;
+      }
+    };
+    ws.onclose = () => { setMsg(`${name}: reconnecting…`); setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 5000); };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  }
+  setMsg(`${name}: connecting…`);
+  connect();
+})();
+</script>
+</body>
+</html>

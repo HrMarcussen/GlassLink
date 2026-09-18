@@ -1,0 +1,16 @@
+[Unit]
+Description=GlassLink native viewer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=GLASSLINK_URL=ws://192.168.1.10:8765/ws/pfd
+Environment=GLASSLINK_ROTATE=0
+ExecStart=/usr/bin/python3 /home/pi/glasslink/viewer.py --url ${GLASSLINK_URL} --rotate ${GLASSLINK_ROTATE}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
