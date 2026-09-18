@@ -17,6 +17,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- `tools/du_multi_test.py`: runs all connected DUs at once (each on its own display, all on the same display,
+  assignments rotated) and records per-DU rates and times and the DMC's CPU.
+- Protocol freeze for the hardware track (docs/usb-protocol.md 6a): the backlight reuses `SET_BRIGHTNESS`, scaler
+  power gets `SET_PANEL_POWER` (0x08), INFO reports the capabilities. Documentation only; nothing sends them yet.
+- Backlog: plan and order for the .NET DMC.
+
 ## [0.4.0] - 2026-09-18
 
 Displays as data: six displays for a full cockpit, managed from the status page. No firmware change.

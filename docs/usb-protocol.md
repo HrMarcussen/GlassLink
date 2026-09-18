@@ -93,6 +93,21 @@ offset  size  field
 4. If no FRAME arrives for 5 s, show a small "no signal" marker in a corner (the last frame stays on screen).
 5. OTA: dual app partitions; the new image is written to the inactive slot, verified, and booted with rollback protection.
 
+## 6a. Reserved for the hardware track (protocol freeze, 18 Sept 2026)
+
+Decided before the hardware exists, so that the .NET DMC can be written against a fixed protocol (version stays 1;
+a DU or DMC that does not know these simply ignores them).
+
+- **Backlight needs no new message.** `SET_BRIGHTNESS` already means "effective DU brightness 0..100". A DU with a
+  backlight output (PWM + RC filter into the scaler's VR_ADC) applies it there and stops dimming the picture; a DU
+  without one keeps blending in the pixel accelerator. INFO reports which: `"dimming": "backlight" | "ppa"`.
+  A DU with a backlight output takes 0 as "backlight off".
+- `0x08 SET_PANEL_POWER` (host -> DU, arg 1 = on, 0 = off): drives the scaler's DC12V_INC_OFF line. The host sends
+  0 when the sim is gone for longer than a configurable time and 1 when it is back; the DU switches on by itself
+  at power-up and whenever a FRAME arrives. INFO reports `"panel_power": true | false` on DUs that have the line
+  (absent otherwise, and the DMC then never sends 0x08).
+- INFO may carry `"caps": ["backlight", "panel_power"]` as the summary of the above.
+
 ## 7. Sizes and rates
 
 768x768 JPEG at quality 85 is 30 to 60 KB. At 30 fps that is about 1.5 MB/s per module; a high-speed USB
