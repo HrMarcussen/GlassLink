@@ -48,6 +48,14 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   where you cannot reach them; the DMC closes the window for you, and the automatic pop-out opens it again if the
   display has a click point. Handy for testing the automatic pop-out and for getting rid of a wrong window.
 
+- Pop-out windows that GlassLink did not make (popped out by hand, often parked off-screen where they go unnoticed)
+  are listed on the Setup tab with a button to close them, and Learn mentions them: a display that is already
+  popped out cannot be popped out again, so the click opens nothing. (`strays` in `/status`,
+  `POST /popouts/close-strays`.)
+- The automatic pop-out gives up on a display after two attempts that opened no window (`popout.max_attempts`)
+  instead of moving the camera every minute for ever. Learning the display again or pressing Close window
+  gives it a new chance.
+
 ### Changed
 - The status page is split into four tabs: **Displays** (live pictures), **Display units**, **Setup** (the display
   editor and Learn) and **System** (version, process priority and CPUs, auto pop-out, brightness link, firmware

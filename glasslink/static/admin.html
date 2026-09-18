@@ -72,6 +72,7 @@
 
   <section class="tab" data-tab="setup">
   <h2>Manage displays</h2>
+  <div id="strays" class="banner bad" hidden></div>
   <div id="editor">
     <div id="editor-table"></div>
     <div style="margin-top:10px">
@@ -296,6 +297,13 @@
       renderLearn(s.learn);
       renderEditor(s.learn);
       renderSystem(s);
+      const sb = $('#strays'); const strays = s.strays || [];
+      const sk = strays.map(w => w.hwnd).join(',');
+      if (sb.dataset.key !== sk) {
+        sb.dataset.key = sk; sb.hidden = !strays.length;
+        sb.innerHTML = `<b>${strays.length} pop-out window(s) not made by GlassLink</b><span>${strays.map(w => `${w.title} ${w.size[0]}x${w.size[1]} at ${w.position[0]},${w.position[1]}`).join(' · ')} — a display that is already popped out cannot be learned or popped out again.</span><button id="close-strays" style="margin-left:auto">Close them</button>`;
+        const b = $('#close-strays'); if (b) b.onclick = () => api('/popouts/close-strays', 'POST').then(() => refresh()).catch(() => {});
+      }
       $('#n-displays').textContent = Object.keys(s.displays || {}).length || '';
       $('#n-dus').textContent = Object.values(s.modules || {}).filter(x => x.alive).length || '';
       const po = s.popout || {}; const pp = $('#popout-pill');

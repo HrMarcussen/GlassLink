@@ -57,6 +57,7 @@ async def status(request: web.Request) -> web.Response:
         "usb": {"enabled": mm is not None, "scan_error": mm.last_scan_error if mm else ""},
         "brightness": mm.brightness_status() if mm else {},
         "learn": dict(request.app["learner"].state) if request.app.get("learner") else {"status": "idle"},
+        "strays": _strays(request.app),
         "popout": (request.app.get("auto_popout").state if request.app.get("auto_popout") else {"status": "off", "detail": "auto pop-out disabled"}),
     })
 
@@ -126,6 +127,28 @@ async def displays_edit(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text=f"invalid value: {exc}")
 
 
+_strays_cache: dict[str, Any] = {"t": 0.0, "v": []}
+
+
+def _strays(app: web.Application) -> list[dict[str, Any]]:
+    if app.get("learner") is None or not hasattr(app["learner"].io, "stray_popouts"):
+        return []
+    if time.monotonic() - _strays_cache["t"] > 4.0:
+        try:
+            _strays_cache.update(t=time.monotonic(), v=app["learner"].io.stray_popouts())
+        except Exception:  # noqa: BLE001
+            _strays_cache.update(t=time.monotonic(), v=[])
+    return _strays_cache["v"]
+
+
+async def strays_close(request: web.Request) -> web.Response:
+    """POST /popouts/close-strays closes the sim's pop-out windows that GlassLink did not make."""
+    learner = request.app["learner"]
+    n = await asyncio.get_running_loop().run_in_executor(None, learner.io.close_strays)
+    _strays_cache["t"] = 0.0
+    return web.json_response({"closed": n})
+
+
 async def displays_close(request: web.Request) -> web.Response:
     """POST /displays/<name>/close closes the display's pop-out window. The windows are parked off-screen, so the user
     cannot do it by hand. The automatic pop-out opens it again if the display has a click point."""
@@ -136,6 +159,8 @@ async def displays_close(request: web.Request) -> web.Response:
     if learner.busy:
         raise web.HTTPConflict(text="busy learning a display")
     closed = await asyncio.get_running_loop().run_in_executor(None, learner.io.close_existing, name)
+    if request.app.get("auto_popout"):
+        request.app["auto_popout"].retry(name)
     return web.json_response({"closed": bool(closed)})
 
 
@@ -394,6 +419,7 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             web.post("/displays/{name}/learn", displays_learn),
             web.post("/learn/cancel", displays_learn),
             web.post("/displays/{name}/close", displays_close),
+            web.post("/popouts/close-strays", strays_close),
             web.static("/static", STATIC_DIR),
         ]
     )

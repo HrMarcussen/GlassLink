@@ -110,6 +110,7 @@ POPOUT_DEFAULTS: dict[str, Any] = {
     "zoom": 30,             # COCKPIT CAMERA ZOOM used while popping out (30 = wide, all DUs visible)
     "grace_s": 10,          # seconds a display may be missing before auto pop-out kicks in
     "retry_s": 60,          # minimum seconds between auto attempts
+    "max_attempts": 2,      # then the DMC stops moving the camera for that display until it is learned again
     # Camera to return to after popping out: "current" = save the view you had into custom-camera slot
     # `camera_slot` (Ctrl+Alt+N) before the reset and load it again (Alt+N) afterwards; an integer 0-9 =
     # load that custom camera slot afterwards; null/"" = just reset and restore the zoom.
@@ -307,6 +308,15 @@ def ralt_click(sim_hwnd: int, x: int, y: int, hold: float = 0.3) -> bool:
 # ---------------------------------------------------------------------------------------------
 def sim_main_window() -> win.WindowInfo | None:
     return win.match_window({"process": SIM_PROCESS, "class": SIM_CLASS, "title": SIM_TITLE})
+
+
+def stray_popouts() -> list[win.WindowInfo]:
+    """Pop-out windows of the sim that are not GlassLink's: popped out by hand or by another tool. A display that is
+    already popped out this way cannot be popped out again, so a click on it opens nothing."""
+    main = sim_main_window()
+    return [w for w in win.enum_windows(process=SIM_PROCESS)
+            if w.cls == SIM_CLASS and w.visible and (main is None or w.hwnd != main.hwnd)
+            and not w.title.startswith("GlassLink:") and w.title != SIM_TITLE]
 
 
 def popout_exists(name: str) -> win.WindowInfo | None:
@@ -622,6 +632,8 @@ class AutoPopout:
         self._stop = threading.Event()
         self._missing_since: float | None = None
         self._last_attempt = -1e9
+        self._fails: dict[str, int] = {}         # display -> consecutive attempts that opened no window
+        self._fail_spec: dict[str, Any] = {}     # the click point those attempts used: a new point is a new chance
         self.paused = False              # set while the display editor is learning a click point
         self.state: dict[str, Any] = {"status": "starting", "detail": "", "missing": [], "last_attempt": None}
         self._thread = threading.Thread(target=self._run, name="auto-popout", daemon=True)
@@ -631,6 +643,13 @@ class AutoPopout:
 
     def stop(self) -> None:
         self._stop.set()
+
+    def retry(self, name: str | None = None) -> None:
+        """Forget earlier failures (one display, or all) and try again soon."""
+        for n in ([name] if name else list(self._fails)):
+            self._fails.pop(n, None)
+            self._fail_spec.pop(n, None)
+        self._last_attempt = -1e9
 
     def _missing(self) -> list[str]:
         out = []
@@ -655,6 +674,8 @@ class AutoPopout:
             self.state.update(status="waiting", detail="paused while a pop-out click point is being learned")
             return
         missing = self._missing()
+        for n in [n for n in self._fails if n not in missing]:
+            self.retry(n)                          # it has a window again
         if not missing:
             self._missing_since = None
             self.state.update(status="idle", detail="all displays have windows", missing=[])
@@ -692,6 +713,20 @@ class AutoPopout:
                 self.state.update(status="waiting", missing=unlearned,
                                   detail=f"no click point yet for {unlearned}: use Learn on the status page")
                 return
+        if _prof is not None:
+            # Never keep moving the user's camera for a click that does not work.
+            limit = int(self.pcfg.get("max_attempts", 2))
+            for n in list(self._fails):
+                if self._fail_spec.get(n) != point_spec(_prof, n):
+                    self._fails.pop(n, None)       # learned again since
+                    self._fail_spec.pop(n, None)
+            given_up = [n for n in missing if self._fails.get(n, 0) >= limit]
+            missing = [n for n in missing if n not in given_up]
+            if not missing:
+                self.state.update(status="gave_up", missing=given_up,
+                                  detail=f"gave up on {given_up}: the click opened no window {limit} times. "
+                                         f"Learn it again, or press Close window to retry")
+                return
         if prof_key is None:
             self.state.update(status="waiting", missing=missing,
                               detail=f"no pop-out profile for aircraft '{title}' (profiles: {list(profiles(self.cfg))}; "
@@ -703,6 +738,9 @@ class AutoPopout:
         log.info("auto-popout: %s missing, aircraft '%s' in cockpit -> popping out with profile '%s'", missing, title, prof_key)
         result = ensure_popouts(self.cfg, missing, config_path=self.config_path, say=log.info, aircraft_title=title)
         still = [n for n, h in result.items() if h is None]
+        for n in still:
+            self._fails[n] = self._fails.get(n, 0) + 1
+            self._fail_spec[n] = point_spec(_prof, n) if _prof else None
         self.state.update(status="done" if not still else "partial",
                           detail="all displays popped out" if not still else f"still missing {still}, retry in {self.pcfg['retry_s']} s",
                           missing=still)

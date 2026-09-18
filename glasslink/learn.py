@@ -41,6 +41,25 @@ class LearnIO:
 
         return win.hwnd_set(SIM_PROCESS, SIM_CLASS)
 
+    def stray_popouts(self) -> list[dict[str, Any]]:
+        from .popout import stray_popouts
+
+        return [{"hwnd": w.hwnd, "title": w.title, "size": list(w.client.size), "position": [w.rect.left, w.rect.top]}
+                for w in stray_popouts()]
+
+    def close_strays(self) -> int:
+        import win32con
+        import win32gui
+
+        from .popout import stray_popouts
+
+        ws = stray_popouts()
+        for w in ws:
+            win32gui.PostMessage(w.hwnd, win32con.WM_CLOSE, 0, 0)
+        if ws:
+            time.sleep(1.0)
+        return len(ws)
+
     def cursor(self) -> tuple[int, int]:
         import win32api
 
@@ -225,12 +244,16 @@ class PopoutLearner:
             if self.io.close_existing(name):
                 self._say(f"closed the previous {name} window")
             before = self.io.popout_windows()
+            strays = self.io.stray_popouts() if hasattr(self.io, "stray_popouts") else []
+            note = "" if not strays else (f" - note: {len(strays)} pop-out window(s) not made by GlassLink are open; if one "
+                                          f"of them is this display, your click opens nothing: cancel and close them first")
             self.state.update(status="waiting",
-                              detail=f"Right-Alt + click the {name} display in the cockpit now ({int(WAIT_FOR_CLICK_S)} s)")
+                              detail=f"Right-Alt + click the {name} display in the cockpit now ({int(WAIT_FOR_CLICK_S)} s){note}")
             hwnd, click = watch_for_popout(self.io, before, WAIT_FOR_CLICK_S, self._stop)
             if hwnd is None:
                 self.state.update(status="cancelled" if self._stop.is_set() else "timeout",
-                                  detail="cancelled" if self._stop.is_set() else "no new pop-out window appeared")
+                                  detail="cancelled" if self._stop.is_set() else "no new pop-out window appeared"
+                                  + (" (a pop-out not made by GlassLink is open: close it under Setup and try again)" if strays else ""))
                 return
             self.state.update(status="adopting", detail="storing the click point and parking the window")
             point = normalise(click, sim.client) if click else None
