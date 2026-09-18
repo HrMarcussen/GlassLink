@@ -303,3 +303,10 @@ a second: the DMC's capture, a PrintWindow of the same window, and the screen pi
 after the Fenix's power-up delay. So in MSFS 2024 1.8.16 with Fenix 2.4 a pop-out is either on or off and never
 dimmed, which is why the DMC applies brightness itself. Thomas's earlier monitor-behind-the-MIP setup did dim the
 pop-outs gradually; pop-outs were also taskbar windows then, so the sim or Fenix has since changed how they are made.
+
+**Resolved the same day:** the gradual dimming Thomas remembered is Fenix's EFB sim setting **Home Cockpit Mode**
+("Used to allow pop-out displays to be dimmed"). Since the "Big Fenix Update" (21 Aug 2025) the display brightness is
+applied on the 3D model ("art side"), so pop-outs stay at full brightness unless that mode is on. GlassLink expects
+it **off**: the DMC then applies brightness to the DU (today by dimming pixels in hardware, later by dimming the
+backlight, which keeps blacks black). With Home Cockpit Mode on, the pop-out picture is already dimmed and the
+brightness link would dim a second time: either switch the mode off or set `brightness.enabled` to false.
