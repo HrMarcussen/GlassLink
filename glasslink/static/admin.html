@@ -32,6 +32,8 @@
   .kv { display:grid; grid-template-columns:auto 1fr; gap:.15rem .7rem; margin-top:.5rem; font-size:.875rem; overflow-wrap:anywhere; }
   .kv span:nth-child(odd) { color:var(--dim); }
   .pill { display:inline-block; font-size:.8125rem; padding:.1rem .6rem; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+  #chain { display:inline-flex; flex-wrap:wrap; gap:.4rem; } #chain a.pill { font-size:.875rem; padding:.15rem .7rem; }
+  #chain a.pill:hover { text-decoration:none; border-color:var(--acc); }
   .pill.ok { color:var(--ok); border-color:var(--ok); }       .pill.ok::before { content:"\2713\00a0"; }
   .pill.warn { color:var(--warn); border-color:var(--warn); } .pill.warn::before { content:"!\00a0"; font-weight:700; }
   .pill.bad { color:var(--bad); border-color:var(--bad); }    .pill.bad::before { content:"\2715\00a0"; }
@@ -76,7 +78,11 @@
 <header>
   <h1>GlassLink <span style="font-weight:400;opacity:.6">DMC</span></h1>
   <span class="dim" id="version"></span>
-  <span class="pill" id="usb-pill">USB</span>
+  <span id="chain" role="status" aria-label="System status">
+    <a class="pill" id="st-sim" href="#system">Sim</a>
+    <a class="pill" id="st-displays" href="#displays">Displays</a>
+    <a class="pill" id="st-dus" href="#dus">DUs</a>
+  </span>
   <span class="dim" style="margin-left:auto" id="clock"></span>
 </header>
 <nav id="tabs" aria-label="Sections">
@@ -199,7 +205,7 @@
       ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
       ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
       ['Current DU firmware', s.firmware_version || '-'],
-      ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning') : 'off'],
+      ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off'],
     ];
     $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   }
@@ -329,21 +335,49 @@
   $('#add-display').onclick = () => { const n = $('#new-name').value.trim(); if (!n) return;
     api('/displays', 'POST', { name: n }).then(() => { $('#new-name').value = ''; editorKey = ''; refresh(); }).catch(() => {}); };
 
+  // Top bar: the chain sim -> displays -> DUs. A break shows where to look; each pill links to its tab.
+  function setPill(id, level, text, title) {
+    const el = $(id); el.textContent = text; el.className = 'pill ' + level; el.title = title || '';
+  }
+  function renderChain(s) {
+    const po = s.popout || {}, br = s.brightness || {};
+    const disp = Object.values(s.displays || {}), found = disp.filter(d => d.window && d.window.hwnd).length;
+    const simUp = found > 0 || br.running || (po.status && po.status !== 'off' && !/sim not running|SimConnect not available/.test(po.detail || ''));
+    const notCockpit = /^not in cockpit/.test(po.detail || '');
+    const knobs = !br.enabled ? '' : br.standdown ? `brightness: dimmed by the aircraft (${br.standdown})`
+      : br.running ? (Object.keys(br.map || {}).length ? 'brightness knobs linked' : `no brightness profile for ${br.aircraft || 'this aircraft'}`)
+      : `brightness link: ${br.error || 'waiting'}`;
+    const knobsBad = br.enabled && simUp && !br.standdown && !(br.running && Object.keys(br.map || {}).length);
+    if (!simUp) setPill('#st-sim', 'bad', 'Sim not running', 'The DMC waits and pops the displays out when the sim is in the cockpit');
+    else if (notCockpit) setPill('#st-sim', 'warn', 'Sim: not in cockpit', po.detail);
+    else setPill('#st-sim', knobsBad ? 'warn' : 'ok', `Sim: ${br.aircraft || 'running'}${knobsBad ? ' · brightness link' : ''}`, knobs);
+
+    const total = disp.length;
+    const busy = po.status === 'running' ? ' · popping out' : po.status === 'gave_up' ? ' · gave up' : '';
+    if (!total) setPill('#st-displays', 'warn', 'No displays', 'Add displays under Setup');
+    else setPill('#st-displays', found === total ? 'ok' : (found === 0 && !busy ? 'bad' : 'warn'), `Displays ${found}/${total}${found < total ? busy : ''}`,
+                 found === total ? 'every display has its pop-out window' : (po.detail || ''));
+
+    const mods = Object.values(s.modules || {}), usb = s.usb || {};
+    const wanted = mods.filter(m => (m.settings || {}).display || m.alive), alive = wanted.filter(m => m.alive);
+    const name = (m) => m.label || (m.serial || '').slice(0, 8);
+    const gone = wanted.filter(m => !m.alive).map(name), old = alive.filter(m => m.fw_outdated).map(name);
+    const updating = alive.filter(m => (m.ota || {}).state && !['idle', 'done', 'error'].includes(m.ota.state)).map(name);
+    if (!usb.enabled) setPill('#st-dus', '', 'USB off', '');
+    else if (usb.scan_error) setPill('#st-dus', 'bad', 'USB error', usb.scan_error);
+    else if (!wanted.length) setPill('#st-dus', 'warn', 'No DUs', 'No display unit is connected');
+    else if (gone.length) setPill('#st-dus', alive.length ? 'warn' : 'bad', `DUs ${alive.length}/${wanted.length} · ${gone.join(', ')} disconnected`, '');
+    else if (updating.length) setPill('#st-dus', 'warn', `DUs ${alive.length}/${wanted.length} · updating ${updating.join(', ')}`, '');
+    else if (old.length) setPill('#st-dus', 'warn', `DUs ${alive.length}/${wanted.length} · firmware update for ${old.join(', ')}`, '');
+    else setPill('#st-dus', 'ok', `DUs ${alive.length}/${wanted.length}`, 'all display units connected');
+  }
+
   let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {};
   async function refresh() {
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
       $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
-      const usb = s.usb || {};
-      const up = $('#usb-pill');
-      up.textContent = usb.enabled ? (usb.scan_error ? 'USB error' : 'USB scanning') : 'USB off';
-      up.className = 'pill ' + (usb.enabled ? (usb.scan_error ? 'bad' : 'ok') : '');
-      up.title = usb.scan_error || '';
-      const br = s.brightness || {}; let bp = $('#bright-pill');
-      if (!bp) { bp = document.createElement('span'); bp.id = 'bright-pill'; up.insertAdjacentElement('afterend', bp); bp.style.marginLeft = '6px'; }
-      bp.textContent = !br.enabled ? 'knobs off' : br.standdown ? `knobs: dimmed by the aircraft (${br.standdown})` : (br.running ? `knobs: ${Object.keys(br.map || {}).length ? 'linked' : 'no profile for ' + (br.aircraft || 'aircraft')} via ${br.source || '?'}` : `knobs: ${br.error || 'waiting for sim'}`);
-      bp.className = 'pill ' + (!br.enabled ? '' : br.standdown ? 'ok' : (br.running && Object.keys(br.map || {}).length ? 'ok' : 'warn'));
-      bp.title = br.dll || br.aircraft || '';
+      renderChain(s);
       renderDisplays(s.displays || {});
       renderLearn(s.learn);
       renderEditor(s.learn);
@@ -387,7 +421,8 @@
       }
       $('#clock').textContent = new Date().toLocaleTimeString();
     } catch (e) {
-      $('#version').textContent = 'server unreachable';
+      $('#version').textContent = 'DMC not reachable';
+      setPill('#st-sim', 'bad', 'DMC not reachable', String(e)); setPill('#st-displays', '', 'Displays ?', ''); setPill('#st-dus', '', 'DUs ?', '');
     }
   }
   showTab(location.hash.slice(1) || (() => { try { return localStorage.getItem('glasslink.tab'); } catch (e) { return null; } })() || 'displays');

@@ -31,6 +31,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   WCAG AA in both themes. On narrow windows or at high zoom the tables turn into labelled cards, and nothing
   scrolls sideways (checked at 375 px). These are also the UI rules for the .NET DMC (docs/BACKLOG.md).
 
+- The top bar shows the chain from sim to panel instead of "USB scanning" and the brightness link: **Sim** (aircraft,
+  not in cockpit, not running), **Displays** found / configured (with "popping out" or "gave up"), **DUs** connected /
+  expected (naming a disconnected DU, a running update, outdated firmware). Each is a link to its tab; the details
+  that left the bar are on the System tab. The .NET tray icon will use the same three states.
+
 ### Fixed
 - The "pop-out windows not made by GlassLink" banner showed with a count of 0.
 
