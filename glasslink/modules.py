@@ -118,10 +118,11 @@ class Transport(Protocol):
     def close(self) -> None: ...
 
 
-def _dmc_version() -> str:
-    from . import __version__
+def _fw_outdated(fw: Any) -> bool:
+    """True if a DU reports firmware older than the release in which the firmware last changed."""
+    from . import firmware_version, version_tuple
 
-    return __version__
+    return bool(fw) and version_tuple(str(fw)) < version_tuple(firmware_version)
 
 
 class MessageReader:
@@ -359,7 +360,7 @@ class ModuleWorker(threading.Thread):
             "last_seq_sent": self.last_seq_sent,
             "ident_active": bool(self.stats["ident"]) if "ident" in self.stats else time.time() < self.ident_until,
             "ping_ms": self.ping_ms,
-            "fw_outdated": bool(self.info.get("fw")) and self.info.get("fw") != _dmc_version(),
+            "fw_outdated": _fw_outdated(self.info.get("fw")),
             "brightness": {"sent": self.brightness_sent, "sim": self.brightness_sim, "source": self.brightness_source},
             "connected_s": round(time.time() - self.connected_at, 1),
             "last_msg_age_s": round(time.time() - self.last_msg_at, 1),
@@ -374,7 +375,12 @@ class ModuleWorker(threading.Thread):
         log.info("module %s connected (%s)", self.serial, getattr(self.transport, "description", ""))
         try:
             self.send(T_GET_INFO)
+            info_asked = time.time()
             while not self._stop_evt.is_set():
+                if not self.info and time.time() - info_asked > 2.0:
+                    # the answer can be lost behind the tail of a stale message from an earlier host session
+                    self.send(T_GET_INFO)
+                    info_asked = time.time()
                 chunk = self.transport.read_chunk(timeout_ms=250)
                 if chunk:
                     self.last_msg_at = time.time()
@@ -589,6 +595,13 @@ class ModuleManager(threading.Thread):
                 log.exception("brightness tick failed")
 
     def _brightness_tick(self) -> None:
+        # which displays are shown on a connected DU (drives full-rate vs idle capture)
+        counts: dict[str, int] = {}
+        for w in list(self.workers.values()):
+            if w.alive and w.display:
+                counts[w.display] = counts.get(w.display, 0) + 1
+        for name, st in self.hub.displays.items():
+            st.du_assigned = counts.get(name, 0)
         m = self.brightness_map()
         sv = self.simvars
         for w in list(self.workers.values()):

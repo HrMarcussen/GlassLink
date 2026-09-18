@@ -26,6 +26,10 @@ class DisplayWorker:
         self.quality = int(dcfg.get("quality") or global_cfg["capture"]["quality"])
         self.subsampling = str(global_cfg["capture"].get("subsampling", "420"))
         self.backend_name = str(global_cfg["capture"].get("backend", "auto"))
+        self.idle_fps = float(global_cfg["capture"].get("idle_fps", 1) or 0)      # 0 = never slow down
+        self.idle_after = float(global_cfg["capture"].get("idle_after_s", 5) or 0)
+        self._rate = self.fps            # rate of the running capture session
+        self._last_demand = time.monotonic()
         self.hub = hub
         self.state = hub.add(name)
 
@@ -53,16 +57,33 @@ class DisplayWorker:
         self._teardown_backend()
         log.info("[%s] capture stopped", self.name)
 
+    def _wanted_rate(self) -> float:
+        """Full rate while a DU or a viewer uses the display; idle rate after it has been unused for a while.
+        The capture library copies every delivered frame from the GPU, so an unused display at full rate is
+        the single largest avoidable cost."""
+        now = time.monotonic()
+        if self.state.clients > 0 or self.state.du_assigned > 0:
+            self._last_demand = now
+        if not self.idle_fps or now - self._last_demand < self.idle_after:
+            return self.fps
+        return min(self.fps, self.idle_fps)
+
     def _supervise(self) -> None:
         while not self._stop.is_set():
+            want = self._wanted_rate()
             if self.backend is None or self._lost.is_set():
                 self._teardown_backend()
-                self._try_attach()
+                self._try_attach(want)
             elif self.hwnd is not None and not win.is_window(self.hwnd):
                 log.info("[%s] window %s disappeared", self.name, hex(self.hwnd))
                 self._lost.set()
                 continue
-            self._stop.wait(2.0)
+            elif want != self._rate:
+                log.info("[%s] capture rate %g -> %g fps (%s)", self.name, self._rate, want,
+                         "in use" if want == self.fps else "idle")
+                self._teardown_backend()
+                self._try_attach(want)
+            self._stop.wait(1.0)
 
     def _teardown_backend(self) -> None:
         b, self.backend = self.backend, None
@@ -76,7 +97,8 @@ class DisplayWorker:
         self._crop_cache = None
         self.hub.set_info_threadsafe(self.name, window_hwnd=None, backend="")
 
-    def _try_attach(self) -> None:
+    def _try_attach(self, rate: float | None = None) -> None:
+        rate = self.fps if rate is None else rate
         info = win.match_window(self.dcfg.get("match", {}))
         if info is None:
             self.hub.set_info_threadsafe(self.name, error="window not found")
@@ -87,7 +109,8 @@ class DisplayWorker:
         self.hwnd = info.hwnd
         self._apply_geometry(info)
         try:
-            self.backend = create_backend(self.backend_name, info.hwnd, self._on_frame, self._on_closed, self.fps)
+            self.backend = create_backend(self.backend_name, info.hwnd, self._on_frame, self._on_closed, rate)
+            self._rate = rate
         except Exception as exc:  # noqa: BLE001
             log.exception("[%s] could not start capture backend", self.name)
             self.hub.set_info_threadsafe(self.name, error=f"capture start failed: {exc}")
@@ -96,7 +119,7 @@ class DisplayWorker:
         log.info("[%s] capturing %s '%s' (%s, client %sx%s) with %s", self.name, hex(info.hwnd), info.title,
                  info.process, info.client.width, info.client.height, self.backend.name)
         self.hub.set_info_threadsafe(self.name, window_hwnd=info.hwnd, window_title=info.title,
-                                     backend=self.backend.name, error="")
+                                     backend=self.backend.name, error="", capture_fps=rate)
 
     def _apply_geometry(self, info: win.WindowInfo) -> None:
         size = self.dcfg.get("client_size")
@@ -118,7 +141,7 @@ class DisplayWorker:
 
     def _on_frame(self, frame: np.ndarray, ts: float) -> None:
         self.counters["received"] += 1
-        if self.fps and ts - self._last_check < (1.0 / self.fps) * 0.9:
+        if self._rate and ts - self._last_check < (1.0 / self._rate) * 0.9:
             self.counters["throttled"] += 1
             return
         self._last_check = ts

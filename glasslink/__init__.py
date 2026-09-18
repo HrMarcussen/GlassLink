@@ -19,6 +19,26 @@ def _read_version() -> str:
 __version__ = _read_version()      # single source of truth: the VERSION file at the repository root
 
 
+def _read_firmware_version() -> str:
+    try:
+        return (_ROOT / "FIRMWARE_VERSION").read_text(encoding="utf-8").strip() or __version__
+    except OSError:
+        return __version__
+
+
+# The release in which the DU firmware last changed. A DU older than this should be reflashed; a DU at or above
+# it is current even when the DMC has moved on with releases that did not touch firmware/.
+firmware_version = _read_firmware_version()
+
+
+def version_tuple(v: str) -> tuple[int, ...]:
+    out = []
+    for part in str(v).split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
 @functools.lru_cache(maxsize=1)
 def build_id() -> str:
     """Short git commit the DMC runs from ("" outside a git checkout; "-dirty" with uncommitted changes)."""

@@ -10,7 +10,12 @@ from typing import Any
 
 DEFAULTS: dict[str, Any] = {
     "server": {"host": "0.0.0.0", "port": 8765},
-    "capture": {"backend": "auto", "fps": 30, "quality": 85, "subsampling": "420"},
+    # fps: capture rate of a display that is in use (a DU is assigned or a viewer is connected). Real DUs and the
+    # Fenix redraw at 20-25 Hz. idle_fps: rate of a display nobody is looking at (status page thumbnails only).
+    "capture": {"backend": "auto", "fps": 24, "idle_fps": 1, "idle_after_s": 5, "quality": 85, "subsampling": "420"},
+    # Keep the DMC out of the simulator's way: below-normal priority, and only the last logical CPUs ("auto" =
+    # the last third on machines with 8 or more; a list of CPU numbers, or null for all).
+    "process": {"priority": "below_normal", "affinity": "auto"},
     "popout": {"auto": True, "aircraft": "Fenix", "zoom": 30, "grace_s": 10, "retry_s": 60,
                "camera_restore": "current", "camera_slot": 9},
     "usb": {"enabled": True, "scan_interval_s": 2},

@@ -22,7 +22,9 @@ class DisplayState:
     window_title: str = ""
     backend: str = ""
     error: str = ""
-    clients: int = 0
+    clients: int = 0                # connected LAN viewers (WebSocket / MJPEG)
+    du_assigned: int = 0            # connected DUs showing this display (maintained by the module manager)
+    capture_fps: float = 0.0        # rate the capture session currently runs at (full or idle)
     counters: dict | None = None
     cond: asyncio.Condition = field(default_factory=asyncio.Condition)
     tevent: threading.Event = field(default_factory=threading.Event)   # legacy; USB modules use tcond
@@ -50,6 +52,9 @@ class DisplayState:
             "backend": self.backend,
             "error": self.error,
             "clients": self.clients,
+            "du_assigned": self.du_assigned,
+            "capture_fps": self.capture_fps,
+            "in_use": self.clients > 0 or self.du_assigned > 0,
             "counters": dict(self.counters) if self.counters else {},
         }
 

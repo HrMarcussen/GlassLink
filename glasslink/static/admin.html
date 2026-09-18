@@ -68,7 +68,8 @@
       const s = d[name];
       const found = !!s.window.hwnd;
       const status = !found ? pill(s.error || 'no window', 'bad')
-                   : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn'));
+                   : (!s.in_use ? pill(`idle · capture ${s.capture_fps} fps`, '')
+                      : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn')));
       const c = s.counters || {};
       const bust = found ? `?t=${Date.now()}` : '';
       return `<div class="card">
@@ -103,7 +104,7 @@
         <td>${alive}</td>
         <td><select class="display">${opts(x.display)}</select></td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="trim: max brightness; the cockpit knob scales below it"><br><span class="dim bval" style="font-size:11px"></span></td>
-        <td>${info.fw ? `fw ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw} · ${(info.panel || []).join('x')}${x.fw_outdated ? ' ' + pill('reflash: DMC is ' + dmcVersion, 'warn') : ''}` : '<span class="dim">-</span>'}</td>
+        <td>${info.fw ? `fw ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw} · ${(info.panel || []).join('x')}${x.fw_outdated ? ' ' + pill('reflash: current firmware is ' + fwVersion, 'warn') : ''}` : '<span class="dim">-</span>'}</td>
         <td class="stats">${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim" style="font-size:11px">${x.frames_sent || 0} frames sent</span></td>
         <td>${x.alive ? `<button class="ident${x.ident_active ? ' on' : ''}">${x.ident_active ? 'Stop identify' : 'Identify'}</button> <button class="ping">Ping</button> <span class="dim pingms" style="font-size:11px">${x.ping_ms != null ? x.ping_ms + ' ms' : ''}</span>` : `<button class="forget" title="remove this module's assignment and label from the config">Forget</button>`}</td>
       </tr>`;
@@ -125,11 +126,11 @@
     });
   }
 
-  let modulesHtmlKey = ''; let dmcVersion = '';
+  let modulesHtmlKey = ''; let fwVersion = '';
   async function refresh() {
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
-      $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; dmcVersion = s.version;
+      $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; fwVersion = s.firmware_version || s.version;
       const usb = s.usb || {};
       const up = $('#usb-pill');
       up.textContent = usb.enabled ? (usb.scan_error ? 'USB error' : 'USB scanning') : 'USB off';

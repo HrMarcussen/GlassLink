@@ -11,7 +11,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from . import __version__, build_id
+from . import __version__, build_id, firmware_version
 from .display import DisplayWorker
 from .hub import FrameHub
 
@@ -36,6 +36,8 @@ async def status(request: web.Request) -> web.Response:
     return web.json_response({
         "version": __version__,
         "build": build_id(),
+        "firmware_version": firmware_version,
+        "process": dict(PROCESS_STATE),
         "displays": hub.status(),
         "modules": mm.status() if mm else {},
         "usb": {"enabled": mm is not None, "scan_error": mm.last_scan_error if mm else ""},
@@ -322,9 +324,50 @@ def _install_console_handler() -> None:
     ctypes.windll.kernel32.SetConsoleCtrlHandler(_install_console_handler.ref, True)
 
 
+def pick_affinity(n_logical: int) -> list[int] | None:
+    """CPUs for "auto": the last third of the logical processors on machines with 8 or more, else no pinning.
+    The simulator's main thread lives on the first cores in practice; the last ones are the quiet end."""
+    if n_logical < 8:
+        return None
+    k = max(2, n_logical // 3)
+    return list(range(n_logical - k, n_logical))
+
+
+PROCESS_STATE: dict[str, Any] = {}
+
+
+def tune_process(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Below-normal priority and CPU pinning so the DMC never competes with the simulator for a core."""
+    import psutil
+
+    pcfg = cfg.get("process") or {}
+    p = psutil.Process()
+    out: dict[str, Any] = {}
+    prio = str(pcfg.get("priority", "below_normal") or "normal").lower()
+    classes = {"idle": psutil.IDLE_PRIORITY_CLASS, "below_normal": psutil.BELOW_NORMAL_PRIORITY_CLASS,
+               "normal": psutil.NORMAL_PRIORITY_CLASS, "above_normal": psutil.ABOVE_NORMAL_PRIORITY_CLASS}
+    try:
+        p.nice(classes.get(prio, psutil.NORMAL_PRIORITY_CLASS))
+        out["priority"] = prio if prio in classes else "normal"
+    except Exception as exc:  # noqa: BLE001
+        out["priority"] = f"unchanged ({exc})"
+    aff = pcfg.get("affinity", "auto")
+    cpus = pick_affinity(psutil.cpu_count(logical=True) or 1) if aff == "auto" else (list(aff) if aff else None)
+    try:
+        if cpus:
+            p.cpu_affinity(cpus)
+        out["affinity"] = p.cpu_affinity()
+    except Exception as exc:  # noqa: BLE001
+        out["affinity"] = f"unchanged ({exc})"
+    PROCESS_STATE.clear()
+    PROCESS_STATE.update(out)
+    return out
+
+
 def serve(cfg: dict[str, Any]) -> None:
     host = cfg["server"]["host"]
     port = int(cfg["server"]["port"])
+    log.info("process: %s", tune_process(cfg))
     try:
         _install_console_handler()
     except Exception:  # noqa: BLE001

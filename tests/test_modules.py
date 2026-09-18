@@ -235,6 +235,33 @@ def _no_save_assign(self, serial, display, **settings):
     return dict(entry)
 
 
+class FirmwareVersionTests(unittest.TestCase):
+    def test_outdated_only_below_the_firmware_release(self):
+        import glasslink
+        from glasslink.modules import _fw_outdated
+
+        old = glasslink.firmware_version
+        try:
+            glasslink.firmware_version = "0.2.0"
+            self.assertTrue(_fw_outdated("0.1.0"))
+            self.assertFalse(_fw_outdated("0.2.0"))
+            self.assertFalse(_fw_outdated("0.2.5"))      # built from a later patch release: fine
+            self.assertFalse(_fw_outdated(None))         # no info yet
+            self.assertTrue(_fw_outdated("0.1.9-dirty"))
+        finally:
+            glasslink.firmware_version = old
+
+
+class ProcessTuningTests(unittest.TestCase):
+    def test_pick_affinity(self):
+        from glasslink.server import pick_affinity
+
+        self.assertIsNone(pick_affinity(4))                      # small machines: no pinning
+        self.assertEqual(pick_affinity(8), [6, 7])
+        self.assertEqual(pick_affinity(12), [8, 9, 10, 11])      # i7-8700K: the last two physical cores
+        self.assertEqual(pick_affinity(32), list(range(22, 32)))
+
+
 class ReaderResyncTests(unittest.TestCase):
     def test_garbage_before_and_between_messages_is_skipped(self):
         from glasslink.modules import MessageReader, T_PONG, T_READY, pack

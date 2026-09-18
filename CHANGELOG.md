@@ -10,10 +10,31 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   config format, **patch** (0.2.0 -> 0.2.1) for fixes and internal work. 1.0.0 is reserved for the first version
   that runs a full cockpit day to day.
 - Every released version is a git tag `vX.Y.Z`. Work in progress is collected under "Unreleased".
-- Entries that need the DUs reflashed say so: **[DU firmware]**. A DU on older firmware keeps working as long as
-  the protocol version (currently 1) is unchanged; the status page marks it as outdated.
+- Entries that need the DUs reflashed say so: **[DU firmware]**, and such a release also sets `FIRMWARE_VERSION`
+  to its own number. The status page marks a DU as outdated only if its firmware is older than that, so releases
+  that do not touch `firmware/` never ask for a reflash. A DU on older firmware keeps working as long as the
+  protocol version (currently 1) is unchanged.
 
 ## [Unreleased]
+
+## [0.2.1] - 2026-09-18
+
+Lower CPU cost and no competition with the simulator. No firmware change.
+
+### Added
+- The DMC runs at below-normal priority and pins itself to the last logical CPUs (`process` in the config; "auto"
+  = the last third on machines with 8 or more, e.g. CPUs 8-11 of 12), so it never takes a core from the sim.
+- Capture on demand: a display runs at full rate only while a DU is assigned or a viewer is connected. An unused
+  display drops to `capture.idle_fps` (1) after `capture.idle_after_s` (5) and comes back within a second. The
+  status page shows idle displays. Measured on the test pattern: about 50% -> 9% of one core when unused.
+- `FIRMWARE_VERSION`: DUs are marked outdated only against the release in which the firmware last changed.
+
+### Changed
+- Default capture rate 30 -> 24 fps (real DUs and the Fenix run at 20-25 Hz); per-display `fps` still overrides.
+
+### Fixed
+- The DU's INFO answer could be lost behind the tail of a stale message at connect, leaving the firmware version
+  blank on the status page; the DMC now asks again until it gets one.
 
 ## [0.2.0] - 2026-09-18
 
