@@ -10,3 +10,6 @@ firmware/build/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old
+
+# vendor documents: kept locally, not redistributed (copyright)
+docs/datasheets/
