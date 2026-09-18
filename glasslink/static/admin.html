@@ -169,8 +169,9 @@
       if (!card) continue;
       const found = !!s.window.hwnd; const c = s.counters || {};
       card.querySelector('.st').innerHTML = !found ? pill(s.error || 'no window', 'bad')
-        : (!s.in_use ? pill(`idle · capture ${s.capture_fps} fps`, '')
-           : (s.fps > 0 ? pill(`${s.fps} fps`, 'ok') : pill('static', 'warn')));
+        : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
+           : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
+              : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`));
       card.querySelector('.win').innerHTML = found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>';
       card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
       card.querySelector('.backend').textContent = s.backend || '-';
