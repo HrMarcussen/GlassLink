@@ -104,9 +104,9 @@
         <td>${alive}</td>
         <td><select class="display">${opts(x.display)}</select></td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="trim: max brightness; the cockpit knob scales below it"><br><span class="dim bval" style="font-size:11px"></span></td>
-        <td>${info.fw ? `fw ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw} · ${(info.panel || []).join('x')}${x.fw_outdated ? ' ' + pill('reflash: current firmware is ' + fwVersion, 'warn') : ''}` : '<span class="dim">-</span>'}</td>
+        <td>${info.fw ? `fw ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw} · ${(info.panel || []).join('x')}${x.fw_outdated ? ' ' + pill('outdated: current firmware is ' + fwVersion, 'warn') : ''}` : '<span class="dim">-</span>'}<br><span class="dim otamsg" style="font-size:11px"></span></td>
         <td class="stats">${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim" style="font-size:11px">${x.frames_sent || 0} frames sent</span></td>
-        <td>${x.alive ? `<button class="ident${x.ident_active ? ' on' : ''}">${x.ident_active ? 'Stop identify' : 'Identify'}</button> <button class="ping">Ping</button> <span class="dim pingms" style="font-size:11px">${x.ping_ms != null ? x.ping_ms + ' ms' : ''}</span>` : `<button class="forget" title="remove this module's assignment and label from the config">Forget</button>`}</td>
+        <td>${x.alive ? `<button class="ident${x.ident_active ? ' on' : ''}">${x.ident_active ? 'Stop identify' : 'Identify'}</button> <button class="ping">Ping</button> <button class="update" title="install the built firmware image over USB">Update</button> <span class="dim pingms" style="font-size:11px">${x.ping_ms != null ? x.ping_ms + ' ms' : ''}</span>` : `<button class="forget" title="remove this module's assignment and label from the config">Forget</button>`}</td>
       </tr>`;
     }).join('');
     $('#modules').innerHTML = `<table><thead><tr><th>Module</th><th>Label</th><th>State</th><th>Display</th><th>Brightness</th><th>Firmware</th><th>Stats</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -121,16 +121,22 @@
       if (ib0) ib0.onclick = (e) => { e.target.blur(); post({ command: 'ident', arg: e.target.classList.contains('on') ? 0 : 600 }).then(() => setTimeout(refresh, 300)); };
       const pb0 = tr.querySelector('.ping');
       if (pb0) pb0.onclick = (e) => { e.target.blur(); post({ command: 'ping', arg: Date.now() & 0xffff }).then(() => setTimeout(refresh, 300)); };
+      const ub0 = tr.querySelector('.update');
+      if (ub0) ub0.onclick = (e) => { e.target.blur();
+        const img = fwImage || {};
+        if (!img.available) { alert('No firmware image to install: ' + (img.error || 'unknown')); return; }
+        if (confirm(`Install firmware ${img.version} (built ${img.modified}, ${Math.round(img.size / 1024)} KB) on DU ${serial.slice(0, 8)}…?\nThe DU restarts when it is done. Do not unplug it meanwhile.`))
+          post({ command: 'update' }).then(() => setTimeout(refresh, 300)); };
       const fb0 = tr.querySelector('.forget');
       if (fb0) fb0.onclick = (e) => { e.target.blur(); if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${serial}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
     });
   }
 
-  let modulesHtmlKey = ''; let fwVersion = '';
+  let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {};
   async function refresh() {
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
-      $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; fwVersion = s.firmware_version || s.version;
+      $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
       const usb = s.usb || {};
       const up = $('#usb-pill');
       up.textContent = usb.enabled ? (usb.scan_error ? 'USB error' : 'USB scanning') : 'USB off';
@@ -161,6 +167,10 @@
         tr.querySelector('.stats').innerHTML = `${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim" style="font-size:11px">${x.frames_sent || 0} frames sent</span>`;
         const ib = tr.querySelector('.ident');
         if (ib) { ib.textContent = x.ident_active ? 'Stop identify' : 'Identify'; ib.classList.toggle('on', !!x.ident_active); }
+        const om = tr.querySelector('.otamsg'); const o = x.ota || {};
+        if (om) om.textContent = o.state === 'running' ? `updating to ${o.version || '?'}: ${Math.round((o.progress || 0) * 100)}% (${o.message || ''})`
+          : o.state === 'ok' ? `updated ${o.from || '?'} → ${o.version || '?'}` : o.state === 'error' ? `update failed: ${o.message}` : '';
+        const ub = tr.querySelector('.update'); if (ub) ub.disabled = o.state === 'running';
         const pm = tr.querySelector('.pingms');
         if (pm) pm.textContent = x.ping_ms != null ? x.ping_ms + ' ms' : '';
         const bv = tr.querySelector('.bval'); const b = x.brightness || {};

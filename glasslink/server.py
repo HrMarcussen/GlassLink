@@ -30,6 +30,19 @@ async def index(request: web.Request) -> web.Response:
     return web.FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-cache"})
 
 
+_fw_cache: dict[str, Any] = {"t": 0.0, "v": {}}
+
+
+def _firmware_summary(cfg: dict[str, Any]) -> dict[str, Any]:
+    """What an update would install; re-read at most every 5 s (the status page polls every 2 s)."""
+    from .firmware import summary
+
+    if time.time() - _fw_cache["t"] > 5:
+        _fw_cache["v"] = summary(cfg)
+        _fw_cache["t"] = time.time()
+    return _fw_cache["v"]
+
+
 async def status(request: web.Request) -> web.Response:
     hub: FrameHub = request.app["hub"]
     mm = request.app.get("modules")
@@ -37,6 +50,7 @@ async def status(request: web.Request) -> web.Response:
         "version": __version__,
         "build": build_id(),
         "firmware_version": firmware_version,
+        "firmware_image": _firmware_summary(request.app["cfg"]),
         "process": dict(PROCESS_STATE),
         "displays": hub.status(),
         "modules": mm.status() if mm else {},
@@ -221,6 +235,7 @@ async def mjpeg(request: web.Request) -> web.StreamResponse:
 
 def build_app(cfg: dict[str, Any]) -> web.Application:
     app = web.Application()
+    app["cfg"] = cfg
 
     async def on_startup(app: web.Application) -> None:
         loop = asyncio.get_running_loop()

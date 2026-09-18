@@ -51,12 +51,14 @@ T_STATS = 0x83
 T_PONG = 0x84
 T_LOG = 0x85
 T_OTA_RESULT = 0x90
+T_OTA_PROGRESS = 0x91
+OTA_CHUNK = 32 * 1024
 
 TYPE_NAMES = {
     T_FRAME: "FRAME", T_GET_INFO: "GET_INFO", T_SET_BRIGHTNESS: "SET_BRIGHTNESS", T_SET_ROTATION: "SET_ROTATION",
     T_SHOW_IDENT: "SHOW_IDENT", T_PING: "PING", T_SET_ASSIGNED: "SET_ASSIGNED", T_OTA_BEGIN: "OTA_BEGIN", T_OTA_DATA: "OTA_DATA",
     T_OTA_END: "OTA_END", T_REBOOT: "REBOOT", T_READY: "READY", T_INFO: "INFO", T_STATS: "STATS",
-    T_PONG: "PONG", T_LOG: "LOG", T_OTA_RESULT: "OTA_RESULT",
+    T_PONG: "PONG", T_LOG: "LOG", T_OTA_RESULT: "OTA_RESULT", T_OTA_PROGRESS: "OTA_PROGRESS",
 }
 
 # Espressif VID with the development PID; the final PID is added here once granted.
@@ -317,6 +319,9 @@ class ModuleWorker(threading.Thread):
         self.last_seq_sent = 0
         self.last_seq_display: str | None = None   # display the last frame was taken from
         self.ident_until = 0.0                      # host-side view of the module's ident overlay
+        self._ota_image: bytes | None = None         # set by the manager; picked up by this thread
+        self._ota_acked: int | None = None
+        self._ota_result: int | None = None
         self.brightness_sent: int | None = None     # last SET_BRIGHTNESS value (None = resend)
         self.brightness_sim: float | None = None    # sim value 0..1 driving it, None = manual
         self.brightness_source = "manual"
@@ -360,6 +365,7 @@ class ModuleWorker(threading.Thread):
             "last_seq_sent": self.last_seq_sent,
             "ident_active": bool(self.stats["ident"]) if "ident" in self.stats else time.time() < self.ident_until,
             "ping_ms": self.ping_ms,
+            "ota": dict(self.manager.ota_status.get(self.serial) or {"state": "idle"}),
             "fw_outdated": _fw_outdated(self.info.get("fw")),
             "brightness": {"sent": self.brightness_sent, "sim": self.brightness_sim, "source": self.brightness_source},
             "connected_s": round(time.time() - self.connected_at, 1),
@@ -381,17 +387,11 @@ class ModuleWorker(threading.Thread):
                     # the answer can be lost behind the tail of a stale message from an earlier host session
                     self.send(T_GET_INFO)
                     info_asked = time.time()
-                chunk = self.transport.read_chunk(timeout_ms=250)
-                if chunk:
-                    self.last_msg_at = time.time()
-                    try:
-                        msgs = self._reader.feed(chunk)
-                    except ValueError as exc:
-                        log.warning("module %s: %s; resyncing", self.serial, exc)
-                        self._reader.reset()
-                        msgs = []
-                    for m in msgs:
-                        self._on_message(m)
+                if self._ota_image is not None:
+                    image, self._ota_image = self._ota_image, None
+                    self._do_ota(image)
+                    continue
+                self._pump(250)
                 if self.ready_pending:
                     self._serve_ready()
         except Exception as exc:  # noqa: BLE001
@@ -403,6 +403,67 @@ class ModuleWorker(threading.Thread):
                 self.transport.close()
             except Exception:  # noqa: BLE001
                 pass
+
+    def _pump(self, timeout_ms: int) -> None:
+        """Read one USB transfer (if any) and dispatch the messages in it."""
+        chunk = self.transport.read_chunk(timeout_ms=timeout_ms)
+        if not chunk:
+            return
+        self.last_msg_at = time.time()
+        for m in self._reader.feed(chunk):
+            self._on_message(m)
+
+    # -- firmware update -----------------------------------------------------------------------
+    def _ota_state(self, **kw: Any) -> None:
+        self.manager.ota_status.setdefault(self.serial, {}).update(kw, updated=round(time.time(), 1))
+
+    def _ota_wait(self, done, timeout_s: float) -> bool:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline and not self._stop_evt.is_set():
+            if self._ota_result is not None or done():
+                return True
+            self._pump(200)
+        return self._ota_result is not None or done()
+
+    def _do_ota(self, image: bytes) -> None:
+        """Stop-and-wait transfer of a firmware image; runs on this worker's thread so nothing else talks to the DU."""
+        import zlib
+
+        from .firmware import OTA_ERRORS
+
+        total = len(image)
+        self._ota_acked = None
+        self._ota_result = None
+        self._ota_state(state="running", progress=0.0, message="preparing flash")
+        log.info("module %s: firmware update started (%d bytes)", self.serial[:8], total)
+        try:
+            self.send(T_OTA_BEGIN, arg=total)
+            if not self._ota_wait(lambda: self._ota_acked == 0, 40):
+                raise RuntimeError("no answer to the update request (firmware too old for updates over USB?)")
+            sent = 0
+            while sent < total and self._ota_result is None:
+                part = image[sent:sent + OTA_CHUNK]
+                self.send(T_OTA_DATA, part, arg=sent)
+                sent += len(part)
+                if not self._ota_wait(lambda: self._ota_acked == sent, 15):
+                    raise RuntimeError(f"no acknowledgement at {sent} of {total} bytes")
+                self._ota_state(progress=round(sent / total, 3), message=f"{sent // 1024} of {total // 1024} KB")
+            if self._ota_result is None:
+                self.send(T_OTA_END, arg=zlib.crc32(image) & 0xFFFFFFFF)
+                self._ota_wait(lambda: False, 30)
+            if self._ota_result == 0:
+                self._ota_state(state="ok", progress=1.0, message="installed, DU is restarting")
+                log.info("module %s: firmware update installed, DU restarting", self.serial[:8])
+            elif self._ota_result is None:
+                raise RuntimeError("no result from the DU")
+            else:
+                raise RuntimeError(OTA_ERRORS.get(self._ota_result, f"error code {self._ota_result}"))
+        except Exception as exc:  # noqa: BLE001
+            self._ota_state(state="error", message=str(exc))
+            log.warning("module %s: firmware update failed: %s", self.serial[:8], exc)
+        finally:
+            self.brightness_sent = None
+            self.last_seq_display = None         # send a fresh frame afterwards
 
     def _on_message(self, m: Message) -> None:
         if m.type == T_READY:
@@ -430,7 +491,10 @@ class ModuleWorker(threading.Thread):
             if t0 is not None:
                 self.ping_ms = round((time.time() - t0) * 1000, 1)
                 log.info("module %s pong %.1f ms", self.serial[:8], self.ping_ms)
+        elif m.type == T_OTA_PROGRESS:
+            self._ota_acked = m.arg
         elif m.type == T_OTA_RESULT:
+            self._ota_result = m.arg
             log.info("module %s OTA result: %s", self.serial, m.arg)
         else:
             log.debug("module %s: unhandled %r", self.serial, m)
@@ -526,6 +590,7 @@ class ModuleManager(threading.Thread):
         self._lock = threading.Lock()
         self.last_scan_error = ""
         cfg.setdefault("modules", {})
+        self.ota_status: dict[str, dict[str, Any]] = {}     # per serial; survives the DU's restart after an update
         self.simvars = None
         self._bright_thread: threading.Thread | None = None
         self._bright_map: dict[str, str] = {}
@@ -605,7 +670,7 @@ class ModuleManager(threading.Thread):
         m = self.brightness_map()
         sv = self.simvars
         for w in list(self.workers.values()):
-            if not w.alive:
+            if not w.alive or (self.ota_status.get(w.serial) or {}).get("state") == "running":
                 continue
             manual = self.settings(w.serial).get("brightness")
             manual = 100 if manual is None else int(manual)
@@ -664,6 +729,15 @@ class ModuleManager(threading.Thread):
         elif cmd == "ping":
             w._ping_sent[arg] = time.time()
             w.send(T_PING, arg=arg)
+        elif cmd == "update":
+            from .firmware import load
+
+            if (self.ota_status.get(serial) or {}).get("state") == "running":
+                raise ValueError("an update is already running on this DU")
+            image, info = load(self.cfg)             # ValueError if there is no valid image
+            self.ota_status[serial] = {"state": "running", "progress": 0.0, "message": "queued",
+                                       "version": info["version"], "from": (w.info or {}).get("fw")}
+            w._ota_image = image
         elif cmd == "reboot":
             w.send(T_REBOOT)
         elif cmd == "info":

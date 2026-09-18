@@ -32,6 +32,10 @@ class FakeTransport:
         self.frames: list[tuple[int, bytes]] = []
         self.closed = False
         self._reader = m.MessageReader()
+        self.ota = bytearray()                           # firmware image received so far
+        self.ota_expected = 0
+        self.ota_installed: bytes | None = None
+        self.ota_corrupt_at: int | None = None           # simulate a flash write error at this offset
         self.inbox.put(m.pack(m.T_READY, seq=0))
 
     def read_chunk(self, timeout_ms: int) -> bytes | None:
@@ -56,6 +60,28 @@ class FakeTransport:
                 self.inbox.put(m.pack(m.T_READY, seq=msg.seq))
             elif msg.type == m.T_PING:
                 self.inbox.put(m.pack(m.T_PONG, arg=msg.arg))
+            elif msg.type == m.T_OTA_BEGIN:
+                self.ota = bytearray()
+                self.ota_expected = msg.arg
+                self.inbox.put(m.pack(m.T_OTA_PROGRESS, arg=0))
+            elif msg.type == m.T_OTA_DATA:
+                if msg.arg != len(self.ota):
+                    self.inbox.put(m.pack(m.T_OTA_RESULT, arg=7))
+                elif self.ota_corrupt_at is not None and msg.arg >= self.ota_corrupt_at:
+                    self.inbox.put(m.pack(m.T_OTA_RESULT, arg=2))
+                else:
+                    self.ota += msg.payload
+                    self.inbox.put(m.pack(m.T_OTA_PROGRESS, arg=len(self.ota)))
+            elif msg.type == m.T_OTA_END:
+                import zlib
+
+                if len(self.ota) != self.ota_expected:
+                    self.inbox.put(m.pack(m.T_OTA_RESULT, arg=5))
+                elif zlib.crc32(bytes(self.ota)) & 0xFFFFFFFF != msg.arg:
+                    self.inbox.put(m.pack(m.T_OTA_RESULT, arg=4))
+                else:
+                    self.ota_installed = bytes(self.ota)
+                    self.inbox.put(m.pack(m.T_OTA_RESULT, arg=0))
 
     def close(self) -> None:
         self.closed = True
@@ -233,6 +259,62 @@ def _no_save_assign(self, serial, display, **settings):
         if settings.get("rotation") is not None:
             w.send(m.T_SET_ROTATION, arg=int(settings["rotation"]))
     return dict(entry)
+
+
+class FirmwareUpdateTests(ModuleFlowTests):
+    """Stop-and-wait firmware transfer against the fake DU."""
+
+    def _image(self, size: int = 100_000) -> bytes:
+        return bytes((i * 7) & 0xFF for i in range(size))
+
+    def test_update_transfers_the_whole_image_and_reports_ok(self) -> None:
+        mm = self._manager(["AAAA"])
+        mm.scan_once()
+        w = mm.workers["AAAA"]
+        self.assertTrue(self._wait(lambda: w.info.get("hw") == "fake"))
+        image = self._image()
+        mm.ota_status["AAAA"] = {"state": "running", "progress": 0.0}
+        w._ota_image = image
+        self.assertTrue(self._wait(lambda: mm.ota_status["AAAA"].get("state") in ("ok", "error"), timeout=10))
+        self.assertEqual(mm.ota_status["AAAA"]["state"], "ok", mm.ota_status["AAAA"])
+        self.assertEqual(self.fakes["AAAA"].ota_installed, image)
+        chunks = [x for x in self.fakes["AAAA"].received if x.type == m.T_OTA_DATA]
+        self.assertEqual(len(chunks), -(-len(image) // m.OTA_CHUNK))
+        self.assertEqual([c.arg for c in chunks], list(range(0, len(image), m.OTA_CHUNK)))
+        self.assertEqual(w.as_dict()["ota"]["progress"], 1.0)
+        mm.stop()
+
+    def test_update_reports_a_write_error_from_the_du(self) -> None:
+        mm = self._manager(["AAAA"])
+        mm.scan_once()
+        w = mm.workers["AAAA"]
+        self.assertTrue(self._wait(lambda: w.info.get("hw") == "fake"))
+        self.fakes["AAAA"].ota_corrupt_at = m.OTA_CHUNK
+        mm.ota_status["AAAA"] = {"state": "running", "progress": 0.0}
+        w._ota_image = self._image()
+        self.assertTrue(self._wait(lambda: mm.ota_status["AAAA"].get("state") in ("ok", "error"), timeout=10))
+        self.assertEqual(mm.ota_status["AAAA"]["state"], "error")
+        self.assertIn("flash write failed", mm.ota_status["AAAA"]["message"])
+        self.assertIsNone(self.fakes["AAAA"].ota_installed)
+        self.assertTrue(w.alive)                         # a failed update leaves the DU connected and streaming
+        mm.stop()
+
+    def test_image_descriptor_is_checked(self) -> None:
+        import struct
+
+        from glasslink import firmware
+
+        with self.assertRaises(ValueError):
+            firmware.describe(b"not an image" * 100)
+        img = bytearray(1024)
+        img[0] = 0xE9
+        struct.pack_into("<I", img, 32, 0xABCD5432)
+        img[32 + 16:32 + 16 + 5] = b"9.9.9"
+        img[32 + 48:32 + 48 + 12] = b"glasslink_du"
+        self.assertEqual(firmware.describe(bytes(img))["version"], "9.9.9")
+        img[32 + 48:32 + 48 + 12] = b"other_projec"
+        with self.assertRaises(ValueError):
+            firmware.describe(bytes(img))
 
 
 class FirmwareVersionTests(unittest.TestCase):

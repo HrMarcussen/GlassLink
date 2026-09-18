@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_ota_ops.h"
+#include "esp_rom_crc.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
@@ -44,7 +45,8 @@ static uint32_t s_last_seq;
 static uint32_t s_frames, s_dropped, s_decode_ms_acc, s_decode_n, s_draw_us_acc, s_rx_us_acc;
 static int64_t s_last_frame_us, s_ident_until_us, s_last_stats_us;
 static bool s_assigned;
-static struct { esp_ota_handle_t h; const esp_partition_t *part; uint32_t expected; uint32_t got; bool active; } s_ota;
+static struct { esp_ota_handle_t h; const esp_partition_t *part; uint32_t expected; uint32_t got; uint32_t crc;
+                int64_t last_us; bool active; } s_ota;
 
 /* ---- serial GUID (NVS) --------------------------------------------------------------------- */
 static void load_or_create_serial(void)
@@ -151,36 +153,76 @@ static void send_ready(void)
 }
 
 /* ---- OTA ------------------------------------------------------------------------------------- */
+/* Stop-and-wait transfer: every step is answered (OTA_PROGRESS with the byte count, or OTA_RESULT with an error),
+ * because erasing and writing flash blocks this task and the host must not run ahead.
+ * OTA_RESULT codes: 0 ok, 1 begin failed, 2 write failed, 3 image rejected, 4 CRC mismatch, 5 size mismatch,
+ * 6 timed out, 7 data out of order. */
+static void ota_fail(uint32_t code)
+{
+    if (s_ota.active) esp_ota_abort(s_ota.h);
+    s_ota.active = false;
+    display_set_overlay(NULL, NULL);
+    ESP_LOGW(TAG, "OTA failed, code %lu at %lu/%lu bytes", (unsigned long)code, (unsigned long)s_ota.got, (unsigned long)s_ota.expected);
+    send_msg(XD_T_OTA_RESULT, NULL, 0, 0, code);
+}
+
 static void ota_begin(uint32_t size)
 {
-    s_ota.part = esp_ota_get_next_update_partition(NULL);
-    s_ota.expected = size; s_ota.got = 0;
-    esp_err_t err = s_ota.part ? esp_ota_begin(s_ota.part, size, &s_ota.h) : ESP_FAIL;
-    s_ota.active = err == ESP_OK;
-    if (!s_ota.active) send_msg(XD_T_OTA_RESULT, NULL, 0, 0, 1);
-}
-
-static void ota_data(const uint8_t *data, uint32_t len)
-{
-    if (!s_ota.active) return;
-    if (esp_ota_write(s_ota.h, data, len) != ESP_OK) {
-        s_ota.active = false;
-        send_msg(XD_T_OTA_RESULT, NULL, 0, 0, 2);
-    }
-    s_ota.got += len;
-}
-
-static void ota_end(void)
-{
-    if (!s_ota.active) return;
-    esp_err_t err = esp_ota_end(s_ota.h);
-    if (err == ESP_OK) err = esp_ota_set_boot_partition(s_ota.part);
+    if (s_ota.active) esp_ota_abort(s_ota.h);
     s_ota.active = false;
-    send_msg(XD_T_OTA_RESULT, NULL, 0, 0, err == ESP_OK ? 0 : 3);
-    if (err == ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(200));
-        esp_restart();
+    s_ota.part = esp_ota_get_next_update_partition(NULL);
+    s_ota.expected = size; s_ota.got = 0; s_ota.crc = 0;
+    ESP_LOGI(TAG, "OTA begin: %lu bytes into %s", (unsigned long)size, s_ota.part ? s_ota.part->label : "?");
+    esp_err_t err = (s_ota.part && size && size <= s_ota.part->size) ? esp_ota_begin(s_ota.part, size, &s_ota.h) : ESP_FAIL;
+    if (err != ESP_OK) {
+        ota_fail(1);
+        return;
     }
+    s_ota.active = true;
+    s_ota.last_us = esp_timer_get_time();
+    display_set_overlay("UPDATING FIRMWARE", "DO NOT UNPLUG");
+    if (s_last_jpeg_len && xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+        display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
+        xSemaphoreGive(s_frame_mutex);
+    }
+    send_msg(XD_T_OTA_PROGRESS, NULL, 0, 0, 0);
+}
+
+static void ota_data(const uint8_t *data, uint32_t len, uint32_t offset)
+{
+    if (!s_ota.active) return;
+    if (offset != s_ota.got || s_ota.got + len > s_ota.expected) {
+        ota_fail(7);
+        return;
+    }
+    if (esp_ota_write(s_ota.h, data, len) != ESP_OK) {
+        ota_fail(2);
+        return;
+    }
+    s_ota.crc = esp_rom_crc32_le(s_ota.crc, data, len);
+    s_ota.got += len;
+    s_ota.last_us = esp_timer_get_time();
+    send_msg(XD_T_OTA_PROGRESS, NULL, 0, 0, s_ota.got);
+}
+
+static void ota_end(uint32_t crc)
+{
+    if (!s_ota.active) return;
+    if (s_ota.got != s_ota.expected) { ota_fail(5); return; }
+    if (crc != s_ota.crc) { ota_fail(4); return; }
+    esp_err_t err = esp_ota_end(s_ota.h);          /* validates the image */
+    s_ota.active = false;
+    if (err == ESP_OK) err = esp_ota_set_boot_partition(s_ota.part);
+    if (err != ESP_OK) {
+        display_set_overlay(NULL, NULL);
+        ESP_LOGW(TAG, "OTA image rejected: %s", esp_err_to_name(err));
+        send_msg(XD_T_OTA_RESULT, NULL, 0, 0, 3);
+        return;
+    }
+    ESP_LOGI(TAG, "OTA complete (%lu bytes, crc %08lx): rebooting into %s", (unsigned long)s_ota.got, (unsigned long)crc, s_ota.part->label);
+    send_msg(XD_T_OTA_RESULT, NULL, 0, 0, 0);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    esp_restart();
 }
 
 /* ---- protocol loop --------------------------------------------------------------------------- */
@@ -202,6 +244,7 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
 {
     switch (h->type) {
     case XD_T_FRAME: {
+        if (s_ota.active) { break; }        /* no frames while updating */
         uint32_t ms = 0;
         int64_t rx_done = esp_timer_get_time();
         xSemaphoreTake(s_frame_mutex, portMAX_DELAY);     /* the screen task may be redrawing the last frame */
@@ -244,8 +287,8 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         s_assigned = h->arg != 0;           /* the screen task switches between picture and NOT ASSIGNED */
         break;
     case XD_T_OTA_BEGIN: ota_begin(h->arg); break;
-    case XD_T_OTA_DATA: ota_data(payload, h->length); break;
-    case XD_T_OTA_END: ota_end(); break;
+    case XD_T_OTA_DATA: ota_data(payload, h->length, h->arg); break;
+    case XD_T_OTA_END: ota_end(h->arg); break;
     case XD_T_REBOOT: esp_restart(); break;
     default: send_log(1, "unknown message type 0x%02x", h->type); break;
     }
@@ -283,6 +326,9 @@ static void protocol_task(void *arg)
         }
         xd_header_t h;
         if (read_exact((uint8_t *)&h, sizeof(h), 250) != sizeof(h)) {
+            if (s_ota.active && esp_timer_get_time() - s_ota.last_us > 15000000) {
+                ota_fail(6);                 /* the host went away mid-update: give the flash slot back */
+            }
             if (esp_timer_get_time() - s_last_stats_us > 2000000) {
                 send_stats();
                 /* Idle for 2 s: repeat READY so a host that missed it (or connected later) starts sending. */

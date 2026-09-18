@@ -53,9 +53,9 @@ offset  size  field
 | 0x05 | SHOW_IDENT | UTF-8 label of the module (<= 31 bytes, may be empty) | seconds, 0 = off | Stamp an "IDENT <label>" banner with the serial across the top of every frame (live picture or the kept last frame) so the user can see which physical unit this is while assigning. 0 cancels it; the module then redraws the last frame without the banner. |
 | 0x06 | PING | none | nonce | Module answers PONG with the same nonce. |
 | 0x07 | SET_ASSIGNED | none | 1 = assigned, 0 = not | Sent after INFO and whenever the assignment changes. With 0 the module shows its NOT ASSIGNED screen instead of the last frame. |
-| 0x10 | OTA_BEGIN | none | total image size | Start a firmware update. |
-| 0x11 | OTA_DATA | firmware chunk (<= 64 KiB) | offset | |
-| 0x12 | OTA_END | none | CRC32 of the image | Module verifies, replies OTA_RESULT, reboots into the new image if OK. |
+| 0x10 | OTA_BEGIN | none | total image size | Start a firmware update. The DU erases the inactive slot, shows an "UPDATING FIRMWARE" banner, ignores FRAMEs, and answers OTA_PROGRESS 0 (or OTA_RESULT 1). |
+| 0x11 | OTA_DATA | firmware chunk (the DMC uses 32 KiB) | offset of this chunk | Must arrive in order. Answered with OTA_PROGRESS = bytes written so far; the host sends the next chunk only then (stop and wait, because flash writes block the DU). |
+| 0x12 | OTA_END | none | CRC32 of the image (zlib) | The DU checks size and CRC, lets ESP-IDF validate the image, selects the new slot, answers OTA_RESULT and reboots if it was 0. The new image confirms itself after the display is up; otherwise the bootloader rolls back. |
 | 0x20 | REBOOT | none | 0 | |
 
 ## 4. Module -> host (bulk IN)
@@ -67,7 +67,8 @@ offset  size  field
 | 0x83 | STATS | JSON: `{"fps":29.6,"decode_ms":11.2,"draw_ms":12.9,"rx_ms":6.0,"dropped":0,"free_psram":27189568,"ident":0}` | 0 | Every 2 s and immediately after SHOW_IDENT. `ident` is the module's own view of the banner, which the app uses for the Identify toggle. |
 | 0x84 | PONG | none | nonce | |
 | 0x85 | LOG | UTF-8 text | level | Debug output, shown in the app's module log. |
-| 0x90 | OTA_RESULT | none | 0 = ok, else error code | |
+| 0x90 | OTA_RESULT | none | 0 ok, 1 begin failed, 2 write failed, 3 image rejected, 4 CRC mismatch, 5 size mismatch, 6 timed out (15 s without data), 7 out of order | Ends an update, successfully or not. |
+| 0x91 | OTA_PROGRESS | none | image bytes written so far | Acknowledges OTA_BEGIN (0) and every OTA_DATA. |
 
 ## 5. Host behaviour
 

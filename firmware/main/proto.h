@@ -27,6 +27,7 @@
 #define XD_T_PONG           0x84
 #define XD_T_LOG            0x85
 #define XD_T_OTA_RESULT     0x90
+#define XD_T_OTA_PROGRESS   0x91   /* arg = image bytes written so far; the host sends the next chunk after it */
 
 typedef struct __attribute__((packed)) {
     uint8_t magic[2];
