@@ -24,6 +24,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   power gets `SET_PANEL_POWER` (0x08), INFO reports the capabilities. Documentation only; nothing sends them yet.
 - Backlog: plan and order for the .NET DMC.
 
+### Changed
+- The status page follows the system: light or dark with the Windows / browser setting, all sizes in `rem` so the
+  text size setting and zoom scale the whole page, high-contrast mode and reduced motion respected, visible keyboard
+  focus. State pills carry a symbol as well as a colour (check mark, exclamation mark, cross) and the colours meet
+  WCAG AA in both themes. On narrow windows or at high zoom the tables turn into labelled cards, and nothing
+  scrolls sideways (checked at 375 px). These are also the UI rules for the .NET DMC (docs/BACKLOG.md).
+
+### Fixed
+- The "pop-out windows not made by GlassLink" banner showed with a count of 0.
+
 ## [0.4.0] - 2026-09-18
 
 Displays as data: six displays for a full cockpit, managed from the status page. No firmware change.
