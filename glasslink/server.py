@@ -56,6 +56,7 @@ async def status(request: web.Request) -> web.Response:
         "modules": mm.status() if mm else {},
         "usb": {"enabled": mm is not None, "scan_error": mm.last_scan_error if mm else ""},
         "brightness": mm.brightness_status() if mm else {},
+        "learn": dict(request.app["learner"].state) if request.app.get("learner") else {"status": "idle"},
         "popout": (request.app.get("auto_popout").state if request.app.get("auto_popout") else {"status": "off", "detail": "auto pop-out disabled"}),
     })
 
@@ -84,6 +85,61 @@ async def modules_update(request: web.Request) -> web.Response:
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc))
     return web.json_response(mm.status().get(serial, {}))
+
+
+def _profile_points(cfg: dict[str, Any], request: web.Request) -> tuple[str | None, dict[str, Any]]:
+    """Pop-out click points of the profile that matches the loaded aircraft (or the configured default)."""
+    from .popout import profiles, select_profile
+
+    mm = request.app.get("modules")
+    title = mm.simvars.title() if (mm and mm.simvars) else None
+    key, prof = select_profile(cfg, title) if title else (None, None)
+    if prof is None:
+        key = (cfg.get("popout") or {}).get("aircraft")
+        prof = next((p for k, p in profiles(cfg).items() if key and key.lower() in k.lower()), None)
+    return key, dict((prof or {}).get("points") or {})
+
+
+async def displays_list(request: web.Request) -> web.Response:
+    cfg = request.app["cfg"]
+    key, points = _profile_points(cfg, request)
+    return web.json_response({"profile": key, "displays": request.app["registry"].describe(points)})
+
+
+async def displays_edit(request: web.Request) -> web.Response:
+    """POST /displays {"name": "fo_pfd", ...} adds; POST /displays/<name> {...} changes; DELETE removes."""
+    from .registry import DisplayError
+
+    reg = request.app["registry"]
+    name = request.match_info.get("name")
+    try:
+        if request.method == "DELETE":
+            reg.remove(name)
+            return web.json_response({"removed": name})
+        body = await request.json()
+        if name is None:
+            return web.json_response({"added": body.get("name"), "display": reg.add(body.get("name", ""), body)})
+        return web.json_response({"display": reg.update(name, body)})
+    except DisplayError as exc:
+        raise web.HTTPBadRequest(text=str(exc))
+    except (TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text=f"invalid value: {exc}")
+
+
+async def displays_learn(request: web.Request) -> web.Response:
+    """POST /displays/<name>/learn starts learning that display's pop-out click point; POST /learn/cancel stops it."""
+    from .learn import LearnError
+
+    learner = request.app["learner"]
+    name = request.match_info.get("name")
+    if name is None:
+        learner.cancel()
+        return web.json_response(dict(learner.state))
+    try:
+        learner.start(name)
+    except LearnError as exc:
+        raise web.HTTPConflict(text=str(exc))
+    return web.json_response(dict(learner.state))
 
 
 async def shutdown(request: web.Request) -> web.Response:
@@ -241,16 +297,15 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
         loop = asyncio.get_running_loop()
         hub = FrameHub(loop)
         app["hub"] = hub
-        workers = []
-        for name, dcfg in cfg["displays"].items():
-            w = DisplayWorker(name, dcfg, cfg, hub)
-            w.start()
-            workers.append(w)
-        app["workers"] = workers
+        from .registry import DisplayRegistry
+
+        registry = DisplayRegistry(cfg, hub, lambda name, dcfg: DisplayWorker(name, dcfg, cfg, hub), cfg.get("_path"))
+        registry.start_all()
+        app["registry"] = registry
+        workers = registry.workers              # name -> worker, kept current by the registry
 
         def stop_all() -> None:
-            for w in workers:
-                w.stop()
+            registry.stop_all()
             if app.get("modules"):
                 app["modules"].stop()
 
@@ -269,9 +324,23 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             mm = ModuleManager(cfg, hub, cfg.get("_path"), scan_interval=float(cfg["usb"].get("scan_interval_s", 2)), **kwargs)
             mm.start()
             app["modules"] = mm
+
+            def _unassign(display: str) -> None:        # a removed display must not stay assigned to a DU
+                for serial, entry in list(cfg.get("modules", {}).items()):
+                    if entry.get("display") == display:
+                        mm.assign(serial, "")
+
+            registry.on_removed = _unassign
             log.info("usb module manager started")
+        from .learn import PopoutLearner
+
+        def _pause_auto(paused: bool) -> None:
+            if app.get("auto_popout"):
+                app["auto_popout"].paused = paused
+
+        app["learner"] = PopoutLearner(cfg, cfg.get("_path"), pause_auto=_pause_auto)
         app["auto_popout"] = None
-        if cfg.get("popout", {}).get("auto") and workers:
+        if cfg.get("popout", {}).get("auto"):
             from .popout import AutoPopout
 
             app["auto_popout"] = AutoPopout(cfg, hub, cfg.get("_path"))
@@ -285,8 +354,8 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             app["modules"].stop()
         if app.get("auto_popout"):
             app["auto_popout"].stop()
-        for w in app.get("workers", []):
-            w.stop()
+        if app.get("registry"):
+            app["registry"].stop_all()
         await asyncio.sleep(0.5)  # let capture threads release their sessions before the process exits
         log.info("capture sessions stopped, exiting")
 
@@ -304,6 +373,12 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             web.post("/modules/{serial}", modules_update),
             web.delete("/modules/{serial}", modules_forget),
             web.post("/shutdown", shutdown),
+            web.get("/displays", displays_list),
+            web.post("/displays", displays_edit),
+            web.post("/displays/{name}", displays_edit),
+            web.delete("/displays/{name}", displays_edit),
+            web.post("/displays/{name}/learn", displays_learn),
+            web.post("/learn/cancel", displays_learn),
             web.static("/static", STATIC_DIR),
         ]
     )

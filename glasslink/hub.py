@@ -72,6 +72,10 @@ class FrameHub:
     def get(self, name: str) -> DisplayState | None:
         return self.displays.get(name)
 
+    def remove(self, name: str) -> None:
+        """Forget a display (the display editor removed it). Late frames from its capture thread are ignored."""
+        self.displays.pop(name, None)
+
     # -- called from capture threads -------------------------------------------------
     def publish_threadsafe(self, name: str, jpeg: bytes, width: int, height: int, ts: float) -> None:
         self.loop.call_soon_threadsafe(self._publish, name, jpeg, width, height, ts)
@@ -81,7 +85,9 @@ class FrameHub:
 
     # -- loop thread -------------------------------------------------------------------
     def _publish(self, name: str, jpeg: bytes, width: int, height: int, ts: float) -> None:
-        st = self.displays[name]
+        st = self.displays.get(name)
+        if st is None:
+            return
         with st.tcond:
             st.seq += 1
             st.jpeg = jpeg
@@ -93,7 +99,9 @@ class FrameHub:
         asyncio.ensure_future(self._notify(st))
 
     def _set_info(self, name: str, info: dict[str, Any]) -> None:
-        st = self.displays[name]
+        st = self.displays.get(name)
+        if st is None:
+            return
         for k, v in info.items():
             setattr(st, k, v)
 

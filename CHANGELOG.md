@@ -18,6 +18,18 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ## [Unreleased]
 
 ### Added
+- **Display editor on the status page** ("Manage displays"): add, change and remove displays while the DMC runs.
+  A new display gets 768 x 768 and the next free off-screen parking slot; size, parking position and capture rate
+  are editable; removing a display unassigns any DU that showed it. API: `GET/POST /displays`,
+  `POST/DELETE /displays/<name>`. (`glasslink/registry.py`)
+- **Learn a pop-out click point by doing it once**: press Learn, the DMC puts the cockpit camera into the profile's
+  standard view, you Right-Alt + click the display, and the DMC records where the click went (while the keys were
+  down, so moving the mouse afterwards does not matter), stores it in the aircraft profile, names, sizes and parks the
+  new window and restores the camera. Works for an aircraft without a profile too: the first learned display creates
+  one. Auto pop-out pauses meanwhile and no longer moves the camera for displays that have no click point yet.
+  (`glasslink/learn.py`, `POST /displays/<name>/learn`, `POST /learn/cancel`.)
+  **Not yet verified with the simulator**: the logic is unit-tested against a fake sim; the editor and its API were
+  tested live. This release is tagged once the learn flow has been run with the Fenix.
 - The brightness link stands down when the aircraft dims its own pop-outs. For the Fenix that is the EFB setting
   "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
   aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).

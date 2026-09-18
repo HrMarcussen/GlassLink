@@ -34,6 +34,14 @@
   .empty { color:var(--dim); padding:14px; background:var(--card); border:1px dashed var(--line); border-radius:10px; }
   a { color:var(--acc); text-decoration:none; }
   footer { color:var(--dim); font-size:12px; padding:20px 22px; }
+  input[type=number] { background:#0f1115; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:5px 6px; font:inherit; width:74px; }
+  input.short { width:150px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .banner { margin:0 0 12px; padding:12px 14px; border-radius:10px; border:1px solid var(--warn); color:var(--fg); background:#2a2412; display:flex; gap:14px; align-items:center; }
+  .banner.done { border-color:var(--ok); background:#13261a; } .banner.bad { border-color:var(--bad); background:#2a1414; }
+  .banner b { font-size:15px; }
+  details > summary { cursor:pointer; color:var(--dim); font-size:13px; text-transform:uppercase; letter-spacing:.12em; margin:18px 0 10px; }
+  details[open] > summary { color:var(--fg); }
 </style>
 </head>
 <body>
@@ -46,6 +54,18 @@
 <main>
   <h2>Displays <span class="pill" id="popout-pill" style="margin-left:8px;text-transform:none;letter-spacing:0"></span></h2>
   <div class="grid" id="displays"></div>
+
+  <details id="editor">
+    <summary>Manage displays</summary>
+    <div id="learn-banner" hidden></div>
+    <div id="editor-table"></div>
+    <div style="margin-top:10px">
+      <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24">
+      <button id="add-display">Add display</button>
+      <span class="dim" style="margin-left:10px;font-size:12.5px">A new display gets 768 x 768 and the next free off-screen parking slot.
+        Then press <b>Learn</b> and Right-Alt + click it once in the cockpit.</span>
+    </div>
+  </details>
 
   <h2>Display units (DUs)</h2>
   <div id="modules"></div>
@@ -132,6 +152,61 @@
     });
   }
 
+  // ---- display editor -------------------------------------------------------------------------------------
+  let editorKey = '';
+  const api = (url, method, body) => fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+    .then(async r => { if (!r.ok) { alert(await r.text()); throw new Error('request failed'); } return r.json(); });
+  async function renderEditor(learn) {
+    if (!$('#editor').open) return;
+    let data;
+    try { data = await (await fetch('/displays', { cache: 'no-store' })).json(); } catch (e) { return; }
+    const busy = ['preparing', 'waiting', 'adopting'].includes((learn || {}).status);
+    const key = JSON.stringify([data, busy]);
+    const editing = document.activeElement && document.activeElement.closest?.('#editor-table') && document.activeElement.tagName !== 'BUTTON';
+    if (key === editorKey || editing) return;
+    editorKey = key;
+    const rows = Object.entries(data.displays).map(([name, d]) => {
+      const sz = d.client_size || ['', '']; const pos = d.position || ['', ''];
+      return `<tr data-name="${name}">
+        <td><b>${name}</b><br><span class="dim" style="font-size:11px">${d.title || ''}</span></td>
+        <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096"></td>
+        <td><input type="number" class="x" value="${pos[0]}"> , <input type="number" class="y" value="${pos[1]}"></td>
+        <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="default" min="0.2" max="60" step="any"></td>
+        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned', 'ok') : pill('no click point', 'warn')}</td>
+        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''}>${d.has_point ? 'Learn again' : 'Learn'}</button>` : ''} <button class="remove">Remove</button></td>
+      </tr>`;
+    }).join('');
+    $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Size (px)</th><th>Parking position</th><th>Capture fps</th>
+      <th>Pop-out click${data.profile ? ' · ' + data.profile : ''}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    document.querySelectorAll('#editor-table tr[data-name]').forEach(tr => {
+      const name = tr.dataset.name; const v = (c) => tr.querySelector(c).value;
+      tr.querySelector('.save').onclick = (e) => { e.target.blur();
+        api(`/displays/${name}`, 'POST', { client_size: [v('.w'), v('.h')], position: [v('.x'), v('.y')], fps: v('.fps') || null })
+          .then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
+      tr.querySelector('.remove').onclick = (e) => { e.target.blur();
+        if (confirm(`Remove display "${name}"? Any DU showing it becomes unassigned. Its pop-out window stays open in the sim.`))
+          api(`/displays/${name}`, 'DELETE').then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
+      const lb = tr.querySelector('.learn');
+      if (lb) lb.onclick = (e) => { e.target.blur();
+        if (confirm(`Learn the pop-out click for "${name}"?\n\nThe DMC will switch the cockpit camera to the standard view. When the banner says so, Right-Alt + click the ${name} display once. The camera is restored afterwards.`))
+          api(`/displays/${name}/learn`, 'POST').then(() => refresh()).catch(() => {}); };
+    });
+  }
+  function renderLearn(learn) {
+    const el = $('#learn-banner'); const st = (learn || {}).status || 'idle';
+    if (st === 'idle') { el.hidden = true; return; }
+    el.hidden = false;
+    el.className = 'banner' + (st === 'done' ? ' done' : (st === 'error' || st === 'timeout') ? ' bad' : '');
+    const head = { preparing: 'Setting the camera…', waiting: 'Now: Right-Alt + click the display', adopting: 'Got it…',
+                   done: 'Learned', error: 'Could not learn', timeout: 'No pop-out seen', cancelled: 'Cancelled' }[st] || st;
+    el.innerHTML = `<b>${head}</b><span>${learn.display || ''}: ${learn.detail || ''}</span>` +
+      (['preparing', 'waiting'].includes(st) ? '<button id="learn-cancel" style="margin-left:auto">Cancel</button>' : '');
+    const c = $('#learn-cancel'); if (c) c.onclick = () => api('/learn/cancel', 'POST').then(() => refresh()).catch(() => {});
+  }
+  $('#add-display').onclick = () => { const n = $('#new-name').value.trim(); if (!n) return;
+    api('/displays', 'POST', { name: n }).then(() => { $('#new-name').value = ''; editorKey = ''; refresh(); }).catch(() => {}); };
+  $('#editor').addEventListener('toggle', () => { editorKey = ''; refresh(); });
+
   let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {};
   async function refresh() {
     try {
@@ -148,6 +223,9 @@
       bp.className = 'pill ' + (!br.enabled ? '' : br.standdown ? 'ok' : (br.running && Object.keys(br.map || {}).length ? 'ok' : 'warn'));
       bp.title = br.dll || br.aircraft || '';
       renderDisplays(s.displays || {});
+      renderLearn(s.learn);
+      if (['preparing', 'waiting', 'adopting'].includes((s.learn || {}).status)) $('#editor').open = true;
+      renderEditor(s.learn);
       const po = s.popout || {}; const pp = $('#popout-pill');
       pp.textContent = `auto pop-out: ${po.status || '?'}${po.detail ? ' · ' + po.detail : ''}${po.last_attempt ? ' · last ' + po.last_attempt : ''}`;
       pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
@@ -156,7 +234,7 @@
       const mods = s.modules || {};
       const key = JSON.stringify(Object.fromEntries(Object.entries(mods).map(([k, x]) => [k, {
         display: x.display, alive: x.alive, error: x.error, label: x.label, settings: x.settings, info: x.info,
-        ident: x.ident_active, description: x.description, hasStats: !!(x.stats && x.stats.fps !== undefined) }])));
+        ident: x.ident_active, description: x.description, hasStats: !!(x.stats && x.stats.fps !== undefined) }]))) + '|' + Object.keys(s.displays || {}).join(',');
       // an input or dropdown being edited blocks a rebuild; a focused button does not
       const busy = document.activeElement && document.activeElement.closest?.('#modules') && document.activeElement.tagName !== 'BUTTON';
       if (key !== modulesHtmlKey && !busy) { modulesHtmlKey = key; renderModules(mods); }

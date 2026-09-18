@@ -551,6 +551,7 @@ class AutoPopout:
         self._stop = threading.Event()
         self._missing_since: float | None = None
         self._last_attempt = -1e9
+        self.paused = False              # set while the display editor is learning a click point
         self.state: dict[str, Any] = {"status": "starting", "detail": "", "missing": [], "last_attempt": None}
         self._thread = threading.Thread(target=self._run, name="auto-popout", daemon=True)
 
@@ -579,6 +580,9 @@ class AutoPopout:
                 log.exception("auto-popout tick failed")
 
     def _tick(self) -> None:
+        if self.paused:
+            self.state.update(status="waiting", detail="paused while a pop-out click point is being learned")
+            return
         missing = self._missing()
         if not missing:
             self._missing_since = None
@@ -609,6 +613,14 @@ class AutoPopout:
             self.state.update(status="waiting", detail=f"not in cockpit view (aircraft '{title}')", missing=missing)
             return
         prof_key, _prof = select_profile(self.cfg, title)
+        if _prof is not None:
+            # a display without a click point in this profile cannot be popped out: do not move the camera for it
+            unlearned = [n for n in missing if point_spec(_prof, n) is None]
+            missing = [n for n in missing if n not in unlearned]
+            if not missing:
+                self.state.update(status="waiting", missing=unlearned,
+                                  detail=f"no click point yet for {unlearned}: use Learn on the status page")
+                return
         if prof_key is None:
             self.state.update(status="waiting", missing=missing,
                               detail=f"no pop-out profile for aircraft '{title}' (profiles: {list(profiles(self.cfg))}; "
