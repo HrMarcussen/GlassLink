@@ -85,6 +85,49 @@ class PopmImportTests(unittest.TestCase):
         self.assertEqual(p.camera_key(p.point_spec(prof, "ecam_lower")["camera"]), "view:2:7")
 
 
+class CameraSettleTests(unittest.TestCase):
+    """The DMC must not click while the cockpit camera is still gliding into position."""
+
+    def _frames(self, moving: int):
+        import numpy as np
+
+        rng = np.random.default_rng(1)
+        base = rng.integers(0, 255, (360, 640, 4), dtype=np.uint8)
+        frames = [np.roll(base, 40 * (moving - i), axis=1) for i in range(moving)]      # the view pans for a while
+        still = base.copy()
+        still[300:310, 100:110] = 255                                               # a blinking light is not motion
+        return frames + [base, still, base, still, base, still]
+
+    def test_waits_for_the_pan_to_end_and_ignores_small_changes(self):
+        from glasslink import popout
+
+        frames = self._frames(moving=4)
+        calls = {"n": 0}
+
+        def grab(_hwnd):
+            i = min(calls["n"], len(frames) - 1)
+            calls["n"] += 1
+            return frames[i]
+
+        said: list[str] = []
+        self.assertTrue(popout.wait_until_still(1, said.append, max_s=5, grab=grab, interval_s=0.01))
+        self.assertGreaterEqual(calls["n"], 6)            # did not return while the picture was panning
+        self.assertLess(popout.frame_motion(frames[-1], frames[-2]), 2.0)
+        self.assertGreater(popout.frame_motion(frames[0], frames[1]), 10.0)
+
+    def test_gives_up_after_the_timeout(self):
+        import numpy as np
+
+        from glasslink import popout
+
+        rng = np.random.default_rng(2)
+        said: list[str] = []
+        ok = popout.wait_until_still(1, said.append, max_s=0.2, interval_s=0.01,
+                                     grab=lambda _h: rng.integers(0, 255, (90, 160, 4), dtype=np.uint8))
+        self.assertFalse(ok)
+        self.assertIn("still moving", said[-1])
+
+
 class PopoutDimmingTests(unittest.TestCase):
     def test_home_cockpit_mode_is_read_from_the_settings_file(self):
         import os

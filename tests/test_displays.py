@@ -125,6 +125,7 @@ class FakeIO:
         self.cam = FakeCamera()
         self.cam.in_cockpit = in_cockpit
         self.adopted: list[tuple[int, str]] = []
+        self.prepared: list[tuple[dict, bool]] = []
         self.undone = False
         self.cursor_pos = (100, 100)
 
@@ -148,9 +149,13 @@ class FakeIO:
     def open_camera(self):
         return self.cam
 
-    def prepare_camera(self, cam, sim, prof, pcfg, say):
+    def prepare_camera(self, cam, sim, prof, pcfg, say, camspec=None, save_current=False):
         say("camera set")
+        self.prepared.append((dict(camspec or {}), save_current))
         return lambda: setattr(self, "undone", True)
+
+    def close_existing(self, name):
+        return False
 
     def adopt(self, hwnd, name, dcfg):
         self.adopted.append((hwnd, name))
@@ -202,6 +207,32 @@ class LearnTests(unittest.TestCase):
         self.assertTrue(io.undone)
         self.assertEqual(self.paused, [True, False])                   # auto pop-out paused for the duration
         self.assertEqual(self.saves, 1)
+
+    def test_learning_from_my_view_saves_the_view_once_and_reuses_it(self):
+        io = FakeIO(click_at=(2001, 850))
+        cfg, lr = self._learner(io, displays=("fo_pfd", "fo_nd"))
+        lr.start("fo_pfd", "mine")
+        self._finish(lr)
+        self.assertEqual(lr.state["status"], "done", lr.state)
+        stored = cfg["popout"]["profiles"]["Fenix"]["points"]["fo_pfd"]
+        self.assertEqual(stored, {"xy": [0.7816, 0.5903], "camera": {"mode": "custom", "slot": 8}})
+        self.assertEqual(io.prepared[-1], ({"mode": "custom", "slot": 8}, True))      # first one defines the view
+
+        io2 = FakeIO(click_at=(1500, 850))
+        lr.io = io2
+        lr.start("fo_nd", "mine")
+        self._finish(lr)
+        self.assertEqual(lr.state["status"], "done", lr.state)
+        self.assertEqual(io2.prepared[-1], ({"mode": "custom", "slot": 8}, False))    # second one reuses it
+        with self.assertRaises(learn.LearnError):
+            lr.start("fo_nd", "sideways")
+
+    def test_custom_view_points_are_popped_out_in_their_own_camera_group(self):
+        from glasslink import popout
+
+        prof = {"points": {"pfd": [0.48, 0.81], "fo_pfd": {"xy": [0.78, 0.59], "camera": {"mode": "custom", "slot": 8}}}}
+        self.assertEqual(popout.camera_key(popout.point_spec(prof, "pfd")["camera"]), "reset")
+        self.assertEqual(popout.camera_key(popout.point_spec(prof, "fo_pfd")["camera"]), "custom:8")
 
     def test_timeout_and_errors_leave_the_config_alone(self):
         old = learn.WAIT_FOR_CLICK_S

@@ -172,8 +172,8 @@
         <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096"></td>
         <td><input type="number" class="x" value="${pos[0]}"> , <input type="number" class="y" value="${pos[1]}"></td>
         <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="default" min="0.2" max="60" step="any"></td>
-        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned', 'ok') : pill('no click point', 'warn')}</td>
-        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''}>${d.has_point ? 'Learn again' : 'Learn'}</button>` : ''} <button class="remove">Remove</button></td>
+        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned · ' + d.point_view, 'ok') : pill('no click point', 'warn')}</td>
+        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''} title="the DMC switches to the standard seat view, then you click">Learn</button> <button class="learnmine" ${busy ? 'disabled' : ''} title="for displays you cannot reach from the standard view: look where you need to first, then press this">Learn from my view</button>` : ''} <button class="remove">Remove</button></td>
       </tr>`;
     }).join('');
     $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Size (px)</th><th>Parking position</th><th>Capture fps</th>
@@ -189,7 +189,11 @@
       const lb = tr.querySelector('.learn');
       if (lb) lb.onclick = (e) => { e.target.blur();
         if (confirm(`Learn the pop-out click for "${name}"?\n\nThe DMC will switch the cockpit camera to the standard view. When the banner says so, Right-Alt + click the ${name} display once. The camera is restored afterwards.`))
-          api(`/displays/${name}/learn`, 'POST').then(() => refresh()).catch(() => {}); };
+          api(`/displays/${name}/learn`, 'POST', { view: 'standard' }).then(() => refresh()).catch(() => {}); };
+      const lm = tr.querySelector('.learnmine');
+      if (lm) lm.onclick = (e) => { e.target.blur();
+        if (confirm(`Learn "${name}" from your own view?\n\nFirst look at the display in the sim so you can click it comfortably. Then press OK: the DMC saves that view (as sim custom camera 8) so it can return to it on its own later. When the banner says so, Right-Alt + click the ${name} display once.\n\nIf another display was already learned this way, the DMC switches to that saved view instead, so one camera move serves both.`))
+          api(`/displays/${name}/learn`, 'POST', { view: 'mine' }).then(() => refresh()).catch(() => {}); };
     });
   }
   function renderLearn(learn) {

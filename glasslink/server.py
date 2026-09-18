@@ -136,7 +136,8 @@ async def displays_learn(request: web.Request) -> web.Response:
         learner.cancel()
         return web.json_response(dict(learner.state))
     try:
-        learner.start(name)
+        body = await request.json() if request.can_read_body else {}
+        learner.start(name, str(body.get("view") or "standard"))
     except LearnError as exc:
         raise web.HTTPConflict(text=str(exc))
     return web.json_response(dict(learner.state))

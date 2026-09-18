@@ -28,8 +28,18 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   new window and restores the camera. Works for an aircraft without a profile too: the first learned display creates
   one. Auto pop-out pauses meanwhile and no longer moves the camera for displays that have no click point yet.
   (`glasslink/learn.py`, `POST /displays/<name>/learn`, `POST /learn/cancel`.)
-  **Not yet verified with the simulator**: the logic is unit-tested against a fake sim; the editor and its API were
-  tested live. This release is tagged once the learn flow has been run with the Fenix.
+  Verified with the Fenix on 18 Sept 2026 (add display, Learn, window adopted and parked).
+- **Learn from my view**, for displays that cannot be clicked from the standard seat view (the FO's PFD is cut off at
+  the screen edge from the captain's seat): look where you need to, press the button, and the DMC saves that view as
+  a sim custom camera (`popout.view_slot`, default 8) before waiting for the click. The point is stored with that
+  camera, and the automatic pop-out recalls the view for those displays. The first display learned this way defines
+  the view; later ones are learned in the same saved view, so one camera move serves them all.
+- Learning again closes the display's previous pop-out window first, so no duplicate is left behind.
+- The automatic pop-out waits until the cockpit camera has really stopped moving (it compares grabs of the sim)
+  instead of a fixed 2 s, and if the displays are lit and the PFD is not where the profile expects it, it waits and
+  looks again, and does not click at all if they still disagree. Found on 18 Sept 2026: right after loading, the
+  camera was still gliding, the clicks landed one instrument to the side (PFD -> ND, ND -> standby horizon) and the
+  dark displays gave the DMC nothing to notice it by.
 - The brightness link stands down when the aircraft dims its own pop-outs. For the Fenix that is the EFB setting
   "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
   aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).

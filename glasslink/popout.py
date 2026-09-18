@@ -114,7 +114,8 @@ POPOUT_DEFAULTS: dict[str, Any] = {
     # `camera_slot` (Ctrl+Alt+N) before the reset and load it again (Alt+N) afterwards; an integer 0-9 =
     # load that custom camera slot afterwards; null/"" = just reset and restore the zoom.
     "camera_restore": "current",
-    "camera_slot": 9,
+    "camera_slot": 9,       # custom camera used to save and restore the user's own view around a pop-out
+    "view_slot": 8,
 }
 
 
@@ -344,6 +345,8 @@ def point_spec(prof: dict[str, Any], name: str) -> dict[str, Any] | None:
 
 
 def camera_key(cam: dict[str, Any]) -> str:
+    if cam.get("mode") == "custom":
+        return f"custom:{int(cam.get('slot', 8))}"
     if cam.get("mode", "reset") == "reset" and "type" not in cam:
         return "reset"
     return f"view:{cam.get('type')}:{cam.get('index')}"
@@ -361,9 +364,65 @@ def profile_points(prof: dict[str, Any], sim: win.WindowInfo, names: list[str] |
     return out
 
 
-def apply_camera(cam_ctl: "SimCamera | None", cam: dict[str, Any], zoom: float, say: Callable[[str], None]) -> None:
-    """Put the sim camera into the state a point set was calibrated for."""
+def frame_motion(a, b) -> float:
+    """Mean absolute difference (0..255) between two grabs of the sim, on a coarse grey grid. A camera that is
+    still moving changes every cell (tens); lights, traffic and animated displays change a few cells (< 2)."""
+    import numpy as np
+
+    def coarse(f):
+        g = f[..., :3].astype(np.float32).mean(axis=2)
+        h, w = g.shape
+        ys = np.linspace(0, h - 1, 36).astype(int)
+        xs = np.linspace(0, w - 1, 64).astype(int)
+        return g[np.ix_(ys, xs)]
+
+    ca, cb = coarse(a), coarse(b)
+    if ca.shape != cb.shape:
+        return 255.0
+    return float(np.abs(ca - cb).mean())
+
+
+def wait_until_still(sim_hwnd: int, say: Callable[[str], None], max_s: float = 12.0, grab=None,
+                     interval_s: float = 0.4, threshold: float = 2.0) -> bool:
+    """Block until the sim's picture has stopped moving (camera transitions are animated and can take several
+    seconds, e.g. right after loading). Two quiet comparisons in a row count as still. Returns False on timeout."""
+    if grab is None:
+        from .capture.printwindow import grab_window as grab
+    t0 = time.monotonic()
+    prev = grab(sim_hwnd)
+    quiet = 0
+    while time.monotonic() - t0 < max_s:
+        time.sleep(interval_s)
+        cur = grab(sim_hwnd)
+        if prev is None or cur is None:
+            prev = cur
+            continue
+        motion = frame_motion(prev, cur)
+        quiet = quiet + 1 if motion < threshold else 0
+        prev = cur
+        if quiet >= 2:
+            waited = time.monotonic() - t0
+            if waited > 1.5:
+                say(f"camera settled after {waited:.1f} s")
+            return True
+    say(f"camera still moving after {max_s:.0f} s; continuing anyway")
+    return False
+
+
+def apply_camera(cam_ctl: "SimCamera | None", cam: dict[str, Any], zoom: float, say: Callable[[str], None],
+                 sim_hwnd: int | None = None) -> None:
+    """Put the sim camera into the state a point set was calibrated for, and wait until it has arrived."""
     if cam_ctl is None:
+        return
+    if cam.get("mode") == "custom":
+        # A view the user saved through "Learn from my view" (a sim custom camera; it carries its own zoom).
+        # Needed for displays that cannot be reached from the standard seat view, e.g. the FO's PFD.
+        slot = int(cam.get("slot", 8))
+        say(f"camera: loading the saved view (custom camera {slot}, Alt+{slot})")
+        if sim_hwnd:
+            custom_camera(sim_hwnd, slot, save=False)
+            time.sleep(1.0)
+            wait_until_still(sim_hwnd, say)
         return
     if camera_key(cam) == "reset":
         say(f"camera: reset + zoom {zoom:.0f}")
@@ -375,6 +434,8 @@ def apply_camera(cam_ctl: "SimCamera | None", cam: dict[str, Any], zoom: float, 
         time.sleep(1.0)
     cam_ctl.zoom = zoom
     time.sleep(1.2)
+    if sim_hwnd:
+        wait_until_still(sim_hwnd, say)
 
 
 def normalise_points(points: dict[str, tuple[int, int]], sim: win.WindowInfo) -> dict[str, list[float]]:
@@ -459,21 +520,31 @@ def ensure_popouts(
 
         sw, sh = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
         for ckey, (camspec, group_names) in groups.items():
-            apply_camera(cam, camspec, zoom, say)
+            apply_camera(cam, camspec, zoom, say, sim.hwnd)
             sim = sim_main_window() or sim
             points = profile_points(prof, sim, group_names)
             say(f"profile points ({ckey}): {points}")
             if use_detection and ckey == "reset" and prof.get("detect") == "pfd_sphere":
-                detected = detect_points(sim.hwnd) or {}
-                if detected and "pfd" in points:
+                agreed = None
+                for attempt in range(4):
+                    detected = detect_points(sim.hwnd) or {}
+                    if not detected or "pfd" not in points:
+                        break
                     dx = abs(detected["pfd"][0] - points["pfd"][0])
                     dy = abs(detected["pfd"][1] - points["pfd"][1])
-                    if dx < sim.client.width * 0.06 and dy < sim.client.height * 0.08:
+                    agreed = dx < sim.client.width * 0.06 and dy < sim.client.height * 0.08
+                    if agreed:
                         say(f"displays detected, refining points: {detected}")
                         points.update({k: v for k, v in detected.items() if k in group_names})
-                    else:
-                        say(f"detection disagrees with the profile by ({dx}, {dy}) px; keeping profile points")
-                elif not detected:
+                        break
+                    say(f"the PFD is visible at {detected['pfd']} but the profile expects {points['pfd']}: "
+                        f"the view is not the calibrated one yet, waiting ({attempt + 1}/4)")
+                    time.sleep(1.5)
+                if agreed is False:
+                    # Clicking now would pop out the wrong instruments (seen 18 Sept 2026: PFD -> ND, ND -> ISIS).
+                    say("the view still does not match the profile; not clicking. Retrying later.")
+                    continue
+                if agreed is None:
                     say("displays not detected (dark cockpit?); using profile points")
             if points_override:
                 points.update({k: v for k, v in points_override.items() if k in group_names})

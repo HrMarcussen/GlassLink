@@ -181,5 +181,8 @@ class DisplayRegistry:
                 out[name] = {k: d.get(k) for k in EDITABLE}
                 out[name]["title"] = (d.get("match") or {}).get("title")
                 out[name]["sim_window"] = (d.get("match") or {}).get("process") == SIM_PROCESS
-                out[name]["has_point"] = name in (points or {})
+                p = (points or {}).get(name)
+                out[name]["has_point"] = p is not None
+                out[name]["point_view"] = None if p is None else (
+                    "my view" if isinstance(p, dict) and (p.get("camera") or {}).get("mode") == "custom" else "standard view")
             return out
