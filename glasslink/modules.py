@@ -119,16 +119,39 @@ class Transport(Protocol):
 
 
 class MessageReader:
-    """Reassembles messages from bulk-IN chunks."""
+    """Reassembles messages from bulk-IN chunks. If the stream is out of step (a previous host session ended in
+    the middle of a message, so its tail is still in the DU's send buffer), the garbage is skipped up to the next
+    valid header instead of failing: the same idea as the byte-wise resync in the DU firmware."""
 
     def __init__(self) -> None:
         self._buf = bytearray()
+        self.resyncs = 0          # how many times garbage had to be skipped
+        self.skipped = 0          # bytes dropped while doing so
+
+    def _valid_at(self, i: int) -> bool:
+        try:
+            msg_type, _length, _seq, _arg = parse_header(bytes(self._buf[i:i + HEADER_SIZE]))
+        except ValueError:
+            return False
+        return msg_type in TYPE_NAMES       # a known message type, so payload bytes cannot fake a header
 
     def feed(self, chunk: bytes) -> list[Message]:
         self._buf += chunk
         out: list[Message] = []
         while len(self._buf) >= HEADER_SIZE:
-            msg_type, length, seq, arg = parse_header(self._buf)  # raises on garbage -> caller resyncs
+            if not self._valid_at(0):
+                # slide to the next position where a plausible header starts; keep a possible partial header
+                limit = len(self._buf) - HEADER_SIZE
+                i = 1
+                while i <= limit and not self._valid_at(i):
+                    nxt = self._buf.find(MAGIC, i + 1)
+                    i = nxt if nxt != -1 else limit + 1
+                i = min(i, len(self._buf) - (HEADER_SIZE - 1)) if i > limit else i
+                self.resyncs += 1
+                self.skipped += i
+                del self._buf[:i]
+                continue
+            msg_type, length, seq, arg = parse_header(self._buf)
             total = HEADER_SIZE + length
             if len(self._buf) < total:
                 break

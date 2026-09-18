@@ -89,9 +89,13 @@ class FramingTests(unittest.TestCase):
         self.assertEqual(got[0].payload, payload)
         self.assertEqual(got[1].seq, 5)
 
-    def test_bad_magic_raises(self) -> None:
+    def test_bad_magic_is_skipped_not_fatal(self) -> None:
+        r = m.MessageReader()
+        self.assertEqual(r.feed(b"ZZ" + bytes(14)), [])
+        self.assertEqual(r.resyncs, 1)
+        self.assertEqual([x.type for x in r.feed(m.pack(m.T_READY, seq=3))], [m.T_READY])
         with self.assertRaises(ValueError):
-            m.MessageReader().feed(b"ZZ" + bytes(14))
+            m.parse_header(b"ZZ" + bytes(14))          # the low-level parser still rejects it
 
 
 class ModuleFlowTests(unittest.TestCase):
@@ -229,6 +233,28 @@ def _no_save_assign(self, serial, display, **settings):
         if settings.get("rotation") is not None:
             w.send(m.T_SET_ROTATION, arg=int(settings["rotation"]))
     return dict(entry)
+
+
+class ReaderResyncTests(unittest.TestCase):
+    def test_garbage_before_and_between_messages_is_skipped(self):
+        from glasslink.modules import MessageReader, T_PONG, T_READY, pack
+
+        r = MessageReader()
+        stale_tail = b'w"\x00\x13 tail of a message cut off by the previous host session'
+        stream = stale_tail + pack(T_READY, seq=7) + b"XDjunk" + pack(T_PONG, arg=4660)
+        got = []
+        for i in range(0, len(stream), 5):                 # arbitrary chunking
+            got += r.feed(stream[i:i + 5])
+        self.assertEqual([(m.type, m.seq, m.arg) for m in got], [(T_READY, 7, 0), (T_PONG, 0, 4660)])
+        self.assertGreaterEqual(r.resyncs, 2)
+
+    def test_clean_stream_needs_no_resync(self):
+        from glasslink.modules import MessageReader, T_STATS, pack
+
+        r = MessageReader()
+        got = r.feed(pack(T_STATS, b'{"fps": 1}') * 3)
+        self.assertEqual(len(got), 3)
+        self.assertEqual(r.resyncs, 0)
 
 
 if __name__ == "__main__":
