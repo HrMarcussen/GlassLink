@@ -17,6 +17,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-18
+
+Displays as data: six displays for a full cockpit, managed from the status page. No firmware change.
+Verified with the Fenix on 18 Sept 2026: cold start pops out all six displays unattended, the FO side from the
+copilot seat view, and the camera returns to the user's own custom view.
+
 ### Added
 - **Display editor on the status page** ("Manage displays"): add, change and remove displays while the DMC runs.
   A new display gets 768 x 768 and the next free off-screen parking slot; size, parking position and capture rate
@@ -41,7 +47,7 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - **Back to your own view after a pop-out**: `popout.camera_restore_key` (Setup tab, "Camera after a pop-out") is
   the key combination that loads your flying view, exactly as bound in the sim, e.g. `shift+f1` for custom camera 1
   in the MSFS 2024 keyboard profile (Alt+number is the 2020 binding, which is why the earlier attempts did nothing).
-  For cockpits whose flying view has no instruments on the monitor.
+  For cockpits whose flying view has no instruments on the monitor. The field records the keys you press.
 - The automatic pop-out looks at the sim at most every 20 s while it has nothing to do (it opened a new SimConnect
   connection every 5 s while a display had no click point).
 - Learning again closes the display's previous pop-out window first, so no duplicate is left behind.
