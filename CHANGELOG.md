@@ -17,9 +17,23 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-18
+
+Firmware updates without a serial cable.
+
+### Added
+- **Firmware update over USB from the status page.** Each DU row has an Update button that installs the built image
+  (`firmware/build/glasslink_du.bin`, or `firmware.image` in the config) over the normal USB link, with progress and
+  error text. The image is validated first (ESP application descriptor, project name, size). Stop-and-wait transfer
+  in 32 KiB chunks, CRC32 and size check on the DU, 15 s timeout with abort, "UPDATING FIRMWARE" banner, rollback
+  by the bootloader if the new image does not come up. New message `OTA_PROGRESS` (0x91). **[DU firmware]**
+  DUs older than 0.3.0 need one last flash over the serial port.
+- `docs/panel-DBC088HXN60L050A.md`: the panel specification (an XGA panel cut to a square, pinout, rails, timing,
+  backlight) and the hardware track towards an integrated DU board in the backlog.
+
 ### Changed
-- Docs: measured behaviour of pop-outs under the brightness knobs (on/off only, never dimmed) and notes on manual
-  pop-outs for the display editor.
+- Docs: measured behaviour of pop-outs under the brightness knobs (on/off only, never dimmed; Fenix "Home Cockpit
+  Mode" is what dims them) and notes on manual pop-outs for the display editor.
 
 ## [0.2.2] - 2026-09-18
 
