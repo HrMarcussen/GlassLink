@@ -29,11 +29,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   one. Auto pop-out pauses meanwhile and no longer moves the camera for displays that have no click point yet.
   (`glasslink/learn.py`, `POST /displays/<name>/learn`, `POST /learn/cancel`.)
   Verified with the Fenix on 18 Sept 2026 (add display, Learn, window adopted and parked).
-- **Learn from my view**, for displays that cannot be clicked from the standard seat view (the FO's PFD is cut off at
-  the screen edge from the captain's seat): look where you need to, press the button, and the DMC saves that view as
-  a sim custom camera (`popout.view_slot`, default 8) before waiting for the click. The point is stored with that
-  camera, and the automatic pop-out recalls the view for those displays. The first display learned this way defines
-  the view; later ones are learned in the same saved view, so one camera move serves them all.
+- **FO side displays**: `fo_pfd` and `fo_nd` are in the built-in Fenix profile and pop out by themselves. They are
+  out of reach from the left seat, so the DMC selects the sim's copilot seat view over SimConnect
+  (`CAMERA VIEW TYPE AND INDEX` 1/4), clicks, and returns to the seat view and zoom it found. For other aircraft
+  the Setup tab has **Learn (captain seat)** and **Learn (FO seat)**; the point is stored with its view.
+  No key presses are involved. An earlier attempt in this cycle stored the user's own view as a sim custom camera
+  (Ctrl+Alt+8 / Alt+8); measured on 18 Sept 2026, the sim ignores those injected keys (also with hardware scan
+  codes), so that was removed, together with the Ctrl+Alt+9 / Alt+9 "restore my view" that never did anything.
+  `SimConnect_CameraSetRelative6DOF` was tried too: it moves an outside camera without the cockpit.
+  `popout.camera_restore: <number>` still loads that custom camera after a pop-out, for setups where the key works.
 - Learning again closes the display's previous pop-out window first, so no duplicate is left behind.
 - The automatic pop-out waits until the cockpit camera has really stopped moving (it compares grabs of the sim)
   instead of a fixed 2 s, and if the displays are lit and the PFD is not where the profile expects it, it waits and
@@ -44,7 +48,7 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   "Home Cockpit Mode", read from `persistancy.xml` (checked every 5 s). The status page then shows "dimmed by the
   aircraft" and the DUs use their trim slider only. Described per aircraft in the profile (`popout_dimming`).
 
-- **Close window** button per display (Setup tab, `POST /displays/<name>/close`). The pop-outs are parked off-screen
+- **Close window** button per display (enabled only while the display has a window; Setup tab, `POST /displays/<name>/close`). The pop-outs are parked off-screen
   where you cannot reach them; the DMC closes the window for you, and the automatic pop-out opens it again if the
   display has a click point. Handy for testing the automatic pop-out and for getting rid of a wrong window.
 

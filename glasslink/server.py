@@ -104,7 +104,11 @@ def _profile_points(cfg: dict[str, Any], request: web.Request) -> tuple[str | No
 async def displays_list(request: web.Request) -> web.Response:
     cfg = request.app["cfg"]
     key, points = _profile_points(cfg, request)
-    return web.json_response({"profile": key, "displays": request.app["registry"].describe(points)})
+    out = request.app["registry"].describe(points)
+    for name, d in out.items():
+        st = request.app["hub"].get(name)
+        d["has_window"] = bool(st is not None and st.window_hwnd)
+    return web.json_response({"profile": key, "displays": out})
 
 
 async def displays_edit(request: web.Request) -> web.Response:
@@ -159,7 +163,7 @@ async def displays_close(request: web.Request) -> web.Response:
     if learner.busy:
         raise web.HTTPConflict(text="busy learning a display")
     closed = await asyncio.get_running_loop().run_in_executor(None, learner.io.close_existing, name)
-    if request.app.get("auto_popout"):
+    if closed and request.app.get("auto_popout"):
         request.app["auto_popout"].retry(name)
     return web.json_response({"closed": bool(closed)})
 

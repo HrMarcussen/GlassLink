@@ -1,8 +1,8 @@
 """Learn a display's pop-out click point by watching the user pop it out once.
 
 Flow (one display at a time):
-  preparing  the camera is put into the aircraft profile's standard view (reset + zoom), exactly the view the
-             automatic pop-out will use later, after saving the current view
+  preparing  the camera is put into the aircraft profile's standard view (reset + zoom) or, for displays out of
+             reach from the left seat, the sim's copilot seat view: exactly the view the automatic pop-out uses later
   waiting    the user Right-Alt+clicks the display in the cockpit, as they would by hand
   adopting   the DMC saw where the click went and which window appeared: it stores the point in the profile
              (as fractions of the sim's client area), names the window GlassLink:<display>, sizes and parks it
@@ -81,32 +81,15 @@ class LearnIO:
                        camspec: dict[str, Any] | None = None, save_current: bool = False) -> Callable[[], None]:
         """Put the camera into the view the point will be stored for; returns a function that undoes it.
         `save_current`: the user's present view becomes that view (saved as a sim custom camera), nothing moves."""
-        from .popout import apply_camera, custom_camera
+        from .popout import apply_camera, restore_camera
 
         camspec = camspec or prof.get("camera") or {"mode": "reset"}
-        old_zoom = cam.zoom
-        restore = pcfg.get("camera_restore")
-        if restore == "current":
-            say(f"saving the current view to custom camera {pcfg['camera_slot']}")
-            custom_camera(sim.hwnd, int(pcfg["camera_slot"]), save=True)
-            time.sleep(0.5)
-        if camspec.get("mode") == "custom" and save_current:
-            say(f"saving your view as the pop-out view (custom camera {camspec['slot']})")
-            custom_camera(sim.hwnd, int(camspec["slot"]), save=True)
-            time.sleep(0.5)
-        else:
-            apply_camera(cam, camspec, float(prof.get("zoom", pcfg["zoom"])), say, sim.hwnd)
+        old_zoom, old_view = cam.zoom, cam.view
+        apply_camera(cam, camspec, float(prof.get("zoom", pcfg["zoom"])), say, sim.hwnd)
 
         def undo() -> None:
             try:
-                cam.reset()
-                if old_zoom is not None:
-                    time.sleep(0.5)
-                    cam.zoom = old_zoom
-                slot = pcfg["camera_slot"] if restore == "current" else restore
-                if slot not in (None, ""):
-                    time.sleep(0.5)
-                    custom_camera(sim.hwnd, int(slot), save=False)
+                restore_camera(cam, old_view, old_zoom, pcfg, sim.hwnd, say)
             finally:
                 cam.close()
 
@@ -188,9 +171,12 @@ class PopoutLearner:
         return self._thread is not None and self._thread.is_alive()
 
     def start(self, name: str, view: str = "standard") -> None:
-        """view: "standard" = the profile's seat view; "mine" = the view the user is looking from right now."""
-        if view not in ("standard", "mine"):
-            raise LearnError("view must be 'standard' or 'mine'")
+        """view: "standard" = the profile's captain seat view; "copilot" = the sim's copilot seat view, for the
+        displays that cannot be reached from the left seat."""
+        from .popout import SEAT_VIEWS
+
+        if view not in SEAT_VIEWS:
+            raise LearnError(f"view must be one of {list(SEAT_VIEWS)}")
         if self.busy:
             raise LearnError(f"already learning '{self.state.get('display')}'")
         if name not in self.cfg.get("displays", {}):
@@ -210,7 +196,7 @@ class PopoutLearner:
         self.state["detail"] = text
 
     def _run(self, name: str, view: str = "standard") -> None:
-        from .popout import POPOUT_DEFAULTS, camera_key, point_spec, select_profile
+        from .popout import POPOUT_DEFAULTS, SEAT_VIEWS, select_profile
 
         undo: Callable[[], None] | None = None
         self._pause_auto(True)
@@ -229,17 +215,9 @@ class PopoutLearner:
                 key = title.strip() or "aircraft"
                 prof = {"zoom": pcfg["zoom"], "points": {}}
             camspec = prof.get("camera") or {"mode": "reset"}
-            save_current = False
-            if view == "mine":
-                camspec = {"mode": "custom", "slot": int(pcfg.get("view_slot", 8))}
-                others = [n for n in (prof.get("points") or {}) if n != name
-                          and camera_key((point_spec(prof, n) or {}).get("camera") or {}) == camera_key(camspec)]
-                # The first display learned this way defines the view. Later ones are learned in that same saved
-                # view, so that one camera move serves them all at pop-out time.
-                save_current = not others
-                if others:
-                    self._say(f"using the view saved for {others}")
-            undo = self.io.prepare_camera(cam, sim, prof, pcfg, self._say, camspec, save_current)
+            if SEAT_VIEWS.get(view):
+                camspec = dict(SEAT_VIEWS[view])
+            undo = self.io.prepare_camera(cam, sim, prof, pcfg, self._say, camspec)
             sim = self.io.sim_window() or sim
             if self.io.close_existing(name):
                 self._say(f"closed the previous {name} window")
@@ -260,7 +238,7 @@ class PopoutLearner:
             if point is None:
                 raise LearnError("the click was outside the simulator window; nothing stored")
             user_prof = self.cfg.setdefault("popout", {}).setdefault("profiles", {}).setdefault(key, {})
-            user_prof.setdefault("points", {})[name] = point if camspec.get("mode") != "custom" \
+            user_prof.setdefault("points", {})[name] = point if not SEAT_VIEWS.get(view) \
                 else {"xy": point, "camera": dict(camspec)}
             if "zoom" not in user_prof and "zoom" in prof:
                 user_prof["zoom"] = prof["zoom"]

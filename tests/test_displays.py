@@ -208,31 +208,27 @@ class LearnTests(unittest.TestCase):
         self.assertEqual(self.paused, [True, False])                   # auto pop-out paused for the duration
         self.assertEqual(self.saves, 1)
 
-    def test_learning_from_my_view_saves_the_view_once_and_reuses_it(self):
+    def test_learning_from_the_fo_seat_stores_the_copilot_view_with_the_point(self):
         io = FakeIO(click_at=(2001, 850))
         cfg, lr = self._learner(io, displays=("fo_pfd", "fo_nd"))
-        lr.start("fo_pfd", "mine")
+        lr.start("fo_pfd", "copilot")
         self._finish(lr)
         self.assertEqual(lr.state["status"], "done", lr.state)
-        stored = cfg["popout"]["profiles"]["Fenix"]["points"]["fo_pfd"]
-        self.assertEqual(stored, {"xy": [0.7816, 0.5903], "camera": {"mode": "custom", "slot": 8}})
-        self.assertEqual(io.prepared[-1], ({"mode": "custom", "slot": 8}, True))      # first one defines the view
-
-        io2 = FakeIO(click_at=(1500, 850))
-        lr.io = io2
-        lr.start("fo_nd", "mine")
-        self._finish(lr)
-        self.assertEqual(lr.state["status"], "done", lr.state)
-        self.assertEqual(io2.prepared[-1], ({"mode": "custom", "slot": 8}, False))    # second one reuses it
+        view = {"mode": "view", "type": 1, "index": 4}
+        self.assertEqual(cfg["popout"]["profiles"]["Fenix"]["points"]["fo_pfd"], {"xy": [0.7816, 0.5903], "camera": view})
+        self.assertEqual(io.prepared[-1][0], view)
         with self.assertRaises(learn.LearnError):
             lr.start("fo_nd", "sideways")
 
-    def test_custom_view_points_are_popped_out_in_their_own_camera_group(self):
+    def test_fo_seat_points_are_popped_out_in_their_own_camera_group(self):
         from glasslink import popout
 
-        prof = {"points": {"pfd": [0.48, 0.81], "fo_pfd": {"xy": [0.78, 0.59], "camera": {"mode": "custom", "slot": 8}}}}
+        prof = {"points": {"pfd": [0.48, 0.81],
+                           "fo_pfd": {"xy": [0.78, 0.59], "camera": {"mode": "view", "type": 1, "index": 4}},
+                           "old": {"xy": [0.5, 0.5], "camera": {"mode": "custom", "slot": 8}}}}
         self.assertEqual(popout.camera_key(popout.point_spec(prof, "pfd")["camera"]), "reset")
-        self.assertEqual(popout.camera_key(popout.point_spec(prof, "fo_pfd")["camera"]), "custom:8")
+        self.assertEqual(popout.camera_key(popout.point_spec(prof, "fo_pfd")["camera"]), "view:1:4")
+        self.assertIsNone(popout.point_spec(prof, "old"))          # sim custom cameras are no longer used: learn again
 
     def test_timeout_and_errors_leave_the_config_alone(self):
         old = learn.WAIT_FOR_CLICK_S

@@ -79,8 +79,8 @@
       <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24">
       <button id="add-display">Add display</button>
       <span class="dim" style="margin-left:10px;font-size:12.5px">A new display gets 768 x 768 and the next free off-screen parking slot.
-        Then press <b>Learn</b> and Right-Alt + click it once in the cockpit. For a display you cannot reach from the
-        captain's seat view, look at it first and use <b>Learn from my view</b>.</span>
+        Then press <b>Learn (captain seat)</b> for a captain side display or <b>Learn (FO seat)</b> for an FO side
+        display, and Right-Alt + click it once when the banner says so. The DMC sets the camera itself.</span>
     </div>
   </div>
   </section>
@@ -237,8 +237,8 @@
         <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096"></td>
         <td><input type="number" class="x" value="${pos[0]}"> , <input type="number" class="y" value="${pos[1]}"></td>
         <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="default" min="0.2" max="60" step="any"></td>
-        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned · ' + d.point_view, 'ok') : pill('no click point', 'warn')}</td>
-        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''} title="the DMC switches to the standard seat view, then you click">Learn</button> <button class="learnmine" ${busy ? 'disabled' : ''} title="for displays you cannot reach from the standard view: look where you need to first, then press this">Learn from my view</button> <button class="closewin" title="closes the parked pop-out window (you cannot reach it off-screen); the DMC pops it out again by itself if it has a click point">Close window</button>` : ''} <button class="remove">Remove</button></td>
+        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned · ' + d.point_view, 'ok') : pill('no click point', 'warn')} ${d.has_window ? pill('window open', 'ok') : pill('no window', 'warn')}</td>
+        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''} title="captain side displays: the DMC switches to the captain seat view, then you Right-Alt + click the display">Learn (captain seat)</button> <button class="learnmine" ${busy ? 'disabled' : ''} title="FO side displays, out of reach from the left seat: the DMC switches to the copilot seat view, then you Right-Alt + click the display">Learn (FO seat)</button> <button class="closewin" ${d.has_window ? '' : 'disabled'} title="closes the parked pop-out window (you cannot reach it off-screen); the DMC pops it out again by itself if it has a click point">Close window</button>` : ''} <button class="remove">Remove</button></td>
       </tr>`;
     }).join('');
     $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Size (px)</th><th>Parking position</th><th>Capture fps</th>
@@ -260,8 +260,8 @@
         api(`/displays/${name}/close`, 'POST').then(r => { if (r && r.closed === false) alert(`${name} has no pop-out window right now.`); refresh(); }).catch(() => {}); };
       const lm = tr.querySelector('.learnmine');
       if (lm) lm.onclick = (e) => { e.target.blur();
-        if (confirm(`Learn "${name}" from your own view?\n\nFirst look at the display in the sim so you can click it comfortably. Then press OK: the DMC saves that view (as sim custom camera 8) so it can return to it on its own later. When the banner says so, Right-Alt + click the ${name} display once.\n\nIf another display was already learned this way, the DMC switches to that saved view instead, so one camera move serves both.`))
-          api(`/displays/${name}/learn`, 'POST', { view: 'mine' }).then(() => refresh()).catch(() => {}); };
+        if (confirm(`Learn "${name}" from the FO seat?\n\nThe DMC switches the sim to the copilot seat view. When the banner says so, Right-Alt + click the ${name} display once. The camera goes back to your seat afterwards.`))
+          api(`/displays/${name}/learn`, 'POST', { view: 'copilot' }).then(() => refresh()).catch(() => {}); };
     });
   }
   function renderLearn(learn) {

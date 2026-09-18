@@ -184,5 +184,7 @@ class DisplayRegistry:
                 p = (points or {}).get(name)
                 out[name]["has_point"] = p is not None
                 out[name]["point_view"] = None if p is None else (
-                    "my view" if isinstance(p, dict) and (p.get("camera") or {}).get("mode") == "custom" else "standard view")
+                    "FO seat" if isinstance(p, dict) and (p.get("camera") or {}).get("mode") == "view" else "captain seat")
+                if isinstance(p, dict) and (p.get("camera") or {}).get("mode") == "custom":
+                    out[name].update(has_point=False, point_view=None)      # sim custom cameras: no longer used
             return out

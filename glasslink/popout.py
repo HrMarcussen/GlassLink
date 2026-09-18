@@ -53,6 +53,9 @@ DEFAULT_PROFILES: dict[str, dict[str, Any]] = {
             "nd": [0.5805, 0.8090],
             "ecam_upper": [0.7488, 0.7903],
             "ecam_lower": [0.7488, 0.9500],
+            # FO side: out of reach from the left seat, clicked from the sim's copilot seat view (measured 18 Sept 2026)
+            "fo_nd": {"xy": [0.4063, 0.8167], "camera": {"mode": "view", "type": 1, "index": 4}},
+            "fo_pfd": {"xy": [0.5039, 0.8167], "camera": {"mode": "view", "type": 1, "index": 4}},
         },
         # Effective DU brightness 0..1 as rendered by the Fenix (knob position is A_DISPLAY_BRIGHTNESS_*).
         # The pop-out windows do not dim with the knobs, so the server applies it to the modules.
@@ -115,8 +118,7 @@ POPOUT_DEFAULTS: dict[str, Any] = {
     # `camera_slot` (Ctrl+Alt+N) before the reset and load it again (Alt+N) afterwards; an integer 0-9 =
     # load that custom camera slot afterwards; null/"" = just reset and restore the zoom.
     "camera_restore": "current",
-    "camera_slot": 9,       # custom camera used to save and restore the user's own view around a pop-out
-    "view_slot": 8,
+    "camera_slot": 9        # unused since 0.4 (kept so old configs load),
 }
 
 
@@ -344,19 +346,28 @@ def select_profile(cfg: dict[str, Any], title: str | None) -> tuple[str | None, 
     return None, None
 
 
+# Seat views every aircraft has (SimConnect "CAMERA VIEW TYPE AND INDEX", type 1 = pilot views). Selected directly,
+# without key presses. Measured with the Fenix: 1 = pilot, 3 = wide view of the whole panel, 4 = copilot.
+SEAT_VIEWS: dict[str, dict[str, Any] | None] = {
+    "standard": None,                                       # the profile's own camera (reset of the pilot view)
+    "copilot": {"mode": "view", "type": 1, "index": 4},
+}
+PILOT_VIEW = (1, 1)
+
+
 def point_spec(prof: dict[str, Any], name: str) -> dict[str, Any] | None:
     """Normalised point entry: {"xy": [fx, fy], "camera": {...}}. Accepts the short form [fx, fy] (profile camera)."""
     raw = prof.get("points", {}).get(name)
     if raw is None:
         return None
+    if isinstance(raw, dict) and (raw.get("camera") or {}).get("mode") == "custom":
+        return None      # 0.4 development builds stored sim custom cameras; the sim ignores those keys: learn again
     if isinstance(raw, dict):
         return {"xy": list(raw["xy"]), "camera": raw.get("camera") or prof.get("camera") or {"mode": "reset"}}
     return {"xy": list(raw), "camera": prof.get("camera") or {"mode": "reset"}}
 
 
 def camera_key(cam: dict[str, Any]) -> str:
-    if cam.get("mode") == "custom":
-        return f"custom:{int(cam.get('slot', 8))}"
     if cam.get("mode", "reset") == "reset" and "type" not in cam:
         return "reset"
     return f"view:{cam.get('type')}:{cam.get('index')}"
@@ -424,28 +435,42 @@ def apply_camera(cam_ctl: "SimCamera | None", cam: dict[str, Any], zoom: float, 
     """Put the sim camera into the state a point set was calibrated for, and wait until it has arrived."""
     if cam_ctl is None:
         return
-    if cam.get("mode") == "custom":
-        # A view the user saved through "Learn from my view" (a sim custom camera; it carries its own zoom).
-        # Needed for displays that cannot be reached from the standard seat view, e.g. the FO's PFD.
-        slot = int(cam.get("slot", 8))
-        say(f"camera: loading the saved view (custom camera {slot}, Alt+{slot})")
-        if sim_hwnd:
-            custom_camera(sim_hwnd, slot, save=False)
-            time.sleep(1.0)
-            wait_until_still(sim_hwnd, say)
-        return
     if camera_key(cam) == "reset":
         say(f"camera: reset + zoom {zoom:.0f}")
+        if cam_ctl.view != PILOT_VIEW and cam_ctl.view[0] is not None:
+            cam_ctl.set_view(*PILOT_VIEW)
+            time.sleep(1.0)
         cam_ctl.reset()
         time.sleep(0.8)
     else:
         say(f"camera: view type {cam['type']} index {cam['index']} + zoom {zoom:.0f}")
         cam_ctl.set_view(int(cam["type"]), int(cam["index"]))
         time.sleep(1.0)
+        cam_ctl.reset()                       # the user may have looked around in that view earlier
+        time.sleep(0.8)
     cam_ctl.zoom = zoom
     time.sleep(1.2)
     if sim_hwnd:
         wait_until_still(sim_hwnd, say)
+
+
+def restore_camera(cam: "SimCamera", old_view, old_zoom, pcfg: dict[str, Any], sim_hwnd: int,
+                   say: Callable[[str], None]) -> None:
+    """Back to the seat view and zoom the user had. Done over SimConnect. (Until 0.3 this tried to save and reload the
+    exact view as a sim custom camera with Ctrl+Alt+9 / Alt+9; measured 18 Sept 2026: the sim ignores those injected
+    keys.) `camera_restore` set to a number still loads that custom camera slot afterwards, for those it works for."""
+    if old_view and old_view[0] is not None and cam.view != tuple(old_view):
+        cam.set_view(int(old_view[0]), int(old_view[1]))
+        time.sleep(1.0)
+    cam.reset()
+    if old_zoom is not None:
+        time.sleep(0.5)
+        cam.zoom = old_zoom
+    slot = pcfg.get("camera_restore")
+    if isinstance(slot, int) or (isinstance(slot, str) and slot.isdigit()):
+        time.sleep(0.5)
+        say(f"camera: loading custom camera {slot} (Alt+{slot})")
+        custom_camera(sim_hwnd, int(slot), save=False)
 
 
 def normalise_points(points: dict[str, tuple[int, int]], sim: win.WindowInfo) -> dict[str, list[float]]:
@@ -489,6 +514,7 @@ def ensure_popouts(
 
     cam = try_sim_camera() if use_camera else None
     old_zoom = None
+    old_view = None
     try:
         if cam is not None:
             if not cam.in_cockpit:
@@ -510,11 +536,7 @@ def ensure_popouts(
         zoom = float(prof.get("zoom", pcfg["zoom"]))
         if cam is not None:
             old_zoom = cam.zoom
-            restore = pcfg.get("camera_restore")
-            if restore == "current":
-                say(f"camera: saving current view to custom camera {pcfg['camera_slot']} (Ctrl+Alt+{pcfg['camera_slot']})")
-                custom_camera(sim.hwnd, int(pcfg["camera_slot"]), save=True)
-                time.sleep(0.5)
+            old_view = cam.view
             say(f"camera zoom was {old_zoom:.0f}" if old_zoom is not None else "camera zoom unknown")
 
         # Group the missing displays by the camera view their points were calibrated in (a profile imported from
@@ -563,16 +585,7 @@ def ensure_popouts(
     finally:
         if cam is not None:
             try:
-                cam.reset()
-                if old_zoom is not None:
-                    time.sleep(0.5)
-                    cam.zoom = old_zoom
-                restore = pcfg.get("camera_restore")
-                slot = pcfg["camera_slot"] if restore == "current" else restore
-                if slot is not None and slot != "":
-                    time.sleep(0.5)
-                    say(f"camera: loading custom camera {slot} (Alt+{slot})")
-                    custom_camera(sim.hwnd, int(slot), save=False)
+                restore_camera(cam, old_view, old_zoom, pcfg, sim.hwnd, say)
             finally:
                 cam.close()
     return result
