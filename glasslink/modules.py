@@ -472,6 +472,11 @@ class ModuleWorker(threading.Thread):
         elif m.type == T_INFO:
             self.info = m.json() or {}
             log.info("module %s info: %s", self.serial, self.info)
+            o = self.manager.ota_status.get(self.serial)
+            if o and o.get("state") == "ok" and not o.get("confirmed"):
+                # first INFO after an update: say what the DU actually came back with
+                o.update(confirmed=True, message="now running %s (%s) from %s" % (
+                    self.info.get("fw", "?"), self.info.get("build", "?"), self.info.get("slot", "?")))
             self._apply_settings()
             # A module answering GET_INFO is idle and can take a frame; its initial READY may have gone to a
             # previous host session (or the module was plugged in before the server started).

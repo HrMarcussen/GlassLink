@@ -28,8 +28,17 @@ Firmware updates without a serial cable.
   in 32 KiB chunks, CRC32 and size check on the DU, 15 s timeout with abort, "UPDATING FIRMWARE" banner, rollback
   by the bootloader if the new image does not come up. New message `OTA_PROGRESS` (0x91). **[DU firmware]**
   DUs older than 0.3.0 need one last flash over the serial port.
+  Verified on hardware: 445 KB installed in about 4 s, DU back on the new build 8 s after the click, flash slots
+  alternating; an update abandoned halfway times out on the DU after 15 s (code 6) and a corrupted image is refused
+  on its checksum (code 4), in both cases without a restart and with the running firmware untouched.
+- The DU reports the flash slot it runs from (`slot` in INFO, shown on the status page), and the update status ends
+  with what the DU actually came back with.
 - `docs/panel-DBC088HXN60L050A.md`: the panel specification (an XGA panel cut to a square, pinout, rails, timing,
   backlight) and the hardware track towards an integrated DU board in the backlog.
+
+### Fixed
+- The firmware's build id followed the last CMake configure, not the last commit; it is now refreshed whenever the
+  commit or the staged state changes.
 
 ### Changed
 - Docs: measured behaviour of pop-outs under the brightness knobs (on/off only, never dimmed; Fenix "Home Cockpit
