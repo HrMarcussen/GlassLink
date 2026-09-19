@@ -106,6 +106,21 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue(info["fo_pfd"]["sim_window"])
 
 
+class HubTests(unittest.TestCase):
+    def test_a_restarted_display_keeps_its_state_and_frame_numbers(self):
+        # 19 Sept 2026: changing a display's settings restarted its worker, the worker made a fresh state with
+        # seq 0, and the DU showing it waited for ever for a frame newer than the 19 000 it already had.
+        from glasslink.hub import FrameHub
+
+        hub = FrameHub(loop=None)
+        st = hub.add("pfd")
+        st.seq = 19522
+        self.assertIs(hub.add("pfd"), st)
+        self.assertEqual(hub.get("pfd").seq, 19522)
+        hub.remove("pfd")
+        self.assertIsNot(hub.add("pfd"), st)                # removed and added again: really a new display
+
+
 class FakeCamera:
     in_cockpit = True
     title = "FenixA320 CFM SL"

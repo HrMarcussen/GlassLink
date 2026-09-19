@@ -65,8 +65,11 @@ class FrameHub:
         self.displays: dict[str, DisplayState] = {}
 
     def add(self, name: str) -> DisplayState:
-        st = DisplayState(name=name)
-        self.displays[name] = st
+        """The display's state; an existing one is kept. A display whose settings change gets a new capture worker,
+        and its consumers (DUs, viewers) must see the frame numbers continue, not restart at 1."""
+        st = self.displays.get(name)
+        if st is None:
+            st = self.displays[name] = DisplayState(name=name)
         return st
 
     def get(self, name: str) -> DisplayState | None:

@@ -5,7 +5,7 @@
   },
   "capture": {
     "backend": "auto",
-    "fps": 24,
+    "fps": 40,
     "quality": 85,
     "subsampling": "420"
   },

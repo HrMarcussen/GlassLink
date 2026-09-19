@@ -12,7 +12,11 @@ DEFAULTS: dict[str, Any] = {
     "server": {"host": "0.0.0.0", "port": 8765},
     # fps: capture rate of a display that is in use (a DU is assigned or a viewer is connected). Real DUs and the
     # Fenix redraw at 20-25 Hz. idle_fps: rate of a display nobody is looking at (status page thumbnails only).
-    "capture": {"backend": "auto", "fps": 24, "idle_fps": 1, "idle_after_s": 5, "quality": 85, "subsampling": "420"},
+    # fps is the capture cap. 40, not the ~20 the aircraft draws at: the cap works as a minimum interval between
+    # frames, and an interval longer than the sim's frame time lets only every second frame through (measured
+    # 19 Sept 2026: cap 24 = 41 ms against a sim at 26 fps = 38 ms gave 13 fps). With 25 ms the result is never
+    # below 20 for any sim rate of 20 or more. Unchanged frames are dropped before encoding, so this costs little.
+    "capture": {"backend": "auto", "fps": 40, "idle_fps": 1, "idle_after_s": 5, "quality": 85, "subsampling": "420"},
     # Keep the DMC out of the simulator's way: below-normal priority, and only the last logical CPUs ("auto" =
     # the last third on machines with 8 or more; a list of CPU numbers, or null for all).
     "process": {"priority": "below_normal", "affinity": "auto"},

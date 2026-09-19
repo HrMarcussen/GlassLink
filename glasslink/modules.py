@@ -318,6 +318,7 @@ class ModuleWorker(threading.Thread):
         self.bytes_sent = 0
         self.last_seq_sent = 0
         self.last_seq_display: str | None = None   # display the last frame was taken from
+        self._last_state: Any = None               # ... and its state object (a removed and re-added display is new)
         self.ident_until = 0.0                      # host-side view of the module's ident overlay
         self._ota_image: bytes | None = None         # set by the manager; picked up by this thread
         self._ota_acked: int | None = None
@@ -558,9 +559,11 @@ class ModuleWorker(threading.Thread):
         st = self.hub.get(name)
         if st is None:
             return
-        if name != self.last_seq_display:
-            self.last_seq_sent = 0          # new display: its sequence numbers are unrelated, send its newest frame
+        if name != self.last_seq_display or st is not self._last_state:
+            # new display, or the same name re-created in the display editor: its sequence numbers are unrelated
+            self.last_seq_sent = 0
             self.last_seq_display = name
+            self._last_state = st
         seq, jpeg = st.latest()
         if jpeg is None or seq <= self.last_seq_sent:
             # Wait for a newer frame. A condition (not an event) so a signal from a frame we already sent
