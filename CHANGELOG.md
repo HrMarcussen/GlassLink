@@ -31,6 +31,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   290 MB. All six windows delivered 12.9 frames/s in lockstep, also with the capture cap at 60, so that rate comes
   from the sim / aircraft with six pop-outs open, not from the DMC (four pop-outs gave about 20 earlier).
 
+- `tools/sim_fps.py`: the sim's real frame rate (SimConnect "Frame" event) next to a pop-out's frame rate and the
+  window in focus. Found with it on 19 Sept 2026: AMD Fluid Motion Frames (HYPR-RX preset) held all pop-outs at
+  13 fps whenever the sim had focus; every earlier measurement had been taken with another window in front. With
+  the preset on Default: 27 fps per pop-out in focus, 19-20 fps of changing picture on the DU.
+- Capture cap raised from 24 to 40 fps (`capture.fps`): as a minimum interval, 24 let only every second frame
+  through for sim rates between 24 and 48 fps. Unchanged frames are dropped before encoding.
+
 ### Changed
 - The status page follows the system: light or dark with the Windows / browser setting, all sizes in `rem` so the
   text size setting and zoom scale the whole page, high-contrast mode and reduced motion respected, visible keyboard
@@ -44,6 +51,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   that left the bar are on the System tab. The .NET tray icon will use the same three states.
 
 ### Fixed
+- A DU froze when the settings of the display it was showing were changed: the restarted capture worker began a
+  new frame count at 1 and the DU waited for a frame newer than the thousands it already had.
 - The "pop-out windows not made by GlassLink" banner showed with a count of 0.
 
 ## [0.4.0] - 2026-09-18
