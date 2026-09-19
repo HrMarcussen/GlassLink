@@ -23,6 +23,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - Protocol freeze for the hardware track (docs/usb-protocol.md 6a): the backlight reuses `SET_BRIGHTNESS`, scaler
   power gets `SET_PANEL_POWER` (0x08), INFO reports the capabilities. Documentation only; nothing sends them yet.
 - Backlog: plan and order for the .NET DMC.
+- `tools/load_test.py`: DMC cost with 0..N displays in use at once, without DUs (one MJPEG reader per display).
+  Measured 19 Sept 2026, Fenix parked at night, six pop-outs, i7-8700K: 9 % of one core with one display in use,
+  about 4-5 % more per display that is actually changing (upper ECAM at 12-16 fps), 20-23 % with five in use,
+  290 MB. Displays that do not change cost almost nothing. Python is not the bottleneck for six DUs.
 
 ### Changed
 - The status page follows the system: light or dark with the Windows / browser setting, all sizes in `rem` so the
