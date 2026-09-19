@@ -148,6 +148,23 @@
   // Cards are built once per set of display names and then only patched: rebuilding them every refresh made the
   // whole page jump while the new images loaded.
   let cardsKey = null; const lastSeq = {};
+  // Frames the sim delivers per pop-out window (not the same as changed frames). A display in use that gets fewer
+  // than SLOW_FPS for a while is being throttled outside GlassLink: see docs/TROUBLESHOOTING.md.
+  const SLOW_FPS = 16, SLOW_AFTER = 4; const srcPrev = {}, srcRate = {}, slowFor = {};
+  const SLOW_WHY = 'The sim delivers too few frames for this pop-out. Usual causes: frame generation in the graphics driver ' +
+    '(AMD HYPR-RX / Fluid Motion Frames, NVIDIA Smooth Motion), a driver frame rate limit, or the sim itself below 20 fps. ' +
+    'Measure with the sim window in focus. See docs/TROUBLESHOOTING.md.';
+  function trackSource(d) {
+    const now = performance.now();
+    for (const [name, x] of Object.entries(d)) {
+      const rec = (x.counters || {}).received, p = srcPrev[name];
+      if (p && rec >= p.rec && now - p.t > 500) srcRate[name] = (rec - p.rec) / ((now - p.t) / 1000);
+      srcPrev[name] = { rec, t: now };
+      const slow = x.in_use && x.window && x.window.hwnd && x.capture_fps > SLOW_FPS && srcRate[name] !== undefined && srcRate[name] < SLOW_FPS;
+      slowFor[name] = slow ? (slowFor[name] || 0) + 1 : 0;
+    }
+  }
+  const isSlow = (name) => (slowFor[name] || 0) >= SLOW_AFTER;
   function renderDisplays(d) {
     displaysOrder = Object.keys(d);
     const key = displaysOrder.join(',');
@@ -164,11 +181,13 @@
           <span>in use by</span><span class="users"></span>
         </div></div>`).join('') || '<div class="empty">No displays configured. Add one under Setup.</div>';
     }
+    trackSource(d);
     for (const name of displaysOrder) {
       const s = d[name]; const card = document.querySelector(`#displays .card[data-name="${name}"]`);
       if (!card) continue;
       const found = !!s.window.hwnd; const c = s.counters || {};
       card.querySelector('.st').innerHTML = !found ? pill(s.error || 'no window', 'bad')
+        : isSlow(name) ? `<span class="pill warn" title="${SLOW_WHY}">slow source · ${srcRate[name].toFixed(0)} frames/s</span>`
         : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
            : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
               : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`));
@@ -356,8 +375,12 @@
     const total = disp.length;
     const busy = po.status === 'running' ? ' · popping out' : po.status === 'gave_up' ? ' · gave up' : '';
     if (!total) setPill('#st-displays', 'warn', 'No displays', 'Add displays under Setup');
-    else setPill('#st-displays', found === total ? 'ok' : (found === 0 && !busy ? 'bad' : 'warn'), `Displays ${found}/${total}${found < total ? busy : ''}`,
-                 found === total ? 'every display has its pop-out window' : (po.detail || ''));
+    else {
+      const slow = Object.keys(s.displays || {}).filter(isSlow);
+      if (found === total && slow.length) setPill('#st-displays', 'warn', `Displays ${found}/${total} · slow source`, `${slow.join(', ')}: ${SLOW_WHY}`);
+      else setPill('#st-displays', found === total ? 'ok' : (found === 0 && !busy ? 'bad' : 'warn'), `Displays ${found}/${total}${found < total ? busy : ''}`,
+                   found === total ? 'every display has its pop-out window' : (po.detail || ''));
+    }
 
     const mods = Object.values(s.modules || {}), usb = s.usb || {};
     const wanted = mods.filter(m => (m.settings || {}).display || m.alive), alive = wanted.filter(m => m.alive);

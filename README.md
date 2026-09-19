@@ -310,3 +310,6 @@ applied on the 3D model ("art side"), so pop-outs stay at full brightness unless
 it **off**: the DMC then applies brightness to the DU (today by dimming pixels in hardware, later by dimming the
 backlight, which keeps blacks black). With Home Cockpit Mode on, the pop-out picture is already dimmed and the
 brightness link would dim a second time: either switch the mode off or set `brightness.enabled` to false.
+
+## Troubleshooting
+Jerky displays, focus problems, displays that will not pop out: see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
