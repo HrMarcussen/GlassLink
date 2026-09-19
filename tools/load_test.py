@@ -46,6 +46,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dwell", type=float, default=30.0)
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--all", type=int, default=0, metavar="N",
+                    help="skip the ramp: all displays in use at once, N samples of --dwell seconds (e.g. during a takeoff)")
     a = ap.parse_args()
 
     st = api(a.port, "/status")
@@ -60,12 +62,13 @@ def main() -> None:
 
     readers: list[Reader] = []
     try:
-        for n_use in range(0, len(names) + 1):
+        for n_use in ([len(names)] * a.all if a.all else range(0, len(names) + 1)):
             while len(readers) < n_use:
                 r = Reader(a.port, names[len(readers)])
                 r.start()
                 readers.append(r)
-            time.sleep(6.0)                              # capture rates settle (idle -> full takes a moment)
+            if len(readers) and readers[-1].bytes == 0 or not a.all:
+                time.sleep(6.0)                          # capture rates settle (idle -> full takes a moment)
             b0 = sum(r.bytes for r in readers)
             t0 = proc.cpu_times(); w0 = time.time()
             psutil.cpu_percent(None)

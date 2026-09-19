@@ -27,6 +27,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   Measured 19 Sept 2026, Fenix parked at night, six pop-outs, i7-8700K: 9 % of one core with one display in use,
   about 4-5 % more per display that is actually changing (upper ECAM at 12-16 fps), 20-23 % with five in use,
   290 MB. Displays that do not change cost almost nothing. Python is not the bottleneck for six DUs.
+  Takeoff and climb with all six in use (`--all 15 --dwell 20`): 31-35 % of one core (one 46 % sample), 3.8-5 MB/s,
+  290 MB. All six windows delivered 12.9 frames/s in lockstep, also with the capture cap at 60, so that rate comes
+  from the sim / aircraft with six pop-outs open, not from the DMC (four pop-outs gave about 20 earlier).
 
 ### Changed
 - The status page follows the system: light or dark with the Windows / browser setting, all sizes in `rem` so the
