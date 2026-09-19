@@ -518,6 +518,8 @@ def restore_camera(cam: "SimCamera", old_view, old_zoom, pcfg: dict[str, Any], s
             send_combo(sim_hwnd, str(combo))
         except ValueError as exc:
             say(f"camera_restore_key: {exc}")
+    else:
+        bring_to_front(sim_hwnd)                 # leave the keyboard focus on the sim's main window, not on a pop-out
 
 
 def normalise_points(points: dict[str, tuple[int, int]], sim: win.WindowInfo) -> dict[str, list[float]]:

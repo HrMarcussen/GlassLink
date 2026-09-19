@@ -51,6 +51,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   that left the bar are on the System tab. The .NET tray icon will use the same three states.
 
 ### Fixed
+- The keyboard focus could end up on a parked pop-out: switching back to the sim activates the sim's most recently
+  active window, which was the last pop-out, off-screen. Key presses then went nowhere and frame generation stayed
+  off. Pop-out windows are now marked never-activated (WS_EX_NOACTIVATE; `no_activate: false` per display turns it
+  off), and the pop-out procedure always ends with the sim's main window in front.
 - A DU froze when the settings of the display it was showing were changed: the restarted capture worker began a
   new frame count at 1 and the DU waited for a frame newer than the thousands it already had.
 - The "pop-out windows not made by GlassLink" banner showed with a count of 0.

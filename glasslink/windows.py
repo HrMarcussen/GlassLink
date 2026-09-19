@@ -245,6 +245,18 @@ def show_window_noactivate(hwnd: int) -> None:
     win32gui.ShowWindow(hwnd, win32con.SW_SHOWNOACTIVATE)
 
 
+def set_no_activate(hwnd: int, on: bool = True) -> bool:
+    """Mark a window as never-activated (WS_EX_NOACTIVATE). A parked pop-out must not take the keyboard focus:
+    switching back to the sim activates the sim's most recently active window, and if that is a pop-out parked
+    off-screen, key presses go nowhere and frame generation stays off (seen 19 Sept 2026). Returns True if changed."""
+    ex = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+    new = (ex | win32con.WS_EX_NOACTIVATE) if on else (ex & ~win32con.WS_EX_NOACTIVATE)
+    if new == ex:
+        return False
+    win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, new)
+    return True
+
+
 def send_to_back(hwnd: int) -> None:
     flags = win32con.SWP_NOACTIVATE | win32con.SWP_NOSIZE | win32con.SWP_NOMOVE
     win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0, flags)

@@ -131,6 +131,9 @@ class DisplayWorker:
                 log.info("[%s] resized client area to %sx%s", self.name, size[0], size[1])
             elif pos and (info.rect.left, info.rect.top) != tuple(pos):
                 win.move_window(info.hwnd, int(pos[0]), int(pos[1]))
+            if self.dcfg.get("no_activate", True) and info.title.startswith("GlassLink:"):
+                if win.set_no_activate(info.hwnd):
+                    log.info("[%s] window marked as never-activated (keeps the focus on the sim's main window)", self.name)
         except Exception:  # noqa: BLE001
             log.exception("[%s] could not apply window geometry", self.name)
 
