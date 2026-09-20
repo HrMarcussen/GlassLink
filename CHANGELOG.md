@@ -35,6 +35,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   window in focus. Found with it on 19 Sept 2026: AMD Fluid Motion Frames (HYPR-RX preset) held all pop-outs at
   13 fps whenever the sim had focus; every earlier measurement had been taken with another window in front. With
   the preset on Default: 27 fps per pop-out in focus, 19-20 fps of changing picture on the DU.
+- Endurance, 19-20 Sept 2026: 22 hours with the sim, six pop-outs captured and one DU connected: no stalls, no
+  reconnects, DMC memory flat at about 280 MB.
 - **"Slow source" warning** on the status page (display card and top bar) when a display in use receives fewer than
   16 frames a second from the sim for several refreshes, with the usual causes in the tooltip, and
   `docs/TROUBLESHOOTING.md`: driver frame generation and frame limits, keyboard focus, displays that will not pop
