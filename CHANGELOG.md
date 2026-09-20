@@ -17,6 +17,17 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-20
+
+Found by flying: advice with troubleshooting steps, the 13 fps pop-out problem, and a DU freeze on large frames.
+
+### Fixed
+- **DU froze for 2-3 s whenever a frame was larger than 64 KiB** (detailed pictures in flight; about once every
+  three minutes on the PFD). TinyUSB casts a read size to 16 bits, so the DU's request for exactly 65536 remaining
+  bytes read nothing; the DU spun for 3 s (starving the idle task: task watchdog warnings), dropped the frame and
+  resynchronised. Reads are now capped at 16 KiB and never spin. Found with the DMC's stall log plus the DU's serial
+  log during a flight on 20 Sept 2026. **[DU firmware]** Update the DUs from the Display units tab.
+
 ### Added
 - `tools/du_multi_test.py`: runs all connected DUs at once (each on its own display, all on the same display,
   assignments rotated) and records per-DU rates and times and the DMC's CPU.

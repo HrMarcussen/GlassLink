@@ -235,6 +235,7 @@ static size_t read_exact(uint8_t *dst, size_t len, uint32_t timeout_ms)
         size_t n = usb_link_read(dst + got, len - got, 50);
         got += n;
         if (!n && esp_timer_get_time() > deadline) break;
+        if (!n) vTaskDelay(1);              /* never spin: a read that returns nothing must not starve the idle task */
     }
     return got;
 }

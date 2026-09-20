@@ -162,6 +162,11 @@ size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
     for (;;) {
         uint32_t avail = tud_vendor_available();
         if (avail) {
+            /* TinyUSB casts the size to uint16_t (tu_edpt_stream_read), so a request of exactly 65536 bytes reads
+             * nothing, for ever: every frame above 64 KiB froze the DU for 3 s (found 20 Sept 2026). Ask for what
+             * is there, in pieces the 16-bit FIFO arithmetic cannot get wrong. */
+            if (len > 16384) len = 16384;
+            if (len > avail) len = avail;
             return tud_vendor_read(buf, len);
         }
         if (xTaskGetTickCount() >= deadline) {
