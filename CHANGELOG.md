@@ -27,6 +27,8 @@ Found by flying: advice with troubleshooting steps, the 13 fps pop-out problem, 
   bytes read nothing; the DU spun for 3 s (starving the idle task: task watchdog warnings), dropped the frame and
   resynchronised. Reads are now capped at 16 KiB and never spin. Found with the DMC's stall log plus the DU's serial
   log during a flight on 20 Sept 2026. **[DU firmware]** Update the DUs from the Display units tab.
+  Verified on hardware after the update over USB: twenty 217 KB frames (quality 100) received and shown, none
+  dropped, no warnings in the DU's log.
 
 ### Added
 - `tools/du_multi_test.py`: runs all connected DUs at once (each on its own display, all on the same display,
