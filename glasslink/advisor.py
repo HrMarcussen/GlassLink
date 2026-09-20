@@ -129,8 +129,10 @@ def slow_source_steps(gpu: dict[str, Any], sim: dict[str, Any]) -> list[str]:
         steps.append("Graphics driver: switch off driver-level frame generation and any frame rate limit for the sim.")
     glass = sim.get("glass_refresh")
     if glass is not None and glass < 2:
-        steps.append(f"Sim > Options > General > Graphics: Glass cockpit refresh rate is {GLASS_NAMES.get(glass, glass)}; "
-                     f"set it to High so the instruments are redrawn every frame.")
+        # Medium was measured to be enough at 47 sim fps (19.5 changed frames a second); it halves with the sim's rate.
+        steps.append(f"Sim > Options > General > Graphics: Glass cockpit refresh rate is {GLASS_NAMES.get(glass, glass)}. "
+                     f"That is fine with a fast sim, but with the sim below about 40 fps it leaves the instruments under "
+                     f"20 updates a second: set it to High.")
     elif glass is None:
         steps.append("Sim > Options > General > Graphics: set Glass cockpit refresh rate to High.")
     steps.append("Check the sim's own frame rate (developer mode FPS counter, or tools/sim_fps.py): a pop-out cannot be "

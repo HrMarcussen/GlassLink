@@ -23,7 +23,10 @@ that rate:
 3. **The sim below about 20 fps.** Pop-outs cannot be faster than the sim.
 
 The sim's *Glass cockpit refresh rate* (Options, General, Graphics) decides how often instruments are redrawn: High =
-every sim frame. Most airliner add-ons draw their displays at about 20 Hz anyway (the Fenix does), so more than that
+every sim frame. Measured on 20 Sept 2026 with the Fenix on **Medium**, sim at about 47 fps, a 30 minute flight: the
+PFD picture changed 19.5 times a second (median; 17.3 to 19.8 for 80 % of the time) and the DU showed 19.6 fps, the
+same as on High, while the sim itself ran noticeably faster. Medium is fine as long as the sim stays above about
+40 fps; on Low, or with a slow sim, expect fewer. Most airliner add-ons draw their displays at about 20 Hz anyway (the Fenix does), so more than that
 never reaches a DU.
 
 **Always measure with the sim window in focus.** `tools/sim_fps.py` prints the sim's frame rate, a pop-out's frame

@@ -39,7 +39,7 @@ class AdvisorTests(unittest.TestCase):
         self.assertEqual([a["id"] for a in found], ["slow_source"])
         steps = " ".join(found[0]["steps"])
         self.assertIn("AMD Fluid Motion Frames is switched ON", found[0]["steps"][0])     # the proven cause comes first
-        self.assertIn("Glass cockpit refresh rate is Medium", steps)
+        self.assertIn("Glass cockpit refresh rate is Medium.", steps)
         self.assertIn("window in focus", steps)
         self.assertNotIn("NVIDIA", steps)
         self.assertEqual(self.run_rate(adv, 30, 4), [])                      # and it goes away when the rate is back
