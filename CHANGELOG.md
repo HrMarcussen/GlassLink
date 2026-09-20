@@ -37,10 +37,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   the preset on Default: 27 fps per pop-out in focus, 19-20 fps of changing picture on the DU.
 - Endurance, 19-20 Sept 2026: 22 hours with the sim, six pop-outs captured and one DU connected: no stalls, no
   reconnects, DMC memory flat at about 280 MB.
-- **"Slow source" warning** on the status page (display card and top bar) when a display in use receives fewer than
-  16 frames a second from the sim for several refreshes, with the usual causes in the tooltip, and
-  `docs/TROUBLESHOOTING.md`: driver frame generation and frame limits, keyboard focus, displays that will not pop
-  out, dimming, crashes. `tools/content_fps.py` shows presented against changed frames.
+- **Advice on the status page**: when the DMC notices a problem it shows a panel with what it saw and numbered
+  steps to fix it, linked to the right tab (`advice` in `/status`, `glasslink/advisor.py`; the .NET tray will use
+  the same list). Rules: the sim delivers too few frames to a display in use ("slow source", under 16 a second for
+  8 s), a DU not keeping up with its display, a DU with older firmware, a DU with no display assigned, pop-out
+  windows not made by GlassLink, a display the automatic pop-out gave up on, displays without a click point in this
+  aircraft, no brightness profile for the aircraft. The slow-source steps follow the PC: they name AMD or NVIDIA,
+  say so when AMD Fluid Motion Frames or a driver frame limit is actually switched on (read from the driver's
+  settings), and quote the sim's glass cockpit refresh rate (read from the sim's UserCfg.opt). Nothing is changed,
+  only read. `docs/TROUBLESHOOTING.md` has the long form; `tools/content_fps.py` shows presented against changed
+  frames.
 - Capture cap raised from 24 to 40 fps (`capture.fps`): as a minimum interval, 24 let only every second frame
   through for sim rates between 24 and 48 fps. Unchanged frames are dropped before encoding.
 

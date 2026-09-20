@@ -364,6 +364,7 @@ class ModuleWorker(threading.Thread):
             "frames_sent": self.frames_sent,
             "bytes_sent": self.bytes_sent,
             "last_seq_sent": self.last_seq_sent,
+            "health": {"bad": bool(getattr(self, "_health_bad", False)), "reasons": list(getattr(self, "health_reasons", []))},
             "ident_active": bool(self.stats["ident"]) if "ident" in self.stats else time.time() < self.ident_until,
             "ping_ms": self.ping_ms,
             "ota": dict(self.manager.ota_status.get(self.serial) or {"state": "idle"}),
@@ -543,6 +544,7 @@ class ModuleWorker(threading.Thread):
                 reasons.append(f"{key} {v}")
         if new_drops > 0:
             reasons.append(f"{new_drops} dropped")
+        self.health_reasons = reasons
         if reasons:
             self._health_bad = True
             log.warning("module %s stall: %s | %s", self.serial[:8], "; ".join(reasons), sample)

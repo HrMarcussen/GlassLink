@@ -1,6 +1,7 @@
 # Troubleshooting
 
 Things that are not GlassLink's fault but look like it. Each entry: what you see, why, what to do.
+The status page shows the matching advice by itself when the DMC notices one of these (panel at the top of the page).
 
 ## The displays are jerky: "slow source" on the status page
 

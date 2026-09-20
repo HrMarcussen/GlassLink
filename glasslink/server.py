@@ -46,7 +46,18 @@ def _firmware_summary(cfg: dict[str, Any]) -> dict[str, Any]:
 async def status(request: web.Request) -> web.Response:
     hub: FrameHub = request.app["hub"]
     mm = request.app.get("modules")
-    return web.json_response({
+    body = _status_body(request, hub, mm)
+    try:
+        body["advice"] = request.app["advisor"].advice(body)
+        body["source_fps"] = {k: round(v, 1) for k, v in request.app["advisor"].rates.items()}
+    except Exception:  # noqa: BLE001 - advice must never break the status page
+        log.exception("advice failed")
+        body["advice"] = []
+    return web.json_response(body)
+
+
+def _status_body(request: web.Request, hub: "FrameHub", mm: Any) -> dict[str, Any]:
+    return ({
         "version": __version__,
         "build": build_id(),
         "firmware_version": firmware_version,
@@ -401,6 +412,9 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
             if app.get("auto_popout"):
                 app["auto_popout"].paused = paused
 
+        from .advisor import Advisor
+
+        app["advisor"] = Advisor()
         app["learner"] = PopoutLearner(cfg, cfg.get("_path"), pause_auto=_pause_auto)
         app["auto_popout"] = None
         if cfg.get("popout", {}).get("auto"):
