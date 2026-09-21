@@ -14,3 +14,8 @@ firmware/sdkconfig.old
 # vendor documents: kept locally, not redistributed (copyright)
 docs/datasheets/
 bench.json
+
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+*.user

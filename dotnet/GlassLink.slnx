@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GlassLink.Bench/GlassLink.Bench.csproj" />
+    <Project Path="src/GlassLink.Core/GlassLink.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GlassLink.Core.Tests/GlassLink.Core.Tests.csproj" />
+  </Folder>
+</Solution>

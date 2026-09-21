@@ -26,6 +26,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   moving test windows, and a bench configuration points two displays at them (windows must stay on-screen: a
   window parked off-screen is only composed by Windows when it is a 3D swap chain like the sim's pop-outs).
 
+- **.NET DMC, layer 1** (`dotnet/`): protocol and resyncing message reader, a native WinUSB transport (no libusb),
+  the DU connection (newest-frame flow, Identify, ping, brightness, health, firmware update) with tests against an
+  in-process DU, and a bench tool. Verified on both DUs: 30.0 fps to each at 3.4 % of one core, ceiling 41-43 fps,
+  firmware update in 3.5 s. The Python DMC stays the one in use until the port is complete.
+
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
   may be slow without the DMC blaming the sim.
