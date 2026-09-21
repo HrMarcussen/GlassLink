@@ -71,6 +71,14 @@
   .banner { margin:0 0 .75rem; padding:.75rem .9rem; border-radius:.6rem; border:1px solid var(--warn); color:var(--fg); background:var(--warn-bg); display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
   .banner.done { border-color:var(--ok); background:var(--ok-bg); } .banner.bad { border-color:var(--bad); background:var(--bad-bg); }
   .banner b { font-size:1.0625rem; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* Getting started: done steps carry a tick, the step to do now an arrow and its hint, later steps a circle. */
+  #checklist { margin:0 0 .9rem; padding:.8rem 1rem; border-radius:.6rem; border:1px solid var(--line); background:var(--card); }
+  #checklist .head { display:flex; align-items:center; gap:.8rem; } #checklist .head b { font-size:1.0625rem; } #checklist .head button { margin-left:auto; }
+  #checklist ol { list-style:none; margin:.5rem 0 0; padding:0; display:grid; gap:.3rem; }
+  #checklist li { display:grid; grid-template-columns:1.6rem 1fr; align-items:baseline; color:var(--dim); }
+  #checklist li.done { color:var(--fg); } #checklist li.now { color:var(--fg); font-weight:600; }
+  #checklist li .hint { grid-column:2; font-weight:400; font-size:.875rem; color:var(--dim); }
   nav { display:flex; flex-wrap:wrap; gap:.1rem; align-self:flex-end; }
   nav a { padding:.75rem .9rem .6rem; color:var(--dim); border-bottom:3px solid transparent; font-size:.875rem; text-transform:uppercase; letter-spacing:.08em; }
   nav a:hover { color:var(--fg); text-decoration:none; } nav a.on { color:var(--fg); border-bottom-color:var(--acc); font-weight:600; }
@@ -85,7 +93,8 @@
   button.primary:hover { color:var(--bg); filter:brightness(1.12); }
   button.danger { color:var(--bad); } button.danger:hover { border-color:var(--bad); color:var(--bad); }
   .idname { color:var(--dim); font-weight:400; font-size:.8125rem; margin-left:.45rem; }
-  .card .shown { margin-top:.55rem; font-size:.875rem; }
+  .card .shown { margin-top:.55rem; font-size:.875rem; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.4rem .6rem; }
+  .card .shown select { font-size:.8125rem; padding:.25rem .4rem; max-width:100%; }
   .card .kv { display:none; } #displays.tech .card .kv { display:grid; }
   .toggle { font-size:.8125rem; color:var(--dim); text-transform:none; letter-spacing:0; font-weight:400; margin-left:1rem; cursor:pointer; white-space:nowrap; }
   .toggle input { vertical-align:middle; accent-color:var(--acc); }
@@ -142,6 +151,7 @@
   </div>
 </header>
 <main>
+  <div id="checklist" hidden role="region" aria-label="Getting started"></div>
   <div id="advice" role="status" aria-live="polite"></div>
   <div id="learn-banner" hidden style="margin-top:.9rem" role="status" aria-live="polite"></div>
 
@@ -218,6 +228,33 @@
   let advised = [];                               // advice from the DMC, see glasslink/advisor.py
   let sourceFps = {};
   const isSlow = (name) => advised.some(a => a.id === 'slow_source') && sourceFps[name] !== undefined && sourceFps[name] < 16;
+  // Assigning where you look: every display card says which DU shows it and offers the DUs to put it on. The list
+  // is rebuilt only when its content changes and never while it is open (a refresh would close it under the finger).
+  const duName = (m, serial) => m.label || serial.slice(0, 8);
+  function renderPick(card, name) {
+    const alive = Object.entries(modsNow).filter(([, m]) => m.alive).sort((a, b) => duName(a[1], a[0]).localeCompare(duName(b[1], b[0])));
+    const on = alive.filter(([, m]) => m.display === name);
+    const where = on.length ? `Shown on <b>${on.map(([s, m]) => duName(m, s)).join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
+    const pick = card.querySelector('.pick');
+    const sig = where + '|' + alive.map(([s, m]) => `${s}:${m.label}:${m.display}`).join(',');
+    if (card.dataset.pick === sig || document.activeElement === pick) return;
+    card.dataset.pick = sig;
+    card.querySelector('.where').innerHTML = where;
+    pick.hidden = !alive.length;
+    pick.setAttribute('aria-label', `Choose the DU that shows ${nice(name)}`);
+    pick.innerHTML = `<option value="">${on.length ? 'Change…' : 'Put on a DU…'}</option>`
+      + alive.filter(([, m]) => m.display !== name).map(([s, m]) => `<option value="put:${s}">Put on ${duName(m, s)} (${m.display ? 'now shows ' + nice(m.display) : 'free'})</option>`).join('')
+      + on.map(([s, m]) => `<option value="clear:${s}">Take off ${duName(m, s)}</option>`).join('');
+    pick.onchange = () => {
+      const [what, serial] = pick.value.split(':'); pick.value = ''; pick.blur();
+      if (!serial) return;
+      const send = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      send({ display: what === 'put' ? name : '' })
+        .then(r => { if (!r.ok) return r.text().then(t => alert(t)); if (what === 'put') send({ command: 'ident', arg: 3 }); })   // the DU that got it says so for 3 s
+        .then(() => setTimeout(refresh, 300));
+    };
+  }
+
   function renderDisplays(d) {
     displaysOrder = cockpitOrder(Object.keys(d));
     const key = displaysOrder.join(',');
@@ -227,7 +264,7 @@
       $('#displays').innerHTML = displaysOrder.map(name => `<div class="card" data-name="${name}">
         <div class="title"><span>${titled(name)}</span><span class="st"></span></div>
         <a href="/view/${name}" target="_blank" title="open ${nice(name)} in the viewer"><img alt="${nice(name)}"></a>
-        <div class="shown"></div>
+        <div class="shown"><span class="where"></span><select class="pick" hidden></select></div>
         <div class="kv">
           <span>window</span><span class="win"></span>
           <span>size</span><span class="size"></span>
@@ -245,8 +282,7 @@
         : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
            : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
               : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`));
-      const on = Object.values(modsNow).filter(m => m.alive && m.display === name).map(m => m.label || (m.serial || '').slice(0, 8));
-      card.querySelector('.shown').innerHTML = on.length ? `Shown on <b>${on.join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
+      renderPick(card, name);
       card.querySelector('.win').innerHTML = found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>';
       card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
       card.querySelector('.backend').textContent = s.backend || '-';
@@ -280,9 +316,10 @@
       ['Process', `priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`],
       ['Auto pop-out', `${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`],
       ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
-      ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
-      ['Current DU firmware', s.firmware_version || '-'],
+      ['Firmware image on this PC', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
+      ['DU firmware this DMC expects', `${s.firmware_version || '-'} <span class="dim">· a DU on an older one is offered the image above; nothing is fetched from the internet</span>`],
       ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off'],
+      ['Getting started', '<button id="show-checklist">Show the checklist again</button>'],
       ['Settings', 'every change on this page is saved to config.json at once; the page refreshes every 2 s'],
     ];
     $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
@@ -458,6 +495,40 @@
   function setPill(id, level, text, title) {
     const el = $(id); el.textContent = text; el.className = 'pill ' + level; el.title = title || '';
   }
+  // Getting started: the five things that must be true before a DU shows a display, in the order they happen.
+  // Shown until all five have been true once (remembered in this browser), or until it is hidden; the System tab
+  // brings it back.
+  const store = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} } };
+  function renderChecklist(s) {
+    const box = $('#checklist');
+    if (store.get('glasslink.setup') === 'done') { box.hidden = true; return; }
+    const po = s.popout || {}, br = s.brightness || {};
+    const disp = Object.entries(s.displays || {}), found = disp.filter(([, d]) => d.window && d.window.hwnd).length;
+    const simUp = found > 0 || br.running || (po.status && po.status !== 'off' && !/sim not running|SimConnect not available/.test(po.detail || ''));
+    const inCockpit = simUp && !/^not in cockpit/.test(po.detail || '');
+    const alive = Object.values(s.modules || {}).filter(m => m.alive);
+    const missing = disp.filter(([, d]) => !(d.window && d.window.hwnd)).map(([n]) => nice(n));
+    const steps = [
+      ['Displays are set up', disp.length > 0, 'Add the displays of your cockpit under <a href="#setup">Setup</a>.'],
+      ['The simulator is running and you are in the cockpit', inCockpit, simUp ? 'Load a flight and wait until you sit in the cockpit.' : 'Start the simulator and load a flight. The DMC waits for it.'],
+      ['Every display has its pop-out window', disp.length > 0 && found === disp.length,
+        po.status === 'running' ? 'The DMC is popping them out now; the view moves for a few seconds.'
+        : `Missing: ${missing.join(', ')}. The DMC pops out the displays it knows a click point for. For the others press Learn under <a href="#setup">Setup</a> and pop the display out once yourself (Right Alt + click).`],
+      ['A DU is connected', alive.length > 0, 'Plug a GlassLink DU into a USB port. It appears within a few seconds.'],
+      ['Every DU shows a display', alive.length > 0 && alive.every(m => m.display), 'Use "Put on a DU…" under a display below. The DU you pick shows its name for three seconds.'],
+    ];
+    if (steps.every(x => x[1])) { store.set('glasslink.setup', 'done'); box.hidden = true; return; }
+    const now = steps.findIndex(x => !x[1]);
+    const html = `<div class="head"><b>Getting started</b><span class="dim small">${steps.filter(x => x[1]).length} of ${steps.length} done</span><button id="hide-checklist" title="The System tab brings it back">Hide</button></div><ol>`
+      + steps.map(([text, ok, hint], i) => `<li class="${ok ? 'done' : i === now ? 'now' : ''}"><span aria-hidden="true">${ok ? '✓' : i === now ? '➜' : '○'}</span><span>${text}<span class="sr"> (${ok ? 'done' : i === now ? 'do this now' : 'later'})</span></span>${i === now ? `<span class="hint">${hint}</span>` : ''}</li>`).join('') + '</ol>';
+    if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+    box.hidden = false;
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target.id === 'hide-checklist') { store.set('glasslink.setup', 'done'); $('#checklist').hidden = true; }
+    if (e.target.id === 'show-checklist') { store.set('glasslink.setup', null); location.hash = '#displays'; refresh(); }
+  });
+
   function renderChain(s) {
     const po = s.popout || {}, br = s.brightness || {};
     const disp = Object.values(s.displays || {}), found = disp.filter(d => d.window && d.window.hwnd).length;
@@ -502,6 +573,7 @@
       $('#version').textContent = `v${s.version}`; $('#version').title = `build ${s.build || '?'}${s.engine ? ' · ' + s.engine : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
       advised = s.advice || []; sourceFps = s.source_fps || {}; modsNow = s.modules || {};
       renderChain(s);
+      renderChecklist(s);
       renderAdvice(s.advice || []);
       renderDisplays(s.displays || {});
       renderLearn(s.learn);

@@ -26,6 +26,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   moving test windows, and a bench configuration points two displays at them (windows must stay on-screen: a
   window parked off-screen is only composed by Windows when it is a 3D swap chain like the sim's pop-outs).
 
+- **Assign a DU from the display's card**: every display on the Displays tab says which DU shows it and has a
+  "Put on a DU…" list (each DU with what it shows now, or "free") and "Take off DU…". The DU that got the display
+  shows its name for three seconds, so you see which physical unit it was. The Display units tab works as before.
+- **Getting started checklist** on the status page until a setup has been complete once: displays set up, sim in the
+  cockpit, every display popped out, a DU connected, every DU showing a display. Done steps carry a tick, the step
+  to do now an arrow and its hint, later ones a circle (never colour alone). It closes itself when all five are
+  true, can be hidden, and the System tab brings it back.
+- System tab says in words how firmware updates work ("DU firmware this DMC expects", "Firmware image on this PC";
+  nothing is fetched from the internet).
+
 - **.NET DMC, layer 1** (`dotnet/`): protocol and resyncing message reader, a native WinUSB transport (no libusb),
   the DU connection (newest-frame flow, Identify, ping, brightness, health, firmware update) with tests against an
   in-process DU, and a bench tool. Verified on both DUs: 30.0 fps to each at 3.4 % of one core, ceiling 41-43 fps,
