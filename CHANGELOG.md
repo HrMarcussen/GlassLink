@@ -30,7 +30,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   the DU connection (newest-frame flow, Identify, ping, brightness, health, firmware update) with tests against an
   in-process DU, and a bench tool. Verified on both DUs: 30.0 fps to each at 3.4 % of one core, ceiling 41-43 fps,
   firmware update in 3.5 s. Layer 1b: the DU manager (hot-plug, assignments, labels and trim from the shared
-  `config.json`, brightness = cockpit knob x trim). The Python DMC stays the one in use until the port is complete.
+  `config.json`, brightness = cockpit knob x trim). Layer 2: window finder, Windows.Graphics.Capture, change
+  detection, libjpeg-turbo (1.3 ms per frame), capture on demand; two 30 fps test windows to two DUs cost 13-15 % of
+  one core and 105 MB (Python: 19 %, 285 MB). The Python DMC stays the one in use until the port is complete.
 
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window

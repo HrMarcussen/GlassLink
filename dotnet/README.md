@@ -8,8 +8,8 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 |---|---|
 | 1. USB and DUs: protocol, WinUSB transport, DU connection (frames, commands, health, firmware update) | done, verified on two DUs |
 | 1b. DU manager: hot-plug, assignments, labels and trim from `config.json` (unknown keys survive a save), brightness = knob x trim | done, verified on two DUs |
-| 2. Capture and encode (Windows.Graphics.Capture, change detection, JPEG) | next |
-| 3. Pop-out and SimConnect (profiles, camera, brightness link) | |
+| 2. Capture and encode: window finder (match rules, size, park, never-activate, client crop), Windows.Graphics.Capture, change detection, libjpeg-turbo, capture on demand | done on test windows; to be checked on the sim's pop-outs |
+| 3. Pop-out and SimConnect (profiles, camera, brightness link) | next |
 | 4. HTTP API + the existing status page, tray icon, start and stop with the sim | |
 
 ```
@@ -17,6 +17,7 @@ dotnet test GlassLink.slnx
 dotnet run --project src/GlassLink.Bench -- list
 dotnet run --project src/GlassLink.Bench -- stream --seconds 20 --fps 30
 dotnet run --project src/GlassLink.Bench -- manage --seconds 20      # the DU manager with your real assignments
+dotnet run -c Release --project src/GlassLink.Bench -- run --seconds 30   # a DMC in miniature: capture the configured windows, feed the DUs
 dotnet run --project src/GlassLink.Bench -- update ../firmware/build/glasslink_du.bin --serial ff69
 ```
 
@@ -32,3 +33,10 @@ Design notes
 - Measured 21 Sept 2026, two DUs on one hub, 768x768 test pictures: 30.0 fps to each at 3.4 % of one core and
   52 MB; ceiling 41-43 fps per DU (decode 6 + draw 12.5 + transfer 3.5 ms); ping 0.4-0.9 ms; firmware update
   445 KB in 3.5 s.
+- **Capture**: only the client area is copied from the GPU, and a frame nobody wants is refused before any copy
+  (`WantFrame`), so an unused display costs almost nothing. All captures share one D3D11 device; the pixel handler
+  runs under its lock and only compares and copies, the JPEG is encoded after the lock is released.
+- **JPEG**: libjpeg-turbo through Quamotion.TurboJpegWrapper, 1.3 ms for a 768x768 PFD picture. SkiaSharp was tried
+  first: 6.9 ms, its libjpeg-turbo is built without the assembler routines.
+- Measured 21 Sept 2026, two 30 fps test windows to two DUs, Release build: 13-15 % of one core, 105 MB
+  (Python DMC, same test: 19 %, 285 MB).

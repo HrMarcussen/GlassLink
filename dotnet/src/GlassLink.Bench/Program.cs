@@ -4,6 +4,7 @@
 //   GlassLink.Bench stream [--seconds 20] [--fps 30]      a moving test picture to every DU at once
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
+//   GlassLink.Bench run [--seconds 30] [--config ../config.json]      capture the configured windows and feed the DUs
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
 //
 // Stop the Python DMC first: a DU can only be opened by one program at a time.
@@ -12,6 +13,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
+using GlassLink.Capture;
+using GlassLink.Capture.Windows;
 using GlassLink.Core.Config;
 using GlassLink.Core.Du;
 using GlassLink.Core.Usb;
@@ -21,6 +24,52 @@ var command = args.FirstOrDefault() ?? "list";
 string? Text(string name) => Array.IndexOf(args, name) is var t and >= 0 && t + 1 < args.Length ? args[t + 1] : null;
 int Option(string name, int fallback) =>
     Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var v) ? v : fallback;
+
+if (command == "run")
+{
+    // A DMC in miniature: every display of the configuration is captured and the DUs get their assigned displays.
+    WindowFinder.SetDpiAware();
+    var copy = Path.Combine(Path.GetTempPath(), "glasslink-bench-config.json");
+    File.Copy(Text("--config") ?? "../config.json", copy, overwrite: true);
+    var config = ConfigFile.Load(copy);
+    var slots = new Dictionary<string, FrameSlot>();
+    var captures = new List<DisplayCapture>();
+    using var manager = DuManager.ForWinUsb(config, n => slots.GetValueOrDefault(n), Console.WriteLine);
+    foreach (var (name, node) in config.Root["displays"] as System.Text.Json.Nodes.JsonObject ?? [])
+    {
+        slots[name] = new FrameSlot(name);
+        captures.Add(new DisplayCapture(name, (System.Text.Json.Nodes.JsonObject)node!, config.Root["capture"] as System.Text.Json.Nodes.JsonObject,
+            slots[name], () => manager.IsShown(name), Console.WriteLine));
+    }
+
+    manager.Start();
+    var me = Process.GetCurrentProcess();
+    var clock = Stopwatch.StartNew();
+    var before = captures.ToDictionary(c => c.Name, c => c.Counters);
+    var cpuBefore = me.TotalProcessorTime;
+    while (clock.Elapsed.TotalSeconds < Option("--seconds", 30))
+    {
+        Thread.Sleep(5000);
+        me.Refresh();
+        Console.WriteLine($"-- {clock.Elapsed.TotalSeconds:0} s   DMC {(me.TotalProcessorTime - cpuBefore).TotalSeconds / 5 * 100:0.0} % of one core, {me.WorkingSet64 / 1e6:0} MB");
+        cpuBefore = me.TotalProcessorTime;
+        foreach (var c in captures)
+        {
+            var (now, was) = (c.Counters, before[c.Name]);
+            before[c.Name] = now;
+            Console.WriteLine($"  {c.Name,-12} {(c.Window is null ? c.Error : $"{c.Window.Client.Width}x{c.Window.Client.Height}"),-18} arrived {(now.Received - was.Received) / 5.0,5:0.0}/s  " +
+                              $"changed {(now.Published - was.Published) / 5.0,5:0.0}/s  skipped {(now.Skipped - was.Skipped) / 5.0,5:0.0}/s  encode {now.EncodeMs,4:0.0} ms  {now.JpegBytes / 1024} KB");
+        }
+
+        foreach (var du in manager.Status().Where(d => d.Alive))
+        {
+            Console.WriteLine($"  {du.Label,-12} -> {du.Display,-10} shows {du.Stats?.Fps,5:0.0} fps  decode {du.Stats?.DecodeMs:0.0}  draw {du.Stats?.DrawMs:0.0}  transfer {du.Stats?.RxMs:0.0} ms  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
+        }
+    }
+
+    captures.ForEach(c => c.Dispose());
+    return 0;
+}
 
 if (command == "manage")
 {

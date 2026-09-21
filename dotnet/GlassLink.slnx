@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/GlassLink.Bench/GlassLink.Bench.csproj" />
+    <Project Path="src/GlassLink.Capture/GlassLink.Capture.csproj" />
     <Project Path="src/GlassLink.Core/GlassLink.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">

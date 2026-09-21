@@ -192,6 +192,15 @@ public sealed class DuManager : IDisposable
         return true;
     }
 
+    /// <summary>True while a connected DU shows this display: the capture layer runs a display at full rate only then.</summary>
+    public bool IsShown(string display)
+    {
+        lock (_gate)
+        {
+            return _connections.Any(kv => kv.Value.Alive && ReferenceEquals(kv.Value.Source, _display(display)) && kv.Value.Source is not null);
+        }
+    }
+
     public DuConnection? Connection(string serial)
     {
         lock (_gate)
