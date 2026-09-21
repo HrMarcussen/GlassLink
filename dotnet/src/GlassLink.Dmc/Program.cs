@@ -26,6 +26,14 @@ internal static class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         string? Option(string name) => Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 
+        if (Option("--render-menu") is { } folder)            // development aid: the tray menu as pictures, light and dark
+        {
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            Tray.RenderPreview(Path.Combine(folder, "menu-dark.png"), Palette.Dark);
+            Tray.RenderPreview(Path.Combine(folder, "menu-light.png"), Palette.Light);
+            return 0;
+        }
+
         using var single = new Mutex(true, @"Local\GlassLink.DMC", out var first);
         if (!first)
         {

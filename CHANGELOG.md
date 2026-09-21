@@ -37,6 +37,19 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   displays. Layer 4: `GlassLink.exe`, the DMC as a tray program with the same HTTP API, status page, display editor,
   Learn, advice and firmware update as the Python DMC (28 tests). Either DMC can be run; they share `config.json`.
 
+### Changed
+- **Status page, a pass with UX glasses on.** Displays carry the names a builder uses (Captain PFD, Upper ECAM, FO ND;
+  the id stays beside it) and, on a wide window, sit in their cockpit positions with the lower ECAM under the upper
+  one. A card says which DU shows it; window handle, backend and frame counters are behind one "technical details"
+  switch. DU rows: label, state, display, brightness ("cockpit knob 25 % -> panel 25 %"), picture ("19 fps, 32 ms
+  per picture" or "not keeping up" with the reason), firmware version; Identify is the one prominent button, an
+  Update button appears only when an update is available, and Ping, Reinstall firmware, Forget and the hardware
+  facts are under "More". Setup rows: one Learn button for the seat the display is clicked from (the other seat,
+  Close window and Remove under "More"), Save appears when something was changed. The pop-out pill shows only while
+  something is happening; the build id moved to the System tab, which also shows the sim's frame rate; no footer.
+- **.NET tray menu** follows Windows' light or dark mode, in the colours of the status page, with rounded hover and
+  corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
+
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
   may be slow without the DMC blaming the sim.

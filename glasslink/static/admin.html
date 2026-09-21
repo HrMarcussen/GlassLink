@@ -65,6 +65,28 @@
   .advice > summary { cursor:pointer; padding:.7rem .9rem; display:flex; flex-wrap:wrap; gap:.3rem .7rem; align-items:baseline; list-style-position:inside; }
   .advice > summary b { font-size:1.0625rem; } .advice > summary .where { margin-left:auto; font-size:.875rem; }
   .advice .body { padding:0 .9rem .8rem 1.1rem; } .advice ol { margin:.4rem 0 0; padding-left:1.4rem; } .advice li { margin:.35rem 0; }
+  button.primary { background:var(--acc); border-color:var(--acc); color:var(--bg); font-weight:600; }
+  button.primary:hover { color:var(--bg); filter:brightness(1.12); }
+  button.danger { color:var(--bad); } button.danger:hover { border-color:var(--bad); color:var(--bad); }
+  .idname { color:var(--dim); font-weight:400; font-size:.8125rem; margin-left:.45rem; }
+  .card .shown { margin-top:.55rem; font-size:.875rem; }
+  .card .kv { display:none; } #displays.tech .card .kv { display:grid; }
+  .toggle { font-size:.8125rem; color:var(--dim); text-transform:none; letter-spacing:0; font-weight:400; margin-left:1rem; cursor:pointer; white-space:nowrap; }
+  .toggle input { vertical-align:middle; accent-color:var(--acc); }
+  /* The six displays of an Airbus panel in their cockpit positions, when the window is wide enough for five across. */
+  @media (min-width: 75rem) {
+    .grid.cockpit { grid-template-columns:repeat(5, minmax(0, 1fr)); }
+    .grid.cockpit .card[data-name="pfd"] { grid-area:1 / 1; } .grid.cockpit .card[data-name="nd"] { grid-area:1 / 2; }
+    .grid.cockpit .card[data-name="ecam_upper"] { grid-area:1 / 3; } .grid.cockpit .card[data-name="ecam_lower"] { grid-area:2 / 3; }
+    .grid.cockpit .card[data-name="fo_nd"] { grid-area:1 / 4; } .grid.cockpit .card[data-name="fo_pfd"] { grid-area:1 / 5; }
+  }
+  details.more { display:inline-block; vertical-align:middle; }
+  details.more > summary { cursor:pointer; color:var(--acc); font-size:.875rem; list-style:none; padding:.4rem .5rem; border-radius:.4rem; }
+  details.more > summary::-webkit-details-marker { display:none; }
+  details.more > summary::after { content:" \25BE"; } details.more[open] > summary::after { content:" \25B4"; }
+  details.more .box { margin-top:.35rem; display:flex; flex-wrap:wrap; gap:.4rem .5rem; align-items:center; font-size:.875rem; max-width:34rem; }
+  details.more .box .facts { flex-basis:100%; color:var(--dim); font-size:.8125rem; }
+  .save { visibility:hidden; } tr.dirty .save { visibility:visible; }
   section.tab { display:none; } section.tab.on { display:block; }
   /* Narrow windows and high zoom: every table row becomes a card, each cell labelled with its column name. */
   @media (max-width: 62rem) {
@@ -102,7 +124,8 @@
   <div id="learn-banner" hidden style="margin-top:.9rem" role="status" aria-live="polite"></div>
 
   <section class="tab" data-tab="displays">
-  <h2>Displays <span class="pill" id="popout-pill" style="margin-left:8px;text-transform:none;letter-spacing:0"></span></h2>
+  <h2>Displays <span class="pill" id="popout-pill" hidden style="margin-left:.5rem;text-transform:none;letter-spacing:0"></span>
+    <label class="toggle"><input type="checkbox" id="show-tech"> technical details</label></h2>
   <div class="grid" id="displays"></div>
   </section>
 
@@ -114,9 +137,7 @@
     <div style="margin-top:10px">
       <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24">
       <button id="add-display">Add display</button>
-      <span class="dim small" style="margin-left:.6rem">A new display gets 768 x 768 and the next free off-screen parking slot.
-        Then press <b>Learn (captain seat)</b> for a captain side display or <b>Learn (FO seat)</b> for an FO side
-        display, and Right-Alt + click it once when the banner says so. The DMC sets the camera itself.</span>
+      <span class="dim small" style="margin-left:.6rem">A new display gets 768 x 768 and a free parking place off-screen. Press <b>Learn</b> on it and Right-Alt + click that display once in the cockpit when the banner says so: the DMC sets the camera itself and pops it out on its own from then on.</span>
     </div>
   </div>
   <h2>Camera after a pop-out</h2>
@@ -140,7 +161,6 @@
     Viewer: <code>/view/&lt;display&gt;</code> (add <code>?fps=1</code> for the overlay) &nbsp; MJPEG: <code>/stream/&lt;display&gt;</code></div>
   </section>
 </main>
-<footer>Refreshes every 2 s. Assignments and settings are saved to config.json immediately.</footer>
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
@@ -152,6 +172,17 @@
 
   function pill(text, cls) { return `<span class="pill ${cls}">${text}</span>`; }
 
+  // What a builder calls the displays; anything else keeps its own name. Also the order of a cockpit, left to right.
+  const NICE = { pfd: 'Captain PFD', nd: 'Captain ND', ecam_upper: 'Upper ECAM', ecam_lower: 'Lower ECAM', fo_nd: 'FO ND', fo_pfd: 'FO PFD' };
+  const COCKPIT = ['pfd', 'nd', 'ecam_upper', 'ecam_lower', 'fo_nd', 'fo_pfd'];
+  const nice = (name) => NICE[name] || name;
+  const titled = (name) => NICE[name] ? `${NICE[name]}<span class="idname">${name}</span>` : name;
+  const cockpitOrder = (names) => [...names].sort((a, b) => ((COCKPIT.indexOf(a) + 1) || 99) - ((COCKPIT.indexOf(b) + 1) || 99) || a.localeCompare(b));
+  let modsNow = {};                               // the DUs as of the last refresh (who shows what)
+  try { $('#show-tech').checked = localStorage.getItem('glasslink.tech') === '1'; } catch (e) {}
+  const applyTech = () => { $('#displays').classList.toggle('tech', $('#show-tech').checked); try { localStorage.setItem('glasslink.tech', $('#show-tech').checked ? '1' : '0'); } catch (e) {} };
+  $('#show-tech').onchange = applyTech; applyTech();
+
   // Cards are built once per set of display names and then only patched: rebuilding them every refresh made the
   // whole page jump while the new images loaded.
   let cardsKey = null; const lastSeq = {};
@@ -159,13 +190,15 @@
   let sourceFps = {};
   const isSlow = (name) => advised.some(a => a.id === 'slow_source') && sourceFps[name] !== undefined && sourceFps[name] < 16;
   function renderDisplays(d) {
-    displaysOrder = Object.keys(d);
+    displaysOrder = cockpitOrder(Object.keys(d));
     const key = displaysOrder.join(',');
     if (key !== cardsKey) {
       cardsKey = key;
+      $('#displays').classList.toggle('cockpit', COCKPIT.every(n => n in d));
       $('#displays').innerHTML = displaysOrder.map(name => `<div class="card" data-name="${name}">
-        <div class="title"><span>${name}</span><span class="st"></span></div>
-        <a href="/view/${name}" target="_blank" title="open viewer"><img alt=""></a>
+        <div class="title"><span>${titled(name)}</span><span class="st"></span></div>
+        <a href="/view/${name}" target="_blank" title="open ${nice(name)} in the viewer"><img alt="${nice(name)}"></a>
+        <div class="shown"></div>
         <div class="kv">
           <span>window</span><span class="win"></span>
           <span>size</span><span class="size"></span>
@@ -183,6 +216,8 @@
         : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
            : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
               : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`));
+      const on = Object.values(modsNow).filter(m => m.alive && m.display === name).map(m => m.label || (m.serial || '').slice(0, 8));
+      card.querySelector('.shown').innerHTML = on.length ? `Shown on <b>${on.join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
       card.querySelector('.win').innerHTML = found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>';
       card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
       card.querySelector('.backend').textContent = s.backend || '-';
@@ -211,13 +246,15 @@
   function renderSystem(s) {
     const br = s.brightness || {}; const pr = s.process || {}; const fi = s.firmware_image || {};
     const rows = [
-      ['DMC version', `${s.version}${s.build ? ' (' + s.build + ')' : ''}`],
+      ['DMC version', `${s.version}${s.build ? ' (' + s.build + ')' : ''}${s.engine ? ' · ' + s.engine : ''}`],
+      ['Simulator', (s.sim ? (s.sim.connected ? `connected${s.sim.fps ? ' · ' + s.sim.fps + ' frames a second' : ''}${s.sim.in_cockpit ? '' : ' · not in the cockpit'}` : 'not running') : (br.running ? 'connected' : 'not running'))],
       ['Process', `priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`],
       ['Auto pop-out', `${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`],
       ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
       ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
       ['Current DU firmware', s.firmware_version || '-'],
       ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off'],
+      ['Settings', 'every change on this page is saved to config.json at once; the page refreshes every 2 s'],
     ];
     $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   }
@@ -228,24 +265,31 @@
       $('#modules').innerHTML = '<div class="empty">No DUs connected. Plug a GlassLink DU into any USB port; it appears here within a few seconds and can then be assigned to a display.</div>';
       return;
     }
-    const opts = (cur) => ['<option value="">— not assigned —</option>']
-      .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${n}</option>`)).join('');
+    const openMore = new Set([...document.querySelectorAll('#modules details.more[open]')].map(x => x.closest('tr').dataset.serial));
+    const opts2 = (cur) => ['<option value="">— not assigned —</option>']
+      .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${nice(n)}</option>`)).join('');
     const rows = serials.map(serial => {
       const x = m[serial];
       const alive = x.alive ? pill('connected', 'ok') : pill(x.error || 'not connected', 'bad');
-      const info = x.info || {}; const st = x.stats || {};
+      const info = x.info || {};
+      const facts = info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''} · serial ${serial}` : `serial ${serial}`;
       return `<tr data-serial="${serial}">
-        <td><code>${serial.slice(0, 8)}…</code><br><span class="dim small">${x.description || ''}</span></td>
-        <td><input type="text" class="label" value="${x.label || ''}" placeholder="label" size="12"></td>
+        <td><input type="text" class="label" value="${x.label || ''}" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${serial.slice(0, 8)}</code></span></td>
         <td>${alive}</td>
-        <td><select class="display">${opts(x.display)}</select></td>
-        <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="trim: max brightness; the cockpit knob scales below it"><br><span class="dim small bval"></span></td>
-        <td>${info.fw ? `fw ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw} · ${(info.panel || []).join('x')}${info.slot ? ' · ' + info.slot : ''}${x.fw_outdated ? ' ' + pill('outdated: current firmware is ' + fwVersion, 'warn') : ''}` : '<span class="dim">-</span>'}<br><span class="dim small otamsg"></span></td>
-        <td class="stats">${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim small">${x.frames_sent || 0} frames sent</span></td>
-        <td>${x.alive ? `<button class="ident${x.ident_active ? ' on' : ''}">${x.ident_active ? 'Stop identify' : 'Identify'}</button> <button class="ping">Ping</button> <button class="update" title="install the built firmware image over USB">Update</button> <span class="dim small pingms">${x.ping_ms != null ? x.ping_ms + ' ms' : ''}</span>` : `<button class="forget" title="remove this module's assignment and label from the config">Forget</button>`}</td>
+        <td><select class="display" aria-label="display shown on this unit">${opts2(x.display)}</select></td>
+        <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
+        <td class="stats"></td>
+        <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
+        <td>${x.alive ? `<button class="ident primary${x.ident_active ? ' on' : ''}" title="shows this DU's label on its own panel, so you can see which one it is">${x.ident_active ? 'Stop identify' : 'Identify'}</button>
+            ${x.fw_outdated ? `<button class="update">Update to ${fwVersion}</button>` : ''}` : ''}
+          <details class="more" ${openMore.has(serial) ? 'open' : ''}><summary>More</summary><div class="box">
+            ${x.alive ? `<button class="ping" title="measures the round trip to the DU">Ping</button><span class="dim pingms"></span>
+              ${x.fw_outdated ? '' : `<button class="update" title="installs the built firmware image again">Reinstall firmware</button>`}` : ''}
+            ${!x.alive ? `<button class="forget danger" title="removes this DU's assignment and label">Forget this DU</button>` : ''}
+            <span class="facts">${facts}<span class="sent"></span></span></div></details></td>
       </tr>`;
     }).join('');
-    $('#modules').innerHTML = `<table><thead><tr><th>Module</th><th>Label</th><th>State</th><th>Display</th><th>Brightness</th><th>Firmware</th><th>Stats</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('#modules').innerHTML = `<table><thead><tr><th>Display unit</th><th>State</th><th>Shows</th><th>Brightness</th><th>Picture</th><th>Firmware</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     labelCells($('#modules'));
     document.querySelectorAll('#modules tr[data-serial]').forEach(tr => {
       const serial = tr.dataset.serial;
@@ -258,12 +302,11 @@
       if (ib0) ib0.onclick = (e) => { e.target.blur(); post({ command: 'ident', arg: e.target.classList.contains('on') ? 0 : 600 }).then(() => setTimeout(refresh, 300)); };
       const pb0 = tr.querySelector('.ping');
       if (pb0) pb0.onclick = (e) => { e.target.blur(); post({ command: 'ping', arg: Date.now() & 0xffff }).then(() => setTimeout(refresh, 300)); };
-      const ub0 = tr.querySelector('.update');
-      if (ub0) ub0.onclick = (e) => { e.target.blur();
+      tr.querySelectorAll('.update').forEach(ub0 => ub0.onclick = (e) => { e.target.blur();
         const img = fwImage || {};
         if (!img.available) { alert('No firmware image to install: ' + (img.error || 'unknown')); return; }
         if (confirm(`Install firmware ${img.version} (built ${img.modified}, ${Math.round(img.size / 1024)} KB) on DU ${serial.slice(0, 8)}…?\nThe DU restarts when it is done. Do not unplug it meanwhile.`))
-          post({ command: 'update' }).then(() => setTimeout(refresh, 300)); };
+          post({ command: 'update' }).then(() => setTimeout(refresh, 300)); });
       const fb0 = tr.querySelector('.forget');
       if (fb0) fb0.onclick = (e) => { e.target.blur(); if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${serial}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
     });
@@ -279,41 +322,52 @@
     try { data = await (await fetch('/displays', { cache: 'no-store' })).json(); } catch (e) { return; }
     const busy = ['preparing', 'waiting', 'adopting'].includes((learn || {}).status);
     const key = JSON.stringify([data, busy]);
-    const editing = document.activeElement && document.activeElement.closest?.('#editor-table') && document.activeElement.tagName !== 'BUTTON';
+    const editing = (document.activeElement && document.activeElement.closest?.('#editor-table') && !['BUTTON', 'SUMMARY'].includes(document.activeElement.tagName))
+      || document.querySelector('#editor-table tr.dirty');
     if (key === editorKey || editing) return;
     editorKey = key;
-    const rows = Object.entries(data.displays).map(([name, d]) => {
+    const openMoreEd = new Set([...document.querySelectorAll('#editor-table details.more[open]')].map(x => x.closest('tr').dataset.name));
+    const names = cockpitOrder(Object.keys(data.displays));
+    const rows = names.map(name => {
+      const d = data.displays[name];
       const sz = d.client_size || ['', '']; const pos = d.position || ['', ''];
+      const fo = d.point_view ? d.point_view === 'FO seat' : /^fo_/.test(name);        // which seat this display is clicked from
+      const learnBtn = (seat, primary) => `<button class="${seat === 'fo' ? 'learnmine' : 'learn'}${primary ? '' : ' alt'}" ${busy ? 'disabled' : ''}
+        title="${seat === 'fo' ? 'the DMC switches to the copilot seat view, then you Right-Alt + click the display once' : 'the DMC switches to the captain seat view, then you Right-Alt + click the display once'}">${primary ? (d.has_point ? 'Learn again' : 'Learn') : (seat === 'fo' ? 'Learn from the FO seat' : 'Learn from the captain seat')}</button>`;
       return `<tr data-name="${name}">
-        <td><b>${name}</b><br><span class="dim small">${d.title || ''}</span></td>
-        <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096"></td>
-        <td><input type="number" class="x" value="${pos[0]}"> , <input type="number" class="y" value="${pos[1]}"></td>
-        <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="default" min="0.2" max="60" step="any"></td>
-        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('learned · ' + d.point_view, 'ok') : pill('no click point', 'warn')} ${d.has_window ? pill('window open', 'ok') : pill('no window', 'warn')}</td>
-        <td><button class="save">Save</button> ${d.sim_window ? `<button class="learn" ${busy ? 'disabled' : ''} title="captain side displays: the DMC switches to the captain seat view, then you Right-Alt + click the display">Learn (captain seat)</button> <button class="learnmine" ${busy ? 'disabled' : ''} title="FO side displays, out of reach from the left seat: the DMC switches to the copilot seat view, then you Right-Alt + click the display">Learn (FO seat)</button> <button class="closewin" ${d.has_window ? '' : 'disabled'} title="closes the parked pop-out window (you cannot reach it off-screen); the DMC pops it out again by itself if it has a click point">Close window</button>` : ''} <button class="remove">Remove</button></td>
+        <td><b>${nice(name)}</b><br><span class="dim small">${name}</span></td>
+        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('click point · ' + d.point_view, 'ok') : pill('no click point yet', 'warn')}<br>${d.has_window ? pill('window open', 'ok') : pill('no window', '')}</td>
+        <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096" aria-label="width"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096" aria-label="height"></td>
+        <td><input type="number" class="x" value="${pos[0]}" aria-label="x"> , <input type="number" class="y" value="${pos[1]}" aria-label="y"></td>
+        <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="auto" min="0.2" max="60" step="any" aria-label="capture rate"></td>
+        <td><button class="save primary">Save</button> ${d.sim_window ? learnBtn(fo ? 'fo' : 'captain', true) : ''}
+          <details class="more" ${openMoreEd.has(name) ? 'open' : ''}><summary>More</summary><div class="box">
+            ${d.sim_window ? learnBtn(fo ? 'captain' : 'fo', false) + ` <button class="closewin" ${d.has_window ? '' : 'disabled'} title="closes the parked pop-out window (you cannot reach it off-screen); the DMC pops it out again by itself">Close window</button>` : ''}
+            <button class="remove danger">Remove display</button></div></details></td>
       </tr>`;
     }).join('');
-    $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Size (px)</th><th>Parking position</th><th>Capture fps</th>
-      <th>Pop-out click${data.profile ? ' · ' + data.profile : ''}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Pop-out${data.profile ? ' · ' + data.profile : ''}</th><th>Size (px)</th><th>Parked at</th>
+      <th>Capture fps</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     labelCells($('#editor-table'));
     document.querySelectorAll('#editor-table tr[data-name]').forEach(tr => {
       const name = tr.dataset.name; const v = (c) => tr.querySelector(c).value;
+      tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => tr.classList.add('dirty')));   // Save appears when there is something to save
       tr.querySelector('.save').onclick = (e) => { e.target.blur();
         api(`/displays/${name}`, 'POST', { client_size: [v('.w'), v('.h')], position: [v('.x'), v('.y')], fps: v('.fps') || null })
-          .then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
+          .then(() => { tr.classList.remove('dirty'); editorKey = ''; refresh(); }).catch(() => {}); };
       tr.querySelector('.remove').onclick = (e) => { e.target.blur();
-        if (confirm(`Remove display "${name}"? Any DU showing it becomes unassigned. Its pop-out window stays open in the sim.`))
+        if (confirm(`Remove ${nice(name)}? A DU that shows it becomes unassigned. Its pop-out window stays open in the sim.`))
           api(`/displays/${name}`, 'DELETE').then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
       const lb = tr.querySelector('.learn');
       if (lb) lb.onclick = (e) => { e.target.blur();
-        if (confirm(`Learn the pop-out click for "${name}"?\n\nThe DMC will switch the cockpit camera to the standard view. When the banner says so, Right-Alt + click the ${name} display once. The camera is restored afterwards.`))
+        if (confirm(`Learn where ${nice(name)} is?\n\nThe DMC switches the cockpit camera to the captain seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
           api(`/displays/${name}/learn`, 'POST', { view: 'standard' }).then(() => refresh()).catch(() => {}); };
       const cw = tr.querySelector('.closewin');
       if (cw) cw.onclick = (e) => { e.target.blur();
         api(`/displays/${name}/close`, 'POST').then(r => { if (r && r.closed === false) alert(`${name} has no pop-out window right now.`); refresh(); }).catch(() => {}); };
       const lm = tr.querySelector('.learnmine');
       if (lm) lm.onclick = (e) => { e.target.blur();
-        if (confirm(`Learn "${name}" from the FO seat?\n\nThe DMC switches the sim to the copilot seat view. When the banner says so, Right-Alt + click the ${name} display once. The camera goes back to your seat afterwards.`))
+        if (confirm(`Learn where ${nice(name)} is, from the FO seat?\n\nThe DMC switches the sim to the copilot seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
           api(`/displays/${name}/learn`, 'POST', { view: 'copilot' }).then(() => refresh()).catch(() => {}); };
     });
   }
@@ -324,7 +378,7 @@
     el.className = 'banner' + (st === 'done' ? ' done' : (st === 'error' || st === 'timeout') ? ' bad' : '');
     const head = { preparing: 'Setting the camera…', waiting: 'Now: Right-Alt + click the display', adopting: 'Got it…',
                    done: 'Learned', error: 'Could not learn', timeout: 'No pop-out seen', cancelled: 'Cancelled' }[st] || st;
-    el.innerHTML = `<b>${head}</b><span>${learn.display || ''}: ${learn.detail || ''}</span>` +
+    el.innerHTML = `<b>${head}</b><span>${nice(learn.display || '')}: ${learn.detail || ''}</span>` +
       (['preparing', 'waiting'].includes(st) ? '<button id="learn-cancel" style="margin-left:auto">Cancel</button>' : '');
     const c = $('#learn-cancel'); if (c) c.onclick = () => api('/learn/cancel', 'POST').then(() => refresh()).catch(() => {});
   }
@@ -416,8 +470,8 @@
   async function refresh() {
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
-      $('#version').textContent = `v${s.version}${s.build ? ' (' + s.build + ')' : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
-      advised = s.advice || []; sourceFps = s.source_fps || {};
+      $('#version').textContent = `v${s.version}`; $('#version').title = `build ${s.build || '?'}${s.engine ? ' · ' + s.engine : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
+      advised = s.advice || []; sourceFps = s.source_fps || {}; modsNow = s.modules || {};
       renderChain(s);
       renderAdvice(s.advice || []);
       renderDisplays(s.displays || {});
@@ -434,32 +488,37 @@
       $('#n-displays').textContent = Object.keys(s.displays || {}).length || '';
       $('#n-dus').textContent = Object.values(s.modules || {}).filter(x => x.alive).length || '';
       const po = s.popout || {}; const pp = $('#popout-pill');
-      pp.textContent = `auto pop-out: ${po.status || '?'}${po.detail ? ' · ' + po.detail : ''}${po.last_attempt ? ' · last ' + po.last_attempt : ''}`;
+      pp.hidden = ['idle', 'done', 'off'].includes(po.status || 'off');      // the top bar already says "Displays 6/6"
+      pp.textContent = po.status === 'running' ? 'popping out the displays…' : (po.detail || po.status || '');
       pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
       // Re-render the module table only when something structural changed (assignment, state, settings,
       // ident); the live numbers are patched in place so dropdowns and inputs are never disturbed.
       const mods = s.modules || {};
       const key = JSON.stringify(Object.fromEntries(Object.entries(mods).map(([k, x]) => [k, {
         display: x.display, alive: x.alive, error: x.error, label: x.label, settings: x.settings, info: x.info,
-        ident: x.ident_active, description: x.description, hasStats: !!(x.stats && x.stats.fps !== undefined) }]))) + '|' + Object.keys(s.displays || {}).join(',');
+        ident: x.ident_active, outdated: x.fw_outdated }]))) + '|' + Object.keys(s.displays || {}).join(',') + '|' + (s.firmware_version || '');
       // an input or dropdown being edited blocks a rebuild; a focused button does not
-      const busy = document.activeElement && document.activeElement.closest?.('#modules') && document.activeElement.tagName !== 'BUTTON';
+      const busy = document.activeElement && document.activeElement.closest?.('#modules') && !['BUTTON', 'SUMMARY'].includes(document.activeElement.tagName);
       if (key !== modulesHtmlKey && !busy) { modulesHtmlKey = key; renderModules(mods); }
       for (const [serial, x] of Object.entries(mods)) {
         const tr = document.querySelector(`#modules tr[data-serial="${serial}"]`);
         if (!tr) continue;
         const st = x.stats || {};
-        tr.querySelector('.stats').innerHTML = `${st.fps !== undefined ? `${st.fps} fps · ${st.decode_ms ?? '-'} ms` : '<span class="dim">-</span>'}<br><span class="dim small">${x.frames_sent || 0} frames sent</span>`;
+        const h = x.health || {};
+        tr.querySelector('.stats').innerHTML = !x.alive ? '<span class="dim">-</span>' : !x.display ? '<span class="dim">nothing assigned</span>'
+          : (h.bad ? pill('not keeping up', 'warn') + `<br><span class="dim small">${(h.reasons || []).join('; ')}</span>`
+             : `${st.fps > 0 ? st.fps + ' fps' : 'still picture'}<br><span class="dim small" title="time the DU needs per picture: transfer + decode + draw">${st.fps > 0 ? Math.round((st.rx_ms || 0) + (st.decode_ms || 0) + (st.draw_ms || 0)) + ' ms per picture' : ''}</span>`);
+        const sent = tr.querySelector('.sent'); if (sent) sent.textContent = ` · ${x.frames_sent || 0} pictures sent`;
         const ib = tr.querySelector('.ident');
         if (ib) { ib.textContent = x.ident_active ? 'Stop identify' : 'Identify'; ib.classList.toggle('on', !!x.ident_active); }
         const om = tr.querySelector('.otamsg'); const o = x.ota || {};
         if (om) om.textContent = o.state === 'running' ? `updating to ${o.version || '?'}: ${Math.round((o.progress || 0) * 100)}% (${o.message || ''})`
           : o.state === 'ok' ? `updated ${o.from || '?'} → ${o.version || '?'}` : o.state === 'error' ? `update failed: ${o.message}` : '';
-        const ub = tr.querySelector('.update'); if (ub) ub.disabled = o.state === 'running';
+        tr.querySelectorAll('.update').forEach(ub => { ub.disabled = o.state === 'running'; });
         const pm = tr.querySelector('.pingms');
         if (pm) pm.textContent = x.ping_ms != null ? x.ping_ms + ' ms' : '';
         const bv = tr.querySelector('.bval'); const b = x.brightness || {};
-        if (bv) bv.textContent = b.source === 'sim' ? `knob ${Math.round((b.sim || 0) * 100)}% → DU ${b.sent ?? '-'}%` : (b.sent != null ? `manual ${b.sent}%` : '');
+        if (bv) bv.textContent = b.source === 'sim' ? `cockpit knob ${Math.round((b.sim || 0) * 100)} % → panel ${b.sent ?? '-'} %` : (b.sent != null ? `panel ${b.sent} %` : '');
       }
       $('#clock').textContent = new Date().toLocaleTimeString();
     } catch (e) {

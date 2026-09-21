@@ -202,7 +202,7 @@ public static class Api
     private static JsonObject Displays(DmcRuntime dmc)
     {
         var result = new JsonObject();
-        foreach (var e in dmc.Displays.All.OrderBy(e => e.Name, StringComparer.Ordinal))
+        foreach (var e in dmc.Displays.All)
         {
             var c = e.Capture.Counters;
             var window = e.Capture.HasWindow ? e.Capture.Window : null;

@@ -16,7 +16,7 @@ public enum Health
 }
 
 /// <summary>The three things the top bar of the status page shows, in one line each, and the worst of them.</summary>
-public sealed record Summary(Health Level, string Sim, string Displays, string Dus)
+public sealed record Summary(Health Level, string Sim, string Displays, string Dus, Health SimLevel, Health DisplayLevel, Health DuLevel)
 {
     public static Summary Of(DmcRuntime dmc)
     {
@@ -44,7 +44,7 @@ public sealed record Summary(Health Level, string Sim, string Displays, string D
             worst = Health.Good;                             // no sim is the normal state of a PC that is not flying
         }
 
-        return new Summary(worst, sim, displays, duText);
+        return new Summary(worst, sim, displays, duText, simWindow ? simLevel : Health.Good, displayLevel, duLevel);
     }
 }
 
@@ -86,6 +86,8 @@ public sealed class Tray : IDisposable
             _autostart, new ToolStripSeparator(),
             new ToolStripMenuItem("Quit", null, (_, _) => quit()),
         ]);
+        menu.Opening += (_, _) => { TrayMenuStyle.Apply(menu, Palette.Current); Refresh(); };      // follows the system theme, live
+        TrayMenuStyle.Apply(menu, Palette.Current);
         _icon = new NotifyIcon { Icon = _icons[Health.Attention], Text = "GlassLink DMC", ContextMenuStrip = menu, Visible = true };
         _icon.DoubleClick += (_, _) => OpenStatusPage();
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
@@ -110,7 +112,13 @@ public sealed class Tray : IDisposable
         try
         {
             var s = Summary.Of(_dmc);
-            (_sim.Text, _displays.Text, _dus.Text) = (s.Sim, s.Displays, s.Dus);
+            var palette = Palette.Current;
+            foreach (var (item, text, level) in new[] { (_sim, s.Sim, s.SimLevel), (_displays, s.Displays, s.DisplayLevel), (_dus, s.Dus, s.DuLevel) })
+            {
+                item.Text = $"{Symbol(level)}  {text}";          // a symbol and a colour: never colour alone
+                item.Tag = palette.For(level);
+            }
+
             var tip = $"GlassLink DMC\n{s.Sim}\n{s.Displays}\n{s.Dus}";
             _icon.Text = tip.Length > 127 ? tip[..127] : tip;          // the limit of a notification area tooltip
             if (_shown != s.Level)
@@ -124,6 +132,35 @@ public sealed class Tray : IDisposable
             _dmc.Log($"tray: {ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    /// <summary>Draws the menu into a picture, light or dark, without showing it: for checking the look (--render-menu).</summary>
+    public static void RenderPreview(string file, Palette palette)
+    {
+        using var menu = new ContextMenuStrip();
+        var lines = new[] { (Health.Good, "Sim: FenixA320 CFM SL"), (Health.Attention, "Displays 4/6 · popping out"), (Health.Broken, "DUs 1/2 · DU2 disconnected") };
+        menu.Items.Add(new ToolStripMenuItem("GlassLink DMC 0.5.0") { Enabled = false });
+        foreach (var (level, text) in lines)
+        {
+            menu.Items.Add(new ToolStripMenuItem($"{Symbol(level)}  {text}") { Enabled = false, Tag = palette.For(level) });
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Open status page") { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) });
+        menu.Items.Add(new ToolStripMenuItem("Pop out missing displays now"));
+        menu.Items.Add(new ToolStripMenuItem("Start with Windows") { Checked = true });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Quit"));
+        TrayMenuStyle.Apply(menu, palette);
+        menu.CreateControl();
+        menu.PerformLayout();
+        var size = menu.GetPreferredSize(Size.Empty);
+        menu.Size = size;
+        using var bitmap = new Bitmap(size.Width, size.Height);
+        menu.DrawToBitmap(bitmap, new Rectangle(Point.Empty, size));
+        bitmap.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private static string Symbol(Health level) => level switch { Health.Good => "✓", Health.Attention => "!", _ => "✕" };
 
     /// <summary>The status page in a window of its own (Edge's app mode: no tabs, no address bar); the default browser
     /// if Edge is not there.</summary>
