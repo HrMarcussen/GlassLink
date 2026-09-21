@@ -34,14 +34,22 @@ internal static class Program
             return 0;
         }
 
+        var configPath = Option("--config") ?? FindUpwards("config.json") ?? "config.json";
         using var single = new Mutex(true, @"Local\GlassLink.DMC", out var first);
         if (!first)
         {
+            // Started a second time: the DMC is running already, so this is someone looking for it. Show its status page.
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            if (StatusWindow.Available)
+            {
+                StatusWindow.RunAlone($"http://localhost:{RunningPort(configPath, Option("--port"))}/");
+                return 0;
+            }
+
             MessageBox.Show("The GlassLink DMC is already running (look for its icon in the notification area).", "GlassLink DMC");
             return 2;
         }
 
-        var configPath = Option("--config") ?? FindUpwards("config.json") ?? "config.json";
         using var dmc = new DmcRuntime(configPath);
         var server = dmc.Config.Read(root => root["server"]?.DeepClone() as JsonObject);
         var host = server?["host"]?.GetValue<string>() ?? "0.0.0.0";
@@ -84,6 +92,24 @@ internal static class Program
 
         app.StopAsync().GetAwaiter().GetResult();
         return 0;                                            // leaving the using blocks closes captures, DUs and SimConnect in order
+    }
+
+    /// <summary>The port of the DMC that is already running: the same answer it came to itself, without starting anything.</summary>
+    private static int RunningPort(string configPath, string? option)
+    {
+        if (int.TryParse(option, out var port))
+        {
+            return port;
+        }
+
+        try
+        {
+            return (int)(JsonNode.Parse(File.ReadAllText(configPath))?["server"]?["port"]?.AsDouble() ?? 8765);
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return 8765;
+        }
     }
 
     private static string? FindUpwards(string file)

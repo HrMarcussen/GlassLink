@@ -162,12 +162,18 @@ public sealed class Tray : IDisposable
 
     private static string Symbol(Health level) => level switch { Health.Good => "✓", Health.Attention => "!", _ => "✕" };
 
-    /// <summary>The status page in a window of its own (Edge's app mode: no tabs, no address bar); the default browser
-    /// if Edge is not there.</summary>
+    /// <summary>The status page in the DMC's own window; without a WebView2 runtime, Edge's app mode (no tabs, no
+    /// address bar), and without Edge the default browser.</summary>
     private void OpenStatusPage()
     {
         try
         {
+            if (StatusWindow.Available)
+            {
+                StatusWindow.Open(_url, _dmc.Log);
+                return;
+            }
+
             var edge = new[] { Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.ProgramFiles }
                 .Select(f => Path.Combine(Environment.GetFolderPath(f), "Microsoft", "Edge", "Application", "msedge.exe")).FirstOrDefault(File.Exists);
             Process.Start(edge is not null

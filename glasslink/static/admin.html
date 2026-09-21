@@ -19,11 +19,27 @@
   * { box-sizing: border-box; }
   [hidden] { display:none !important; }
   html { font-size:100%; }
-  body { margin:0; background:var(--bg); color:var(--fg); font: 1rem/1.45 system-ui, "Segoe UI", sans-serif; }
-  header { display:flex; flex-wrap:wrap; align-items:baseline; gap:.4rem 1rem; padding:.9rem 1.4rem; border-bottom:1px solid var(--line); }
-  header h1 { font-size:1.25rem; margin:0; letter-spacing:.02em; }
+  /* The bar stays, the rest scrolls beneath it: the scroll bar starts under the bar, as in an application. */
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font: 1rem/1.45 system-ui, "Segoe UI", sans-serif; display:flex; flex-direction:column; }
+  /* One bar for everything: brand, tabs, status. In the DMC's own window it is also the title bar: the window is
+     dragged by it (app-region) and it carries the minimise / maximise / close buttons. */
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:.2rem 1rem; padding:0 0 0 1.4rem; border-bottom:1px solid var(--line);
+           background:var(--bg); position:relative; flex:none; -webkit-app-region:drag; app-region:drag; user-select:none; min-height:2.9rem; }
+  header a, header button, header .pill, header nav { -webkit-app-region:no-drag; app-region:no-drag; }
+  header h1 { font-size:1.15rem; margin:0; letter-spacing:.02em; white-space:nowrap; }
+  header h1 small { font-weight:400; color:var(--dim); font-size:.8125rem; margin-left:.4rem; }
+  header .right { margin-left:auto; display:flex; align-items:center; gap:.6rem; padding-right:1.4rem; }
+  /* the window buttons keep their corner, also when the bar wraps to a second line in a narrow window */
+  header.hosted { padding-right:9.2rem; } header.hosted .right { padding-right:0; }
+  #winbtns { display:none; position:absolute; top:0; right:0; } header.hosted #winbtns { display:flex; }
+  #winbtns button { border:none; border-radius:0; background:transparent; color:var(--fg); width:2.9rem; min-height:2.9rem; margin:0; padding:0; font-size:1rem; line-height:1; }
+  #winbtns button:hover { background:color-mix(in srgb, var(--fg) 12%, transparent); color:var(--fg); }
+  #winbtns button.close:hover { background:#c42b1c; color:#fff; }
+  #winbtns svg { width:.75rem; height:.75rem; stroke:currentColor; fill:none; stroke-width:1.2; }
   .dim { color:var(--dim); } .small { font-size:.8125rem; }
-  main { padding:1.1rem 1.4rem; max-width:90rem; }
+  main { padding:.7rem 1.4rem 1.1rem; flex:1; min-height:0; overflow-y:auto; }
+  main > * { max-width:90rem; }
   h2 { font-size:.875rem; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); margin:1.4rem 0 .6rem; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap:.9rem; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:.6rem; padding:.75rem; }
@@ -55,8 +71,8 @@
   .banner { margin:0 0 .75rem; padding:.75rem .9rem; border-radius:.6rem; border:1px solid var(--warn); color:var(--fg); background:var(--warn-bg); display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
   .banner.done { border-color:var(--ok); background:var(--ok-bg); } .banner.bad { border-color:var(--bad); background:var(--bad-bg); }
   .banner b { font-size:1.0625rem; }
-  nav { display:flex; flex-wrap:wrap; gap:.25rem; padding:0 1.4rem; border-bottom:1px solid var(--line); background:var(--bg); position:sticky; top:0; z-index:5; }
-  nav a { padding:.7rem 1rem; color:var(--dim); border-bottom:3px solid transparent; font-size:.875rem; text-transform:uppercase; letter-spacing:.08em; }
+  nav { display:flex; flex-wrap:wrap; gap:.1rem; align-self:flex-end; }
+  nav a { padding:.75rem .9rem .6rem; color:var(--dim); border-bottom:3px solid transparent; font-size:.875rem; text-transform:uppercase; letter-spacing:.08em; }
   nav a:hover { color:var(--fg); text-decoration:none; } nav a.on { color:var(--fg); border-bottom-color:var(--acc); font-weight:600; }
   nav a .count { color:var(--dim); font-size:.8125rem; margin-left:.3rem; font-weight:400; }
   #advice { margin-top:.9rem; }
@@ -96,29 +112,35 @@
     td { border:none; padding:.3rem .75rem; display:flex; flex-wrap:wrap; gap:.3rem .5rem; align-items:center; white-space:normal !important; }
     td::before { content:attr(data-label); flex:0 0 min(8rem, 32%); color:var(--dim); font-size:.8125rem; text-transform:uppercase; letter-spacing:.05em; }
     td br { display:none; } td:empty { display:none; }
-    header, nav, main, footer { padding-left:.8rem; padding-right:.8rem; }
+    header, main { padding-left:.8rem; } main { padding-right:.8rem; } header .right { padding-right:.8rem; }
   }
   @media (forced-colors: active) { .pill, .card, tr, .banner, button, input, select { border:1px solid CanvasText; } nav a.on { border-bottom-color:Highlight; } }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>GlassLink <span style="font-weight:400;opacity:.6">DMC</span></h1>
-  <span class="dim" id="version"></span>
-  <span id="chain" role="status" aria-label="System status">
-    <a class="pill" id="st-sim" href="#system">Sim</a>
-    <a class="pill" id="st-displays" href="#displays">Displays</a>
-    <a class="pill" id="st-dus" href="#dus">DUs</a>
-  </span>
-  <span class="dim" style="margin-left:auto" id="clock"></span>
+<header id="bar">
+  <h1>GlassLink <span style="font-weight:400;opacity:.6">DMC</span><small id="version"></small></h1>
+  <nav id="tabs" aria-label="Sections">
+    <a href="#displays" data-tab="displays">Displays<span class="count" id="n-displays"></span></a>
+    <a href="#dus" data-tab="dus">Display units<span class="count" id="n-dus"></span></a>
+    <a href="#setup" data-tab="setup">Setup</a>
+    <a href="#system" data-tab="system">System</a>
+  </nav>
+  <div class="right">
+    <span id="chain" role="status" aria-label="System status">
+      <a class="pill" id="st-sim" href="#system">Sim</a>
+      <a class="pill" id="st-displays" href="#displays">Displays</a>
+      <a class="pill" id="st-dus" href="#dus">DUs</a>
+    </span>
+    <span class="dim small" id="clock"></span>
+    <span id="winbtns">
+      <button data-win="min" title="Minimise" aria-label="Minimise"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+      <button data-win="max" title="Maximise" aria-label="Maximise or restore"><svg viewBox="0 0 10 10"><rect x=".6" y=".6" width="8.8" height="8.8"/></svg></button>
+      <button data-win="close" class="close" title="Close the window (the DMC keeps running in the notification area)" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button>
+    </span>
+  </div>
 </header>
-<nav id="tabs" aria-label="Sections">
-  <a href="#displays" data-tab="displays">Displays<span class="count" id="n-displays"></span></a>
-  <a href="#dus" data-tab="dus">Display units<span class="count" id="n-dus"></span></a>
-  <a href="#setup" data-tab="setup">Setup</a>
-  <a href="#system" data-tab="system">System</a>
-</nav>
 <main>
   <div id="advice" role="status" aria-live="polite"></div>
   <div id="learn-banner" hidden style="margin-top:.9rem" role="status" aria-live="polite"></div>
@@ -171,6 +193,13 @@
   let displaysOrder = [];
 
   function pill(text, cls) { return `<span class="pill ${cls}">${text}</span>`; }
+
+  // In the DMC's own window there is no Windows title bar: this bar is it (Windows drags the window by it and maximises on a double click), and its buttons talk to the window.
+  const host = window.chrome && window.chrome.webview;
+  if (host) {
+    $('#bar').classList.add('hosted');
+    document.querySelectorAll('#winbtns button').forEach(b => b.onclick = () => host.postMessage(b.dataset.win));
+  }
 
   // What a builder calls the displays; anything else keeps its own name. Also the order of a cockpit, left to right.
   const NICE = { pfd: 'Captain PFD', nd: 'Captain ND', ecam_upper: 'Upper ECAM', ecam_lower: 'Lower ECAM', fo_nd: 'FO ND', fo_pfd: 'FO PFD' };

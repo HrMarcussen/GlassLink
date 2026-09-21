@@ -47,6 +47,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   facts are under "More". Setup rows: one Learn button for the seat the display is clicked from (the other seat,
   Close window and Remove under "More"), Save appears when something was changed. The pop-out pill shows only while
   something is happening; the build id moved to the System tab, which also shows the sim's frame rate; no footer.
+- **One bar instead of two.** The status page's logo line and tab line are one bar now (brand, tabs, the three status
+  pills, clock); the bar stays while the rest scrolls beneath it, so more of the cockpit fits without scrolling.
+- **.NET DMC: a window of its own for the status page** (WebView2) without the Windows title bar: the page's bar is
+  the title bar. It drags the window, a double click maximises, and it carries minimise, maximise and close; resize
+  borders, shadow, rounded corners and snap are kept. Own icon in the taskbar, remembers its place, size and text
+  zoom (Ctrl + wheel), opens at a size that follows Windows' text scaling. Closing it frees the browser, the DMC
+  runs on in the notification area. Starting GlassLink.exe a second time opens this window instead of an "already
+  running" message. Without a WebView2 runtime it falls back to Edge's app mode, then the default browser. The page
+  stays reachable from any browser on the network (a phone, another PC) exactly as before.
 - **.NET tray menu** follows Windows' light or dark mode, in the colours of the status page, with rounded hover and
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
