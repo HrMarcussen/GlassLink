@@ -67,6 +67,18 @@ if (command == "run")
         }
     }
 
+    if (Text("--dump") is { } folder)                       // the last picture of every display, to look at the crop
+    {
+        Directory.CreateDirectory(folder);
+        foreach (var (name, slot) in slots)
+        {
+            if (slot.Latest is { } last)
+            {
+                File.WriteAllBytes(Path.Combine(folder, name + ".jpg"), last.Jpeg.ToArray());
+            }
+        }
+    }
+
     captures.ForEach(c => c.Dispose());
     return 0;
 }

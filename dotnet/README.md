@@ -8,7 +8,7 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 |---|---|
 | 1. USB and DUs: protocol, WinUSB transport, DU connection (frames, commands, health, firmware update) | done, verified on two DUs |
 | 1b. DU manager: hot-plug, assignments, labels and trim from `config.json` (unknown keys survive a save), brightness = knob x trim | done, verified on two DUs |
-| 2. Capture and encode: window finder (match rules, size, park, never-activate, client crop), Windows.Graphics.Capture, change detection, libjpeg-turbo, capture on demand | done on test windows; to be checked on the sim's pop-outs |
+| 2. Capture and encode: window finder (match rules, size, park, never-activate, client crop), Windows.Graphics.Capture, change detection, libjpeg-turbo, capture on demand | done, verified on the sim's six pop-outs |
 | 3. Pop-out and SimConnect (profiles, camera, brightness link) | next |
 | 4. HTTP API + the existing status page, tray icon, start and stop with the sim | |
 
@@ -40,3 +40,6 @@ Design notes
   first: 6.9 ms, its libjpeg-turbo is built without the assembler routines.
 - Measured 21 Sept 2026, two 30 fps test windows to two DUs, Release build: 13-15 % of one core, 105 MB
   (Python DMC, same test: 19 %, 285 MB).
+- Measured 21 Sept 2026 on the sim (Fenix parked, six pop-outs parked off-screen, DU1 on the PFD, DU2 on the ND):
+  all six windows deliver 30 frames/s, the four unused displays are refused before the copy (29 of 30), pictures
+  cropped cleanly to the client area with the right colours; 10.6 % of one core, 136 MB.
