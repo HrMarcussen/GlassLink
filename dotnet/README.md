@@ -7,8 +7,8 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 | Layer | State |
 |---|---|
 | 1. USB and DUs: protocol, WinUSB transport, DU connection (frames, commands, health, firmware update) | done, verified on two DUs |
-| 1b. DU manager: hot-plug, assignments from `config.json` | next |
-| 2. Capture and encode (Windows.Graphics.Capture, change detection, JPEG) | |
+| 1b. DU manager: hot-plug, assignments, labels and trim from `config.json` (unknown keys survive a save), brightness = knob x trim | done, verified on two DUs |
+| 2. Capture and encode (Windows.Graphics.Capture, change detection, JPEG) | next |
 | 3. Pop-out and SimConnect (profiles, camera, brightness link) | |
 | 4. HTTP API + the existing status page, tray icon, start and stop with the sim | |
 
@@ -16,6 +16,7 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 dotnet test GlassLink.slnx
 dotnet run --project src/GlassLink.Bench -- list
 dotnet run --project src/GlassLink.Bench -- stream --seconds 20 --fps 30
+dotnet run --project src/GlassLink.Bench -- manage --seconds 20      # the DU manager with your real assignments
 dotnet run --project src/GlassLink.Bench -- update ../firmware/build/glasslink_du.bin --serial ff69
 ```
 

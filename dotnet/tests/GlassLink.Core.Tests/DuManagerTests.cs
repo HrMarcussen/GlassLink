@@ -1,0 +1,121 @@
+using System.Text.Json.Nodes;
+using GlassLink.Core.Config;
+using GlassLink.Core.Du;
+using GlassLink.Core.Protocol;
+
+namespace GlassLink.Core.Tests;
+
+public class DuManagerTests
+{
+    private const string Serial = "aabbccddeeff001122334455";
+    private static readonly string Path = $@"\\?\usb#vid_303a&pid_4001#{Serial}#{{b7e8a4c2-6f0d-4e21-9c3a-5d2f1e8b7a60}}";
+
+    private static void Until(Func<bool> condition, int timeoutMs = 3000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition() && Environment.TickCount64 < deadline)
+        {
+            Thread.Sleep(5);
+        }
+
+        Assert.True(condition(), "timed out");
+    }
+
+    private static (DuManager Manager, List<FakeDu> Dus, Dictionary<string, FrameSlot> Displays, ConfigFile Config, List<string> Plugged) Make(string json)
+    {
+        var config = new ConfigFile((JsonObject)JsonNode.Parse(json.Replace("SERIAL", Serial))!);
+        var displays = new Dictionary<string, FrameSlot> { ["pfd"] = new("pfd"), ["nd"] = new("nd") };
+        var dus = new List<FakeDu>();
+        var plugged = new List<string> { Path };
+        var manager = new DuManager(config, name => displays.GetValueOrDefault(name), () => plugged.ToList(), _ =>
+        {
+            var du = new FakeDu();
+            dus.Add(du);
+            return du;
+        });
+        return (manager, dus, displays, config, plugged);
+    }
+
+    [Fact]
+    public void A_plugged_in_du_gets_its_display_from_the_configuration()
+    {
+        var (manager, dus, displays, _, _) = Make("""{"modules":{"SERIAL":{"display":"nd","label":"DU2","brightness":80}},"other":{"kept":true}}""");
+        using var _m = manager;
+        manager.ScanOnce();
+        displays["nd"].Publish(new byte[] { 7 });
+        Until(() => dus[0].Of(MessageType.Frame).Count == 1);
+        Assert.Equal(7, dus[0].Of(MessageType.Frame)[0].Payload.Span[0]);
+
+        var row = manager.Status().Single();
+        Assert.Equal((Serial, "DU2", "nd", 80, true), (row.Serial, row.Label, row.Display, row.Trim, row.Alive));
+        manager.ScanOnce();
+        Assert.Single(dus);                                         // already connected: not opened twice
+    }
+
+    [Fact]
+    public void Reassigning_switches_the_picture_and_saves_without_losing_unknown_keys()
+    {
+        var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"display":"pfd"}},"popout":{"zoom":30}}""");
+        using var _m = manager;
+        manager.ScanOnce();
+        displays["pfd"].Publish(new byte[] { 1 });
+        Until(() => dus[0].Of(MessageType.Frame).Count == 1);
+        displays["nd"].Publish(new byte[] { 2 });
+        manager.Assign(Serial, display: "nd", label: " Captain ND ");
+        Until(() => dus[0].Of(MessageType.Frame).Count == 2);
+        Assert.Equal(2, dus[0].Of(MessageType.Frame)[1].Payload.Span[0]);
+        Assert.Equal("Captain ND", manager.Settings(Serial).Label);
+        Assert.Equal(30, config.Root["popout"]!["zoom"]!.GetValue<int>());
+
+        manager.Assign(Serial, display: "");                        // not assigned: the DU is told, and gets no frames
+        Until(() => dus[0].Of(MessageType.SetAssigned).Any(m => m.Arg == 0));
+        manager.DisplayRemoved("nd");
+        Assert.Equal("", manager.Settings(Serial).Display);
+    }
+
+    [Fact]
+    public void Brightness_is_the_cockpit_knob_times_the_trim_and_is_sent_only_when_it_changes()
+    {
+        var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"display":"pfd","brightness":80}}}""");
+        using var _m = manager;
+        manager.ScanOnce();
+        Until(() => manager.Connection(Serial)?.Info is not null);
+        manager.BrightnessTick();
+        manager.BrightnessTick();
+        Until(() => dus[0].Of(MessageType.SetBrightness).Count == 1);
+        Assert.Equal(80u, dus[0].Of(MessageType.SetBrightness)[0].Arg);         // no knob known: the trim alone
+
+        manager.SimBrightness = display => display == "pfd" ? 0.25 : null;
+        manager.BrightnessTick();
+        manager.BrightnessTick();
+        Until(() => dus[0].Of(MessageType.SetBrightness).Count == 2);
+        Assert.Equal(20u, dus[0].Of(MessageType.SetBrightness)[1].Arg);
+        Assert.Equal(0.25, manager.Status().Single().BrightnessSim);
+    }
+
+    [Fact]
+    public void An_unplugged_du_stays_listed_until_it_is_forgotten_and_reconnects_when_it_returns()
+    {
+        var (manager, dus, _, _, plugged) = Make("""{"modules":{"SERIAL":{"display":"pfd","label":"DU1"}}}""");
+        using var _m = manager;
+        manager.ScanOnce();
+        Assert.False(manager.Forget(Serial));                       // connected: forgetting it would be pointless
+        dus[0].Unplug();
+        Until(() => manager.Connection(Serial)?.Alive == false);
+        plugged.Clear();
+        manager.ScanOnce();
+        Assert.False(manager.Status().Single().Alive);              // still listed: a missing DU must be visible
+
+        plugged.Add(Path);
+        manager.ScanOnce();
+        Assert.Equal(2, dus.Count);
+        Assert.True(manager.Status().Single().Alive);
+
+        dus[1].Unplug();
+        Until(() => manager.Connection(Serial)?.Alive == false);
+        plugged.Clear();
+        manager.ScanOnce();
+        Assert.True(manager.Forget(Serial));
+        Assert.Empty(manager.Status());
+    }
+}

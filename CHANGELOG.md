@@ -29,7 +29,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - **.NET DMC, layer 1** (`dotnet/`): protocol and resyncing message reader, a native WinUSB transport (no libusb),
   the DU connection (newest-frame flow, Identify, ping, brightness, health, firmware update) with tests against an
   in-process DU, and a bench tool. Verified on both DUs: 30.0 fps to each at 3.4 % of one core, ceiling 41-43 fps,
-  firmware update in 3.5 s. The Python DMC stays the one in use until the port is complete.
+  firmware update in 3.5 s. Layer 1b: the DU manager (hot-plug, assignments, labels and trim from the shared
+  `config.json`, brightness = cockpit knob x trim). The Python DMC stays the one in use until the port is complete.
 
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window

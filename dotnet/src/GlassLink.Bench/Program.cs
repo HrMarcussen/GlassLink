@@ -3,6 +3,7 @@
 //   GlassLink.Bench list
 //   GlassLink.Bench stream [--seconds 20] [--fps 30]      a moving test picture to every DU at once
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
+//   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
 //
 // Stop the Python DMC first: a DU can only be opened by one program at a time.
@@ -11,6 +12,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
+using GlassLink.Core.Config;
 using GlassLink.Core.Du;
 using GlassLink.Core.Usb;
 
@@ -19,6 +21,39 @@ var command = args.FirstOrDefault() ?? "list";
 string? Text(string name) => Array.IndexOf(args, name) is var t and >= 0 && t + 1 < args.Length ? args[t + 1] : null;
 int Option(string name, int fallback) =>
     Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var v) ? v : fallback;
+
+if (command == "manage")
+{
+    // The manager as the DMC will use it: hot-plug, assignments and trim from config.json (a copy: nothing is written back).
+    var copy = Path.Combine(Path.GetTempPath(), "glasslink-bench-config.json");
+    File.Copy(Text("--config") ?? "../config.json", copy, overwrite: true);
+    var config = ConfigFile.Load(copy);
+    var names = config.Read(root => (root["displays"] as System.Text.Json.Nodes.JsonObject)?.Select(kv => kv.Key).ToList() ?? []);
+    var displays = names.ToDictionary(n => n, n => new FrameSlot(n));
+    var pictures = names.Select((n, i) => Pattern.Render(768, 768, 60, i, n)).ToList();
+    using var manager = DuManager.ForWinUsb(config, n => displays.GetValueOrDefault(n), Console.WriteLine);
+    manager.Start();
+    var clock = Stopwatch.StartNew();
+    for (var f = 0; clock.Elapsed.TotalSeconds < Option("--seconds", 20); f++)
+    {
+        for (var i = 0; i < names.Count; i++)
+        {
+            displays[names[i]].Publish(pictures[i][f % 60]);
+        }
+
+        Thread.Sleep(33);
+        if (f % 150 == 149)
+        {
+            foreach (var du in manager.Status())
+            {
+                Console.WriteLine($"  {du.Serial[..8]} '{du.Label}' -> {(du.Display.Length > 0 ? du.Display : "(not assigned)")}  alive {du.Alive}  " +
+                                  $"fw {du.Info?.Firmware}  shows {du.Stats?.Fps:0.0} fps  brightness {du.BrightnessSent} % (trim {du.Trim})  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
+            }
+        }
+    }
+
+    return 0;
+}
 
 var paths = WinUsbTransport.FindDevicePaths();
 if (paths.Count == 0)
@@ -168,7 +203,7 @@ static void Stream(List<DuConnection> connections, int seconds, int fps)
 internal static class Pattern
 {
     /// <summary>A sweep hand, a moving bar and a frame counter, as JPEGs: enough change to look like an instrument.</summary>
-    public static List<byte[]> Render(int width, int height, int count, int variant)
+    public static List<byte[]> Render(int width, int height, int count, int variant, string? caption = null)
     {
         var frames = new List<byte[]>(count);
         var codec = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
@@ -185,7 +220,7 @@ internal static class Pattern
             var a = i * 2 * Math.PI / count;
             g.DrawLine(pen, 384, 384, 384 + (float)(290 * Math.Sin(a)), 384 - (float)(290 * Math.Cos(a)));
             g.FillRectangle(Brushes.Orange, i * (width - 60) / count, 720, 60, 24);
-            g.DrawString($".NET DU{variant + 1}  {i:00}", font, Brushes.White, 20, 16);
+            g.DrawString($"{caption ?? $".NET DU{variant + 1}"}  {i:00}", font, Brushes.White, 20, 16);
             using var stream = new MemoryStream();
             bitmap.Save(stream, codec, quality);
             frames.Add(stream.ToArray());

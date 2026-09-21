@@ -32,7 +32,20 @@ internal sealed class FakeDu : IDuTransport
         _toHost.Add(Wire.Pack(MessageType.Ready));
     }
 
-    public byte[]? ReadChunk(int timeoutMs) => _toHost.TryTake(out var chunk, timeoutMs) ? chunk : null;
+    private volatile bool _unplugged;
+
+    /// <summary>Pulls the cable: the next read fails like a real transport's does.</summary>
+    public void Unplug() => _unplugged = true;
+
+    public byte[]? ReadChunk(int timeoutMs)
+    {
+        if (_unplugged)
+        {
+            throw new IOException("device not connected");
+        }
+
+        return _toHost.TryTake(out var chunk, Math.Min(timeoutMs, 50)) ? chunk : null;
+    }
 
     private readonly object _writeGate = new();
 
