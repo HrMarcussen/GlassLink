@@ -98,6 +98,13 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             {
                 ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
+                if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && !ViewMatches(sim, pfd))
+                {
+                    // Clicking now would pop out the wrong instruments (seen 18 Sept 2026: PFD -> ND, ND -> standby horizon).
+                    say("the view still does not match the profile; not clicking. Retrying later.");
+                    continue;
+                }
+
                 foreach (var name in group)
                 {
                     if (Click(name, profile.Points[name], sim))
@@ -139,6 +146,36 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         camera.SetZoom(zoom);
         Thread.Sleep(1200);
         WaitUntilStill(simWindow);
+    }
+
+    /// <summary>
+    /// If the PFD is lit, it must be where the profile expects it. A dark cockpit gives nothing to check: then the
+    /// profile's points are trusted (true). A PFD somewhere else means the camera is not in the calibrated view yet;
+    /// four looks, 1.5 s apart, before giving up (false).
+    /// </summary>
+    private bool ViewMatches(WindowInfo sim, ClickPoint pfd)
+    {
+        var (expectedX, expectedY) = (sim.Client.Left + pfd.X * sim.Client.Width, sim.Client.Top + pfd.Y * sim.Client.Height);
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            if (WindowFinder.Grab(sim.Handle) is not { } grab || PfdDetector.Find(grab.Pixels, grab.Width, grab.Height, grab.Width * 4) is not { } found)
+            {
+                say("displays not detected (dark cockpit?); using the profile's points");
+                return true;
+            }
+
+            var (x, y) = (sim.Window.Left + found.X, sim.Window.Top + found.Y);
+            if (Math.Abs(x - expectedX) < sim.Client.Width * 0.06 && Math.Abs(y - expectedY) < sim.Client.Height * 0.08)
+            {
+                say($"PFD seen at ({x}, {y}), as the profile expects");
+                return true;
+            }
+
+            say($"the PFD is visible at ({x}, {y}) but the profile expects ({expectedX:0}, {expectedY:0}): the view is not the calibrated one yet, waiting ({attempt}/4)");
+            Thread.Sleep(1500);
+        }
+
+        return false;
     }
 
     /// <summary>Camera moves are animated and can take seconds (right after loading, much longer). Two quiet

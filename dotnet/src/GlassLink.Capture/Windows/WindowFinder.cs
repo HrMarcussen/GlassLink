@@ -106,6 +106,50 @@ public static class WindowFinder
     /// <summary>Asks a window to close, as its close button would.</summary>
     public static void Close(nint hwnd) => Native.PostMessage(hwnd, 0x0010, 0, 0);
 
+    /// <summary>The window's picture as BGRA pixels (PrintWindow, works for DirectX windows); null if it cannot be read.</summary>
+    public static unsafe (byte[] Pixels, int Width, int Height)? Grab(nint hwnd)
+    {
+        if (Describe(hwnd) is not { } w || w.Window.Width <= 0 || w.Window.Height <= 0)
+        {
+            return null;
+        }
+
+        var (width, height) = (w.Window.Width, w.Window.Height);
+        var screen = Native.GetDC(0);
+        var memory = Native.CreateCompatibleDC(screen);
+        var header = new Native.BITMAPINFOHEADER { biSize = 40, biWidth = width, biHeight = -height, biPlanes = 1, biBitCount = 32 };
+        var bitmap = Native.CreateDIBSection(memory, ref header, 0, out var bits, 0, 0);
+        try
+        {
+            if (bitmap == 0 || bits == 0)
+            {
+                return null;
+            }
+
+            var old = Native.SelectObject(memory, bitmap);
+            var ok = Native.PrintWindow(hwnd, memory, 2);
+            Native.SelectObject(memory, old);
+            if (!ok)
+            {
+                return null;
+            }
+
+            var pixels = new byte[width * height * 4];
+            new ReadOnlySpan<byte>((void*)bits, pixels.Length).CopyTo(pixels);
+            return (pixels, width, height);
+        }
+        finally
+        {
+            if (bitmap != 0)
+            {
+                Native.DeleteObject(bitmap);
+            }
+
+            Native.DeleteDC(memory);
+            Native.ReleaseDC(0, screen);
+        }
+    }
+
     /// <summary>
     /// The window's picture reduced to a coarse grid of grey values (rows x columns, 0..255), taken with PrintWindow.
     /// Two of these a moment apart tell whether the sim's camera is still moving. Null if the window cannot be read.

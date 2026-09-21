@@ -31,7 +31,8 @@ public sealed record ClickPoint(double X, double Y, CameraSpec Camera);
 /// <summary>What the DMC knows about one aircraft: zoom, click points, brightness variables, and whether the aircraft
 /// dims its own pop-outs.</summary>
 public sealed record AircraftProfile(string Key, double Zoom, IReadOnlyDictionary<string, ClickPoint> Points,
-    IReadOnlyDictionary<string, string> Brightness, string? DimmingFile, string? DimmingTag, string? DimmingOnValue, string? DimmingName);
+    IReadOnlyDictionary<string, string> Brightness, string? DimmingFile, string? DimmingTag, string? DimmingOnValue, string? DimmingName,
+    string? Detect = null);
 
 /// <summary>
 /// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points merge per display).
@@ -43,6 +44,7 @@ public static class Profiles
     {
       "Fenix": {
         "zoom": 30,
+        "detect": "pfd_sphere",
         "points": {
           "pfd": [0.4832, 0.8160], "nd": [0.5805, 0.8090], "ecam_upper": [0.7488, 0.7903], "ecam_lower": [0.7488, 0.9500],
           "fo_nd":  {"xy": [0.4063, 0.8167], "camera": {"mode": "view", "type": 1, "index": 4}},
@@ -128,6 +130,7 @@ public static class Profiles
         var brightness = (o["brightness"] as JsonObject ?? []).Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>());
         var dim = o["popout_dimming"] as JsonObject;
         return new AircraftProfile(key, o["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : defaultZoom, points, brightness,
-            dim?["file"]?.GetValue<string>(), dim?["xml_tag"]?.GetValue<string>(), dim?["on_value"]?.GetValue<string>(), dim?["name"]?.GetValue<string>());
+            dim?["file"]?.GetValue<string>(), dim?["xml_tag"]?.GetValue<string>(), dim?["on_value"]?.GetValue<string>(), dim?["name"]?.GetValue<string>(),
+            o["detect"] is { } detect && detect.GetValueKind() == JsonValueKind.String ? detect.GetValue<string>() : null);
     }
 }

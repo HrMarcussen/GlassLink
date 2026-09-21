@@ -25,6 +25,7 @@ public sealed class DuManager : IDisposable
     private readonly Dictionary<string, int> _brightnessSent = [];
     private readonly Dictionary<string, double?> _brightnessSim = [];
     private readonly Dictionary<string, string> _openErrors = [];
+    private readonly HashSet<string> _rotationSent = [];
     private Timer? _scanTimer;
     private Timer? _brightnessTimer;
 
@@ -73,6 +74,7 @@ public sealed class DuManager : IDisposable
                 conn.Dispose();                     // unplugged or failed: free the handle so it can come back
                 _connections.Remove(serial);
                 _brightnessSent.Remove(serial);
+                _rotationSent.Remove(serial);
             }
 
             foreach (var path in paths)
@@ -117,6 +119,11 @@ public sealed class DuManager : IDisposable
                 }
 
                 var settings = Settings(serial);
+                if (settings.Rotation is { } rotation && _rotationSent.Add(serial))
+                {
+                    conn.Send(GlassLink.Core.Protocol.MessageType.SetRotation, arg: (uint)(((rotation % 360) + 360) % 360));   // once per connection
+                }
+
                 var sim = settings.Display.Length > 0 ? SimBrightness(settings.Display) : null;
                 var percent = sim is { } s ? (int)Math.Round(Math.Clamp(s, 0, 1) * settings.Brightness) : settings.Brightness;
                 _brightnessSim[serial] = sim;

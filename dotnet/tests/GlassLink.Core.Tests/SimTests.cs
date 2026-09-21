@@ -13,6 +13,7 @@ public class SimTests
     {
         var profile = Profiles.Select(Config("{}"), "FenixA320 CFM SL")!;
         Assert.Equal("Fenix", profile.Key);
+        Assert.Equal("pfd_sphere", profile.Detect);
         Assert.Equal(30, profile.Zoom);
         Assert.Equal(["ecam_lower", "ecam_upper", "fo_nd", "fo_pfd", "nd", "pfd"], profile.Points.Keys.Order());
         Assert.Equal("reset", profile.Points["pfd"].Camera.Key);
@@ -35,6 +36,34 @@ public class SimTests
         Assert.False(fenix.Points.ContainsKey("old"));
         var pmdg = Profiles.Select(config, "PMDG 737-800 KLM")!;
         Assert.Equal((35.0, "view:1:4"), (pmdg.Zoom, pmdg.Points["pfd"].Camera.Key));
+    }
+
+    [Fact]
+    public void The_pfd_sphere_is_found_by_its_blue_sky_half()
+    {
+        const int w = 640, h = 360;
+        var pixels = new byte[w * h * 4];
+        void Fill(int x0, int y0, int x1, int y1, byte b, byte g, byte r)
+        {
+            for (var y = y0; y < y1; y++)
+            {
+                for (var x = x0; x < x1; x++)
+                {
+                    (pixels[(y * w + x) * 4], pixels[(y * w + x) * 4 + 1], pixels[(y * w + x) * 4 + 2], pixels[(y * w + x) * 4 + 3]) = (b, g, r, 255);
+                }
+            }
+        }
+
+        Fill(0, 0, w, h, 30, 30, 30);                        // a dark cockpit
+        Assert.Null(PfdDetector.Find(pixels, w, h, w * 4));
+        Fill(300, 200, 380, 240, 200, 110, 40);              // the sky half of the sphere: 80 x 40, saturated blue
+        Fill(500, 100, 510, 200, 200, 110, 40);              // something blue but tall: not it
+        Fill(100, 50, 140, 60, 250, 250, 250);               // white: not it
+        var found = PfdDetector.Find(pixels, w, h, w * 4);
+        Assert.NotNull(found);
+        Assert.InRange(found.Value.X, 336, 344);             // centre of the blob
+        Assert.InRange(found.Value.Y, 236, 242);             // its lower edge = the horizon
+        Assert.InRange(found.Value.Width, 76, 84);
     }
 
     [Fact]

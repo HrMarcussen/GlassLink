@@ -54,8 +54,6 @@ Design notes
 - **A closed pop-out lingers** as a cloaked window that still has its title and counts as visible. Windows are
   therefore enumerated without cloaked ones, and a display has a window only while that window is alive (visible,
   not cloaked, still matching its rule). Found 21 Sept 2026 when displays were not re-popped after a close.
-- Not ported yet: the PFD-sphere detection that the Python pop-out uses to refuse clicking when the view is not the
-  calibrated one; `WaitUntilStill` (camera settled) is ported.
 - Measured 21 Sept 2026, cold start on the sim: six displays popped out in about 35 s after the 10 s grace period
   (captain seat, then copilot seat), camera back on the user's view with Shift+F1, DUs fed, brightness 25 % from the
   knob applied on the DU. Steady state 10 % of one core, 138 MB.
@@ -67,5 +65,6 @@ Design notes
 - **Tray**: a disc with a tick, an exclamation mark or a cross (never colour alone), the three status lines as
   tooltip and menu, the status page in a window of its own (Edge app mode), "Start with Windows" as a menu item
   that only the user switches. No console: the log goes to `logs/dmc-<date>.log`.
-- Still to do for parity: the PFD-sphere safety check of the Python pop-out, display rotation, `max_size`; then
-  "start and stop with the simulator" (exe.xml) and an installer.
+- Ported 21 Sept 2026: the PFD-sphere safety check (the pop-out refuses to click while a lit PFD is not where the
+  profile expects it; verified live: "PFD seen at (1238, 1176), as the profile expects") and DU rotation.
+- Still to do: `max_size`, "start and stop with the simulator" (exe.xml), an installer.
