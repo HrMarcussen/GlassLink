@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\GlassLink.Core\GlassLink.Core.csproj" />
     <ProjectReference Include="..\GlassLink.Capture\GlassLink.Capture.csproj" />
+    <ProjectReference Include="..\GlassLink.Sim\GlassLink.Sim.csproj" />
   </ItemGroup>
 
   <ItemGroup>

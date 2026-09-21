@@ -5,6 +5,7 @@
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
 //   GlassLink.Bench run [--seconds 30] [--config ../config.json]      capture the configured windows and feed the DUs
+//   GlassLink.Bench sim [--seconds 6]                      what SimConnect says: aircraft, camera, fps, brightness knobs
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
 //
 // Stop the Python DMC first: a DU can only be opened by one program at a time.
@@ -18,12 +19,33 @@ using GlassLink.Capture.Windows;
 using GlassLink.Core.Config;
 using GlassLink.Core.Du;
 using GlassLink.Core.Usb;
+using GlassLink.Sim;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;   // 3.5, not 3,5
 var command = args.FirstOrDefault() ?? "list";
 string? Text(string name) => Array.IndexOf(args, name) is var t and >= 0 && t + 1 < args.Length ? args[t + 1] : null;
 int Option(string name, int fallback) =>
     Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var v) ? v : fallback;
+
+if (command == "sim")
+{
+    using var sim = new SimConnectClient(log: Console.WriteLine);
+    var title = sim.Text("TITLE");
+    var state = sim.Number("CAMERA STATE", "Enum");
+    var zoom = sim.Number("COCKPIT CAMERA ZOOM", "Percent");
+    var viewType = sim.Number("CAMERA VIEW TYPE AND INDEX:0", "Enum");
+    var viewIndex = sim.Number("CAMERA VIEW TYPE AND INDEX:1", "Enum");
+    var knobs = new[] { "CO", "CI", "ECAM_U", "ECAM_L", "FO", "FI" }.Select(k => sim.Number($"L:N_DISPLAY_BRIGHTNESS_{k}")).ToList();
+    sim.Start();
+    for (var i = 0; i < Option("--seconds", 6); i++)
+    {
+        Thread.Sleep(1000);
+        Console.WriteLine($"connected {sim.Connected}  '{title.Text}'  camera state {state.Value} view {viewType.Value}/{viewIndex.Value} zoom {zoom.Value:0}  " +
+                          $"sim {sim.SimFps:0.0} fps  brightness {string.Join(" ", knobs.Select(k => k.Value is { } v ? v.ToString("0.00") : "-"))}");
+    }
+
+    return 0;
+}
 
 if (command == "run")
 {

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The simulator's client library (MSFS SDK). Native, 64 bit; copied next to the program. -->
+    <None Include="..\..\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlassLink.Core\GlassLink.Core.csproj" />
+    <ProjectReference Include="..\GlassLink.Capture\GlassLink.Capture.csproj" />
+  </ItemGroup>
+
+</Project>
