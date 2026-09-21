@@ -51,6 +51,9 @@ public sealed class DisplayCapture : IDisposable
 
     public WindowInfo? Window { get; private set; }
 
+    /// <summary>True while the display's window is there and being captured.</summary>
+    public bool HasWindow => _capture is not null && Window is not null;
+
     public string Error { get; private set; } = "";
 
     public DisplayCounters Counters => new(_received, _skipped, _unchanged, _published, _encodeMs, _jpegBytes);
@@ -87,9 +90,10 @@ public sealed class DisplayCapture : IDisposable
 
             try
             {
-                if (_capture is not null && (Window is null || !WindowFinder.IsWindow(Window.Handle)))
+                if (_capture is not null && (Window is null || !WindowFinder.IsAlive(Window.Handle)
+                    || WindowFinder.Describe(Window.Handle) is not { } now || !WindowMatch.From(_display["match"] as JsonObject).Matches(now)))
                 {
-                    Stop($"window of '{Name}' is gone");
+                    Stop($"window of '{Name}' is gone");     // closed, hidden by the sim before it destroys it, or renamed
                 }
 
                 if (_capture is null && WindowFinder.Find(WindowMatch.From(_display["match"] as JsonObject)) is { } found)
@@ -117,6 +121,7 @@ public sealed class DisplayCapture : IDisposable
                 _log?.Invoke($"[{Name}] {Error}");
                 _capture?.Dispose();
                 _capture = null;
+                Window = null;                               // e.g. the window was closed while the capture was being set up
             }
         }
     }

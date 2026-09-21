@@ -4,8 +4,11 @@
 //   GlassLink.Bench stream [--seconds 20] [--fps 30]      a moving test picture to every DU at once
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
-//   GlassLink.Bench run [--seconds 30] [--config ../config.json]      capture the configured windows and feed the DUs
+//   GlassLink.Bench run [--seconds 30] [--config ../config.json] [--sim] [--close-all]
+//        capture the configured windows and feed the DUs; --sim adds SimConnect, automatic pop-out and the brightness
+//        link and works on the real config.json; --close-all closes the pop-outs first (a cold start without restarting the sim)
 //   GlassLink.Bench sim [--seconds 6]                      what SimConnect says: aircraft, camera, fps, brightness knobs
+//   GlassLink.Bench popout <display> [<display>...]        close those pop-outs and pop them out again from .NET
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
 //
 // Stop the Python DMC first: a DU can only be opened by one program at a time.
@@ -47,13 +50,50 @@ if (command == "sim")
     return 0;
 }
 
+if (command == "popout")
+{
+    // The pop-out procedure on the real sim: closes the named displays' windows and lets .NET pop them out again.
+    WindowFinder.SetDpiAware();
+    var config = ConfigFile.Load(Text("--config") ?? "../config.json");
+    using var sim = new SimConnectClient(log: Console.WriteLine);
+    var camera = new SimCamera(sim);
+    sim.Start();
+    for (var i = 0; i < 50 && !camera.Ready; i++)
+    {
+        Thread.Sleep(100);
+    }
+
+    if (!camera.Ready || !camera.InCockpit || Profiles.Select(config.Root, camera.Title) is not { } profile)
+    {
+        Console.WriteLine($"not possible now: connected {sim.Connected}, in cockpit {camera.InCockpit}, aircraft '{camera.Title}'");
+        return 1;
+    }
+
+    var names = args.Skip(1).TakeWhile(a => !a.StartsWith("--")).ToList();
+    foreach (var name in names)
+    {
+        if (WindowFinder.Find(new WindowMatch(PopoutProcedure.SimProcess, null, null, PopoutProcedure.TitlePrefix + name, null, null)) is { } open)
+        {
+            Console.WriteLine($"{name}: closing 0x{open.Handle:x}");
+            WindowFinder.Close(open.Handle);
+        }
+    }
+
+    Thread.Sleep(1500);
+    var watch = Stopwatch.StartNew();
+    var done = new PopoutProcedure(config, camera, Console.WriteLine).Run(names, profile);
+    Console.WriteLine($"popped out {done.Count} of {names.Count} in {watch.Elapsed.TotalSeconds:0.0} s: {string.Join(", ", done)}");
+    return done.Count == names.Count ? 0 : 1;
+}
+
 if (command == "run")
 {
     // A DMC in miniature: every display of the configuration is captured and the DUs get their assigned displays.
     WindowFinder.SetDpiAware();
+    var withSim = args.Contains("--sim");
     var copy = Path.Combine(Path.GetTempPath(), "glasslink-bench-config.json");
     File.Copy(Text("--config") ?? "../config.json", copy, overwrite: true);
-    var config = ConfigFile.Load(copy);
+    var config = ConfigFile.Load(withSim ? Text("--config") ?? "../config.json" : copy);      // pop-outs are recorded in the real file
     var slots = new Dictionary<string, FrameSlot>();
     var captures = new List<DisplayCapture>();
     using var manager = DuManager.ForWinUsb(config, n => slots.GetValueOrDefault(n), Console.WriteLine);
@@ -62,6 +102,29 @@ if (command == "run")
         slots[name] = new FrameSlot(name);
         captures.Add(new DisplayCapture(name, (System.Text.Json.Nodes.JsonObject)node!, config.Root["capture"] as System.Text.Json.Nodes.JsonObject,
             slots[name], () => manager.IsShown(name), Console.WriteLine));
+    }
+
+    SimConnectClient? sim = null;
+    AutoPopout? auto = null;
+    BrightnessLink? link = null;
+    if (withSim)
+    {
+        if (args.Contains("--close-all"))
+        {
+            foreach (var w in WindowFinder.Enumerate().Where(w => w.Title.StartsWith(PopoutProcedure.TitlePrefix, StringComparison.Ordinal)))
+            {
+                WindowFinder.Close(w.Handle);
+            }
+
+            Console.WriteLine("closed all GlassLink pop-outs");
+        }
+
+        sim = new SimConnectClient(log: Console.WriteLine);
+        var camera = new SimCamera(sim);
+        link = new BrightnessLink(config, sim, camera);
+        manager.SimBrightness = link.For;
+        sim.Start();
+        auto = new AutoPopout(config, camera, () => captures.Where(c => !c.HasWindow).Select(c => c.Name).ToList(), Console.WriteLine);
     }
 
     manager.Start();
@@ -83,9 +146,16 @@ if (command == "run")
                               $"changed {(now.Published - was.Published) / 5.0,5:0.0}/s  skipped {(now.Skipped - was.Skipped) / 5.0,5:0.0}/s  encode {now.EncodeMs,4:0.0} ms  {now.JpegBytes / 1024} KB");
         }
 
+        if (withSim)
+        {
+            var b = link!.Status();
+            Console.WriteLine($"  sim {(sim!.Connected ? $"'{b.Aircraft}' {sim.SimFps:0} fps" : "not connected")}   auto pop-out: {auto!.State.Status} - {auto.State.Detail}" +
+                              $"{(b.Standdown is null ? "" : $"   brightness stands down: {b.Standdown}")}");
+        }
+
         foreach (var du in manager.Status().Where(d => d.Alive))
         {
-            Console.WriteLine($"  {du.Label,-12} -> {du.Display,-10} shows {du.Stats?.Fps,5:0.0} fps  decode {du.Stats?.DecodeMs:0.0}  draw {du.Stats?.DrawMs:0.0}  transfer {du.Stats?.RxMs:0.0} ms  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
+            Console.WriteLine($"  {du.Label,-12} -> {du.Display,-10} brightness {du.BrightnessSent,3} % (knob {du.BrightnessSim:0.00})  shows {du.Stats?.Fps,5:0.0} fps  decode {du.Stats?.DecodeMs:0.0}  draw {du.Stats?.DrawMs:0.0}  transfer {du.Stats?.RxMs:0.0} ms  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
         }
     }
 
@@ -101,7 +171,9 @@ if (command == "run")
         }
     }
 
+    auto?.Dispose();
     captures.ForEach(c => c.Dispose());
+    sim?.Dispose();
     return 0;
 }
 

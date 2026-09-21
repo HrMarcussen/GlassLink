@@ -9,7 +9,8 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 | 1. USB and DUs: protocol, WinUSB transport, DU connection (frames, commands, health, firmware update) | done, verified on two DUs |
 | 1b. DU manager: hot-plug, assignments, labels and trim from `config.json` (unknown keys survive a save), brightness = knob x trim | done, verified on two DUs |
 | 2. Capture and encode: window finder (match rules, size, park, never-activate, client crop), Windows.Graphics.Capture, change detection, libjpeg-turbo, capture on demand | done, verified on the sim's six pop-outs |
-| 3. Pop-out and SimConnect (profiles, camera, brightness link) | next |
+| 3. SimConnect client (variables, L:vars, camera, sim fps), aircraft profiles, pop-out procedure, automatic pop-out with give-up, return to the user's view, brightness link with Home Cockpit Mode stand-down | done, verified on the sim: cold start pops out all six |
+| 3c. Learn a click point (captain / FO seat), stray pop-outs | next |
 | 4. HTTP API + the existing status page, tray icon, start and stop with the sim | |
 
 ```
@@ -18,6 +19,8 @@ dotnet run --project src/GlassLink.Bench -- list
 dotnet run --project src/GlassLink.Bench -- stream --seconds 20 --fps 30
 dotnet run --project src/GlassLink.Bench -- manage --seconds 20      # the DU manager with your real assignments
 dotnet run -c Release --project src/GlassLink.Bench -- run --seconds 30   # a DMC in miniature: capture the configured windows, feed the DUs
+dotnet run -c Release --project src/GlassLink.Bench -- sim                  # what SimConnect says: aircraft, camera, fps, knobs
+dotnet run -c Release --project src/GlassLink.Bench -- run --sim --seconds 90   # with automatic pop-out and brightness (Python DMC stopped)
 dotnet run --project src/GlassLink.Bench -- update ../firmware/build/glasslink_du.bin --serial ff69
 ```
 
@@ -43,3 +46,14 @@ Design notes
 - Measured 21 Sept 2026 on the sim (Fenix parked, six pop-outs parked off-screen, DU1 on the PFD, DU2 on the ND):
   all six windows deliver 30 frames/s, the four unused displays are refused before the copy (29 of 30), pictures
   cropped cleanly to the client area with the right colours; 10.6 % of one core, 136 MB.
+- **SimConnect** is bound natively (`lib/SimConnect.dll`, P/Invoke): no managed SDK wrapper, no WASM module. Variables
+  are registered once and pushed by the sim on change; the connection thread waits for the sim, reconnects and
+  re-registers. Replace the DLL with the one from the official MSFS SDK before publishing the repository.
+- **A closed pop-out lingers** as a cloaked window that still has its title and counts as visible. Windows are
+  therefore enumerated without cloaked ones, and a display has a window only while that window is alive (visible,
+  not cloaked, still matching its rule). Found 21 Sept 2026 when displays were not re-popped after a close.
+- Not ported yet: the PFD-sphere detection that the Python pop-out uses to refuse clicking when the view is not the
+  calibrated one; `WaitUntilStill` (camera settled) is ported.
+- Measured 21 Sept 2026, cold start on the sim: six displays popped out in about 35 s after the 10 s grace period
+  (captain seat, then copilot seat), camera back on the user's view with Shift+F1, DUs fed, brightness 25 % from the
+  knob applied on the DU. Steady state 10 % of one core, 138 MB.

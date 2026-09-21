@@ -32,7 +32,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   firmware update in 3.5 s. Layer 1b: the DU manager (hot-plug, assignments, labels and trim from the shared
   `config.json`, brightness = cockpit knob x trim). Layer 2: window finder, Windows.Graphics.Capture, change
   detection, libjpeg-turbo (1.3 ms per frame), capture on demand; two 30 fps test windows to two DUs cost 13-15 % of
-  one core and 105 MB (Python: 19 %, 285 MB). The Python DMC stays the one in use until the port is complete.
+  one core and 105 MB (Python: 19 %, 285 MB). Layer 3: native SimConnect client, aircraft profiles, pop-out procedure,
+  automatic pop-out, return to the user's view, brightness link; verified on the sim with a cold start of all six
+  displays. The Python DMC stays the one in use until the port is complete.
 
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
