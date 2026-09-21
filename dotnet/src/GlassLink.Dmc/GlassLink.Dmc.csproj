@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>GlassLink</AssemblyName>
+    <RootNamespace>GlassLink.Dmc</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\GlassLink.Core\GlassLink.Core.csproj" />
+    <ProjectReference Include="..\GlassLink.Capture\GlassLink.Capture.csproj" />
+    <ProjectReference Include="..\GlassLink.Sim\GlassLink.Sim.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- One status page for both DMCs: the files of the Python version are served as they are. -->
+    <Content Include="..\..\..\glasslink\static\**" Link="static\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\VERSION;..\..\..\FIRMWARE_VERSION" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

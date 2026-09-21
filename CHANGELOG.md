@@ -34,7 +34,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   detection, libjpeg-turbo (1.3 ms per frame), capture on demand; two 30 fps test windows to two DUs cost 13-15 % of
   one core and 105 MB (Python: 19 %, 285 MB). Layer 3: native SimConnect client, aircraft profiles, pop-out procedure,
   automatic pop-out, return to the user's view, brightness link; verified on the sim with a cold start of all six
-  displays. The Python DMC stays the one in use until the port is complete.
+  displays. Layer 4: `GlassLink.exe`, the DMC as a tray program with the same HTTP API, status page, display editor,
+  Learn, advice and firmware update as the Python DMC (28 tests). Either DMC can be run; they share `config.json`.
 
 ### Fixed
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window

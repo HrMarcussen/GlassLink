@@ -1,0 +1,40 @@
+using System.Globalization;
+using System.Text.Json.Nodes;
+
+namespace GlassLink.Core.Config;
+
+public static class JsonNumbers
+{
+    /// <summary>
+    /// A JSON number as a double, wherever it came from. GetValue&lt;double&gt;() only works for numbers that were parsed
+    /// from text; a number this program put into the tree itself (an int position, a brightness) makes it throw.
+    /// Both kinds live in the same configuration tree, so every numeric read goes through here.
+    /// </summary>
+    public static double AsDouble(this JsonNode node)
+    {
+        if (node is JsonValue value)
+        {
+            if (value.TryGetValue<double>(out var d))
+            {
+                return d;
+            }
+
+            if (value.TryGetValue<long>(out var l))
+            {
+                return l;
+            }
+
+            if (value.TryGetValue<int>(out var i))
+            {
+                return i;
+            }
+
+            if (value.TryGetValue<decimal>(out var m))
+            {
+                return (double)m;
+            }
+        }
+
+        return double.Parse(node.ToJsonString(), CultureInfo.InvariantCulture);
+    }
+}

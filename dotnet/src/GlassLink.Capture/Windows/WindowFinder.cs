@@ -1,3 +1,4 @@
+using GlassLink.Core.Config;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -23,7 +24,7 @@ public sealed record WindowMatch(string? Process, string? ClassName, string? Tit
     public static WindowMatch From(JsonObject? o)
     {
         string? Str(string key) => o?[key] is { } n && n.GetValueKind() == JsonValueKind.String ? n.GetValue<string>() : null;
-        var size = o?["client_size"] is JsonArray { Count: 2 } a ? new[] { (int)a[0]!.GetValue<double>(), (int)a[1]!.GetValue<double>() } : null;
+        var size = o?["client_size"] is JsonArray { Count: 2 } a ? new[] { (int)a[0]!.AsDouble(), (int)a[1]!.AsDouble() } : null;
         return new WindowMatch(Str("process"), Str("class"), Str("title"), Str("title_exact"), Str("title_regex"), size);
     }
 

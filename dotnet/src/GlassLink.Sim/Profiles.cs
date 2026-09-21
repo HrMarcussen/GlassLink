@@ -1,3 +1,4 @@
+using GlassLink.Core.Config;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -16,7 +17,7 @@ public sealed record CameraSpec(int? ViewType, int? ViewIndex)
 
     public static CameraSpec From(JsonObject? o) =>
         o?["type"] is { } t && o["index"] is { } i && t.GetValueKind() == JsonValueKind.Number && i.GetValueKind() == JsonValueKind.Number
-            ? new CameraSpec((int)t.GetValue<double>(), (int)i.GetValue<double>())
+            ? new CameraSpec((int)t.AsDouble(), (int)i.AsDouble())
             : PilotReset;
 
     public JsonObject ToJson() => ViewType is null
@@ -92,7 +93,7 @@ public static class Profiles
             }
         }
 
-        var defaultZoom = (config["popout"] as JsonObject)?["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.GetValue<double>() : 30;
+        var defaultZoom = (config["popout"] as JsonObject)?["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : 30;
         return merged.Where(kv => kv.Value is JsonObject).ToDictionary(kv => kv.Key, kv => Parse(kv.Key, (JsonObject)kv.Value!, defaultZoom));
     }
 
@@ -114,11 +115,11 @@ public static class Profiles
             switch (node)
             {
                 case JsonArray { Count: 2 } a:
-                    points[name] = new ClickPoint(a[0]!.GetValue<double>(), a[1]!.GetValue<double>(), profileCamera);
+                    points[name] = new ClickPoint(a[0]!.AsDouble(), a[1]!.AsDouble(), profileCamera);
                     break;
                 // sim custom cameras ("mode": "custom") were a dead end in 0.4 development builds: such a point is not learned
                 case JsonObject p when p["xy"] is JsonArray { Count: 2 } xy && !IsCustomCamera(p):
-                    points[name] = new ClickPoint(xy[0]!.GetValue<double>(), xy[1]!.GetValue<double>(),
+                    points[name] = new ClickPoint(xy[0]!.AsDouble(), xy[1]!.AsDouble(),
                         p["camera"] is JsonObject c ? CameraSpec.From(c) : profileCamera);
                     break;
             }
@@ -126,7 +127,7 @@ public static class Profiles
 
         var brightness = (o["brightness"] as JsonObject ?? []).Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>());
         var dim = o["popout_dimming"] as JsonObject;
-        return new AircraftProfile(key, o["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.GetValue<double>() : defaultZoom, points, brightness,
+        return new AircraftProfile(key, o["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : defaultZoom, points, brightness,
             dim?["file"]?.GetValue<string>(), dim?["xml_tag"]?.GetValue<string>(), dim?["on_value"]?.GetValue<string>(), dim?["name"]?.GetValue<string>());
     }
 }

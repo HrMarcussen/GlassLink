@@ -3,6 +3,7 @@
     <Project Path="src/GlassLink.Bench/GlassLink.Bench.csproj" />
     <Project Path="src/GlassLink.Capture/GlassLink.Capture.csproj" />
     <Project Path="src/GlassLink.Core/GlassLink.Core.csproj" />
+    <Project Path="src/GlassLink.Dmc/GlassLink.Dmc.csproj" />
     <Project Path="src/GlassLink.Sim/GlassLink.Sim.csproj" />
   </Folder>
   <Folder Name="/tests/">

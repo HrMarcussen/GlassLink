@@ -10,10 +10,12 @@ protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and stat
 | 1b. DU manager: hot-plug, assignments, labels and trim from `config.json` (unknown keys survive a save), brightness = knob x trim | done, verified on two DUs |
 | 2. Capture and encode: window finder (match rules, size, park, never-activate, client crop), Windows.Graphics.Capture, change detection, libjpeg-turbo, capture on demand | done, verified on the sim's six pop-outs |
 | 3. SimConnect client (variables, L:vars, camera, sim fps), aircraft profiles, pop-out procedure, automatic pop-out with give-up, return to the user's view, brightness link with Home Cockpit Mode stand-down | done, verified on the sim: cold start pops out all six |
-| 3c. Learn a click point (captain / FO seat), stray pop-outs | next |
-| 4. HTTP API + the existing status page, tray icon, start and stop with the sim | |
+| 3c. Learn a click point (captain / FO seat), stray pop-outs | done (Learn not yet tried on the sim) |
+| 4. The DMC program (`src/GlassLink.Dmc`, `GlassLink.exe`): HTTP API identical to the Python one, serving the same status page and viewer; display editor; advice; firmware update; tray icon with the three states; log file; below-normal priority and CPU pinning; single instance; graceful stop | done, verified against the sim and both DUs |
 
 ```
+dotnet build GlassLink.slnx -c Release
+src/GlassLink.Dmc/bin/Release/net10.0-windows10.0.26100.0/GlassLink.exe      # the DMC: tray icon, http://localhost:8765/
 dotnet test GlassLink.slnx
 dotnet run --project src/GlassLink.Bench -- list
 dotnet run --project src/GlassLink.Bench -- stream --seconds 20 --fps 30
@@ -57,3 +59,13 @@ Design notes
 - Measured 21 Sept 2026, cold start on the sim: six displays popped out in about 35 s after the 10 s grace period
   (captain seat, then copilot seat), camera back on the user's view with Shift+F1, DUs fed, brightness 25 % from the
   knob applied on the DU. Steady state 10 % of one core, 138 MB.
+- **One status page for both DMCs**: `GlassLink.exe` serves `glasslink/static/*.html` (copied at build time) and
+  answers the same routes with the same JSON field names, so the page cannot tell which DMC it talks to (`engine`
+  in `/status` says ".NET"). `python tools/stop_server.py` stops either one.
+- **Numbers in the configuration tree** are read with `JsonNode.AsDouble()` only: `GetValue<double>()` throws for a
+  number that this program put into the tree itself (as an int), and works for one parsed from the file.
+- **Tray**: a disc with a tick, an exclamation mark or a cross (never colour alone), the three status lines as
+  tooltip and menu, the status page in a window of its own (Edge app mode), "Start with Windows" as a menu item
+  that only the user switches. No console: the log goes to `logs/dmc-<date>.log`.
+- Still to do for parity: the PFD-sphere safety check of the Python pop-out, display rotation, `max_size`; then
+  "start and stop with the simulator" (exe.xml) and an installer.

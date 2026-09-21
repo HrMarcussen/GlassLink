@@ -99,6 +99,17 @@ public sealed class DuConnection : IDisposable
 
     public DuStats? Stats { get; private set; }
 
+    /// <summary>INFO and STATS as the DU sent them, for the status page (it shows fields this class does not need).</summary>
+    public JsonElement? InfoJson { get; private set; }
+
+    public JsonElement? StatsJson { get; private set; }
+
+    public DateTime ConnectedAt { get; } = DateTime.UtcNow;
+
+    public DateTime LastMessageAt { get; private set; } = DateTime.UtcNow;
+
+    public string Description => _transport.Description;
+
     public long FramesSent { get; private set; }
 
     public long BytesSent { get; private set; }
@@ -218,7 +229,7 @@ public sealed class DuConnection : IDisposable
                 // gets one); still drain what the DU sent. Without one, the DU is the only thing to wait for.
                 if (_readyPending && Source is { } src)
                 {
-                    if (ServeReady(src, 20))
+                    if (ServeReady(src, 5))                   // short, so that a PONG or STATS is not left waiting
                     {
                         continue;
                     }
@@ -248,6 +259,7 @@ public sealed class DuConnection : IDisposable
             return;
         }
 
+        LastMessageAt = DateTime.UtcNow;
         foreach (var m in _reader.Feed(chunk))
         {
             OnMessage(m);
@@ -288,12 +300,14 @@ public sealed class DuConnection : IDisposable
                 _readyPending = true;
                 break;
             case MessageType.Info:
-                Info = DuInfo.From(m.Json());
+                InfoJson = m.Json();
+                Info = DuInfo.From(InfoJson);
                 _log?.Invoke($"DU {Short} info: {m.Text()}");
                 Send(MessageType.SetAssigned, arg: Source is null ? 0u : 1u);
                 break;
             case MessageType.Stats:
-                Stats = DuStats.From(m.Json());
+                StatsJson = m.Json();
+                Stats = DuStats.From(StatsJson);
                 HealthCheck();
                 break;
             case MessageType.Pong when m.Arg == _pingNonce:

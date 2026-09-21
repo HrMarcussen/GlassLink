@@ -1,0 +1,236 @@
+using System.Diagnostics;
+using System.Text.Json.Nodes;
+using GlassLink.Capture.Windows;
+using GlassLink.Core.Config;
+using GlassLink.Core.Du;
+using GlassLink.Sim;
+
+namespace GlassLink.Dmc;
+
+/// <summary>Everything the DMC consists of, wired together: configuration, displays, DUs, the sim link, advice.</summary>
+public sealed class DmcRuntime : IDisposable
+{
+    private readonly Queue<string> _logTail = new();
+
+    public DmcRuntime(string configPath)
+    {
+        ConfigPath = Path.GetFullPath(configPath);
+        Root = Path.GetDirectoryName(ConfigPath)!;
+        Version = ReadText("VERSION") ?? "0.0.0";
+        FirmwareVersion = ReadText("FIRMWARE_VERSION") ?? Version;
+        Build = GitDescribe(Root);
+        Config = ConfigFile.Load(ConfigPath);
+
+        WindowFinder.SetDpiAware();
+        Process = TuneProcess();
+        Sim = new SimConnectClient(log: Log);
+        Camera = new SimCamera(Sim);
+        Brightness = new BrightnessLink(Config, Sim, Camera);
+        Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log);
+        Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
+        Dus.SimBrightness = display => BrightnessEnabled ? Brightness.For(display) : null;
+        Displays.Removed = Dus.DisplayRemoved;
+        Learner = new Learner(Config, Camera, Log) { PauseAuto = paused => { if (Auto is not null) { Auto.Paused = paused; } } };
+        Advisor = new Advisor();
+    }
+
+    public string ConfigPath { get; }
+
+    public string Root { get; }
+
+    public string Version { get; }
+
+    public string FirmwareVersion { get; }
+
+    public string Build { get; }
+
+    public ConfigFile Config { get; }
+
+    public (string Priority, int[] Affinity) Process { get; }
+
+    public SimConnectClient Sim { get; }
+
+    public SimCamera Camera { get; }
+
+    public BrightnessLink Brightness { get; }
+
+    public DisplayRegistry Displays { get; }
+
+    public DuManager Dus { get; }
+
+    public AutoPopout? Auto { get; private set; }
+
+    public Learner Learner { get; }
+
+    public Advisor Advisor { get; }
+
+    public DateTime Started { get; } = DateTime.UtcNow;
+
+    public bool BrightnessEnabled => Config.Read(root => (root["brightness"] as JsonObject)?["enabled"] is not { } e || e.GetValueKind() != System.Text.Json.JsonValueKind.False);
+
+    public string FirmwareImagePath => Config.Read(root => (root["firmware"] as JsonObject)?["image"]?.GetValue<string>())
+                                       ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
+
+    public void Start()
+    {
+        Log($"GlassLink DMC {Version} ({Build}), configuration {ConfigPath}");
+        Sim.Start();
+        Displays.StartAll();
+        Dus.Start();
+        if (PopoutSettings.From(Config.Root).Auto)
+        {
+            Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
+        }
+    }
+
+    public void Log(string message)
+    {
+        var line = $"{DateTime.Now:HH:mm:ss} {message}";
+        Console.WriteLine(line);
+        try
+        {
+            lock (_logTail)                                  // also to a file: a tray program has no console
+            {
+                Directory.CreateDirectory(Path.Combine(Root, "logs"));
+                File.AppendAllText(Path.Combine(Root, "logs", $"dmc-{DateTime.Now:yyyy-MM-dd}.log"), line + Environment.NewLine);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        lock (_logTail)
+        {
+            _logTail.Enqueue(line);
+            while (_logTail.Count > 200)
+            {
+                _logTail.Dequeue();
+            }
+        }
+    }
+
+    public IReadOnlyList<string> LogTail()
+    {
+        lock (_logTail)
+        {
+            return [.. _logTail];
+        }
+    }
+
+    /// <summary>Carries out a command from the status page. Returns false if the DU is not connected.</summary>
+    public bool Command(string serial, string command, int arg)
+    {
+        if (Dus.Connection(serial) is not { Alive: true } du)
+        {
+            return false;
+        }
+
+        switch (command)
+        {
+            case "ident":
+                du.Ident(Dus.Settings(serial).Label, arg);
+                break;
+            case "ping":
+                du.Ping();
+                break;
+            case "update":
+                if (du.Ota.State == OtaState.Running)
+                {
+                    throw new DisplayException("an update is already running on this DU");
+                }
+
+                try
+                {
+                    du.BeginUpdate(Firmware.Load(FirmwareImagePath).Data);
+                }
+                catch (InvalidDataException ex)
+                {
+                    throw new DisplayException(ex.Message);
+                }
+
+                break;
+            case "reboot":
+                du.Reboot();
+                break;
+            case "info":
+                du.Send(GlassLink.Core.Protocol.MessageType.GetInfo);
+                break;
+            default:
+                throw new DisplayException($"unknown command '{command}'");
+        }
+
+        return true;
+    }
+
+    public void Dispose()
+    {
+        Log("stopping");
+        Auto?.Dispose();
+        Dus.Dispose();                                       // the panels fall back to NOT ASSIGNED
+        Displays.Dispose();                                  // capture sessions are closed one by one, never killed
+        Sim.Dispose();
+    }
+
+    private string? ReadText(string name)
+    {
+        foreach (var folder in new[] { Root, AppContext.BaseDirectory })
+        {
+            var path = Path.Combine(folder, name);
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path).Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static string GitDescribe(string folder)
+    {
+        try
+        {
+            using var git = System.Diagnostics.Process.Start(new ProcessStartInfo("git", "describe --always --dirty --abbrev=7 --exclude *")
+            {
+                WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+            });
+            var text = git?.StandardOutput.ReadToEnd().Trim() ?? "";
+            git?.WaitForExit(3000);
+            return text;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>Keep out of the simulator's way: below-normal priority, and only the last third of the logical CPUs on
+    /// machines with eight or more ("process" section of the configuration: priority, affinity "auto" | [cpus] | null).</summary>
+    private (string, int[]) TuneProcess()
+    {
+        var section = Config.Read(root => root["process"]?.DeepClone() as JsonObject);
+        var priority = section?["priority"]?.GetValue<string>() ?? "below_normal";
+        var me = System.Diagnostics.Process.GetCurrentProcess();
+        me.PriorityClass = priority switch
+        {
+            "normal" => ProcessPriorityClass.Normal,
+            "idle" => ProcessPriorityClass.Idle,
+            _ => ProcessPriorityClass.BelowNormal,
+        };
+
+        var count = Environment.ProcessorCount;
+        int[] cpus = section?["affinity"] switch
+        {
+            JsonArray list => list.Select(n => (int)n!.AsDouble()).Where(n => n >= 0 && n < count).ToArray(),
+            JsonValue v when v.GetValueKind() == System.Text.Json.JsonValueKind.String && v.GetValue<string>() == "auto" && count >= 8
+                => Enumerable.Range(count - count / 3, count / 3).ToArray(),
+            null when count >= 8 => Enumerable.Range(count - count / 3, count / 3).ToArray(),
+            _ => [],
+        };
+        if (cpus.Length > 0)
+        {
+            me.ProcessorAffinity = (nint)cpus.Aggregate(0L, (mask, cpu) => mask | (1L << cpu));
+        }
+
+        return (priority, cpus);
+    }
+}

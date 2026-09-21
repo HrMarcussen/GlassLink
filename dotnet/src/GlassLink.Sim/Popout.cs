@@ -45,7 +45,7 @@ public sealed record PopoutSettings(double GraceSeconds, double RetrySeconds, in
     public static PopoutSettings From(JsonObject config)
     {
         var p = config["popout"] as JsonObject;
-        double Num(string key, double fallback) => p?[key] is { } n && n.GetValueKind() == JsonValueKind.Number ? n.GetValue<double>() : fallback;
+        double Num(string key, double fallback) => p?[key] is { } n && n.GetValueKind() == JsonValueKind.Number ? n.AsDouble() : fallback;
         var key = p?["camera_restore_key"] is { } k && k.GetValueKind() == JsonValueKind.String ? k.GetValue<string>() : null;
         return new PopoutSettings(Num("grace_s", 10), Num("retry_s", 60), (int)Num("max_attempts", 2), string.IsNullOrWhiteSpace(key) ? null : key,
             p?["auto"] is { } a && a.GetValueKind() == JsonValueKind.True);
@@ -279,5 +279,5 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     }
 
     private static (int A, int B)? Pair(JsonNode? node) =>
-        node is JsonArray { Count: 2 } a ? ((int)a[0]!.GetValue<double>(), (int)a[1]!.GetValue<double>()) : null;
+        node is JsonArray { Count: 2 } a ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null;
 }

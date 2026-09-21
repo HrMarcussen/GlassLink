@@ -1,3 +1,4 @@
+using GlassLink.Core.Config;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -72,6 +73,6 @@ public sealed record DuSettings(string Display, string Label, int Brightness, in
     public static DuSettings From(JsonObject? o) => new(
         o?["display"]?.GetValue<string>() ?? "",
         o?["label"]?.GetValue<string>() ?? "",
-        Math.Clamp(o?["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.GetValue<double>() : 100, 0, 100),
-        o?["rotation"] is { } r && r.GetValueKind() == JsonValueKind.Number ? (int)r.GetValue<double>() : null);
+        Math.Clamp(o?["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : 100, 0, 100),
+        o?["rotation"] is { } r && r.GetValueKind() == JsonValueKind.Number ? (int)r.AsDouble() : null);
 }

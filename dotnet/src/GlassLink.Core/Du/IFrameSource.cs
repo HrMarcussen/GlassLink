@@ -38,11 +38,50 @@ public sealed class FrameSlot(string name) : IFrameSource
         }
     }
 
-    /// <summary>Publishes a new picture; returns its sequence number.</summary>
-    public uint Publish(ReadOnlyMemory<byte> jpeg)
+    private readonly Queue<long> _times = new();
+    private int _clients;
+
+    public int Width { get; private set; }
+
+    public int Height { get; private set; }
+
+    public DateTime? LastPublished { get; private set; }
+
+    /// <summary>Viewers on the network (WebSocket, MJPEG) that are looking at this display right now.</summary>
+    public int Clients => Volatile.Read(ref _clients);
+
+    public void AddClient() => Interlocked.Increment(ref _clients);
+
+    public void RemoveClient() => Interlocked.Decrement(ref _clients);
+
+    /// <summary>Pictures published per second over the last two seconds: how fast the content of the display changes.</summary>
+    public double Fps()
     {
         lock (_gate)
         {
+            var cutoff = Environment.TickCount64 - 2000;
+            while (_times.Count > 0 && _times.Peek() < cutoff)
+            {
+                _times.Dequeue();
+            }
+
+            return _times.Count / 2.0;
+        }
+    }
+
+    /// <summary>Publishes a new picture; returns its sequence number.</summary>
+    public uint Publish(ReadOnlyMemory<byte> jpeg, int width = 0, int height = 0)
+    {
+        lock (_gate)
+        {
+            (Width, Height) = (width > 0 ? width : Width, height > 0 ? height : Height);
+            LastPublished = DateTime.UtcNow;
+            _times.Enqueue(Environment.TickCount64);
+            while (_times.Count > 200)
+            {
+                _times.Dequeue();
+            }
+
             _latest = new Frame((_latest?.Seq ?? 0) + 1, jpeg);
             Monitor.PulseAll(_gate);
             return _latest.Seq;

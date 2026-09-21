@@ -1,3 +1,4 @@
+using GlassLink.Core.Config;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,8 +13,8 @@ public sealed record CaptureSettings(double Fps, double IdleFps, double IdleAfte
     public static CaptureSettings From(JsonObject? capture, JsonObject? display)
     {
         double Num(string key, double fallback) =>
-            display?[key] is { } d && d.GetValueKind() == JsonValueKind.Number ? d.GetValue<double>()
-            : capture?[key] is { } c && c.GetValueKind() == JsonValueKind.Number ? c.GetValue<double>() : fallback;
+            display?[key] is { } d && d.GetValueKind() == JsonValueKind.Number ? d.AsDouble()
+            : capture?[key] is { } c && c.GetValueKind() == JsonValueKind.Number ? c.AsDouble() : fallback;
         var subsampling = capture?["subsampling"] is { } s && s.GetValueKind() == JsonValueKind.String ? s.GetValue<string>() : "420";
         return new CaptureSettings(Num("fps", 40), Num("idle_fps", 1), Num("idle_after_s", 5), (int)Num("quality", 85), subsampling != "444");
     }
@@ -55,6 +56,11 @@ public sealed class DisplayCapture : IDisposable
     public bool HasWindow => _capture is not null && Window is not null;
 
     public string Error { get; private set; } = "";
+
+    public CaptureSettings Settings => _settings;
+
+    /// <summary>The rate frames are taken at right now: full while in use, the preview rate otherwise.</summary>
+    public double CurrentFps => Stopwatch.GetElapsedTime(_lastInUse).TotalSeconds > _settings.IdleAfterSeconds ? _settings.IdleFps : _settings.Fps;
 
     public DisplayCounters Counters => new(_received, _skipped, _unchanged, _published, _encodeMs, _jpegBytes);
 
@@ -163,7 +169,7 @@ public sealed class DisplayCapture : IDisposable
     }
 
     private static (int A, int B)? Pair(JsonNode? node) =>
-        node is JsonArray { Count: 2 } a ? ((int)a[0]!.GetValue<double>(), (int)a[1]!.GetValue<double>()) : null;
+        node is JsonArray { Count: 2 } a ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null;
 
     /// <summary>Full rate while something shows this display (and a few seconds after), a preview picture otherwise.</summary>
     private bool WantFrame()
@@ -230,7 +236,7 @@ public sealed class DisplayCapture : IDisposable
             var jpeg = _encoder.Encode(picture, w, h, w * 4);
             _encodeMs = _encodeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
             _jpegBytes = jpeg.Length;
-            _slot.Publish(jpeg);
+            _slot.Publish(jpeg, w, h);
             _published++;
         };
     }
