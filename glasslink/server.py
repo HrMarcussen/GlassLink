@@ -414,7 +414,12 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
 
         from .advisor import Advisor
 
-        app["advisor"] = Advisor()
+        def _sim_displays() -> set[str]:
+            from .registry import SIM_PROCESS
+
+            return {n for n, d in cfg.get("displays", {}).items() if (d.get("match") or {}).get("process") == SIM_PROCESS}
+
+        app["advisor"] = Advisor(sim_displays=_sim_displays)
         app["learner"] = PopoutLearner(cfg, cfg.get("_path"), pause_auto=_pause_auto)
         app["auto_popout"] = None
         if cfg.get("popout", {}).get("auto"):

@@ -338,7 +338,7 @@ class ModuleWorker(threading.Thread):
         self.history: deque = deque(maxlen=300)
         self._hist_sent = 0
         self._hist_t = time.time()
-        self._hist_dropped = 0
+        self._hist_dropped: int | None = None
         self._health_bad = False
 
     # -- public ------------------------------------------------------------------------------
@@ -523,6 +523,8 @@ class ModuleWorker(threading.Thread):
         src_fps = st.fps() if st else 0.0
         s = self.stats
         dropped = int(s.get("dropped") or 0)
+        if self._hist_dropped is None:          # the DU counts since it was powered on: what it dropped before this
+            self._hist_dropped = dropped        # DMC session is not news
         new_drops = dropped - self._hist_dropped
         self._hist_dropped = dropped
         sample = {

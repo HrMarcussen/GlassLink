@@ -6,7 +6,7 @@ assign it (`python -m glasslink assign pattern --title "GlassLink pattern"`) and
 capture, change detection, fps and glass-to-glass latency (compare the clock on this
 window with the clock in the viewer on a phone photo/video).
 
-    python tools/test_pattern.py [--size 600x600] [--fps 30]
+    python tools/test_pattern.py [--size 600x600] [--fps 30] [--title "GlassLink pattern A"]
 """
 
 from __future__ import annotations
@@ -22,12 +22,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--size", default="600x600")
     ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument("--title", default="GlassLink pattern", help="window title (run several with different titles)")
     args = ap.parse_args()
     w, h = (int(v) for v in args.size.lower().split("x"))
 
+    try:                                   # physical pixels: a 768x768 window must be 768x768 for the capture
+        import ctypes
+
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:  # noqa: BLE001
+        pass
     pygame.init()
     screen = pygame.display.set_mode((w, h))
-    pygame.display.set_caption("GlassLink pattern")
+    pygame.display.set_caption(args.title)
     big = pygame.font.SysFont("monospace", max(16, h // 8), bold=True)
     small = pygame.font.SysFont("monospace", max(12, h // 20))
     clock = pygame.time.Clock()

@@ -143,8 +143,12 @@ def slow_source_steps(gpu: dict[str, Any], sim: dict[str, Any]) -> list[str]:
 
 class Advisor:
     def __init__(self, gpu_facts: Callable[[], dict[str, Any]] = read_gpu_facts,
-                 sim_facts: Callable[[], dict[str, Any]] = read_sim_facts, clock: Callable[[], float] = time.monotonic) -> None:
+                 sim_facts: Callable[[], dict[str, Any]] = read_sim_facts, clock: Callable[[], float] = time.monotonic,
+                 sim_displays: Callable[[], set[str]] | None = None) -> None:
         self._gpu_facts, self._sim_facts, self._clock = gpu_facts, sim_facts, clock
+        # Which displays are windows of the simulator. "The sim delivers too few frames" is only said about those:
+        # any other captured window (a test pattern, another program) may be as slow as it likes.
+        self._sim_displays = sim_displays
         self._facts: dict[str, Any] = {}
         self._facts_t = -1e9
         self._prev: dict[str, tuple[int, float]] = {}       # display -> (received, time)
@@ -167,6 +171,7 @@ class Advisor:
         """Update per-display source rates; returns the displays that have been slow for long enough."""
         now = self._clock()
         slow: list[str] = []
+        sim_names = self._sim_displays() if self._sim_displays is not None else set()
         for name, d in displays.items():
             rec = int((d.get("counters") or {}).get("received") or 0)
             prev = self._prev.get(name)
@@ -178,6 +183,8 @@ class Advisor:
                 self._prev[name] = (rec, now)
             rate = self.rates.get(name)
             watched = bool(d.get("in_use")) and bool((d.get("window") or {}).get("hwnd")) and float(d.get("capture_fps") or 0) > SLOW_FPS
+            if self._sim_displays is not None and name not in sim_names:
+                watched = False
             if watched and rate is not None and rate < SLOW_FPS:
                 self._slow_since.setdefault(name, now)
                 if now - self._slow_since[name] >= SLOW_FOR_S:

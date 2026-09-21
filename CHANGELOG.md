@@ -17,6 +17,20 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- **Two DUs on one hub, verified 21 Sept 2026** (DU2 flashed with 0.5.0 over its serial port, both on the DMC):
+  each DU on its own display 29.5 and 30 fps of a 30 fps source, both on the same display 29.5 and 28, assignments
+  swapped under load 29.5 and 29, no frames dropped, transfer 3.8-4.0 ms per frame with both running (the same as
+  one alone), decode 6 ms, draw 12-13 ms; DMC 19 % of one core for two displays at 30 fps, 11 % when both DUs share
+  one display (one capture, one encode). Done without the sim: `tools/test_pattern.py --title ...` runs several
+  moving test windows, and a bench configuration points two displays at them (windows must stay on-screen: a
+  window parked off-screen is only composed by Windows when it is a 3D swap chain like the sim's pop-outs).
+
+### Fixed
+- The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
+  may be slow without the DMC blaming the sim.
+- A DU's dropped-frame count from before the DMC connected was reported as new drops ("stall") at connect.
+
 ## [0.5.0] - 2026-09-20
 
 Found by flying: advice with troubleshooting steps, the 13 fps pop-out problem, and a DU freeze on large frames.

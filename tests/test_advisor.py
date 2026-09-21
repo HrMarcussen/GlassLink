@@ -50,6 +50,13 @@ class AdvisorTests(unittest.TestCase):
         self.assertEqual(self.run_rate(self.make(), 1, 20, in_use=False, cap=1.0), [])    # preview rate of an unused display
         self.assertEqual(self.run_rate(self.make(), 0, 20, hwnd=0), [])                   # no window: another rule's business
 
+    def test_only_windows_of_the_sim_can_be_a_slow_source(self):
+        self.clock = Clock()
+        adv = advisor.Advisor(gpu_facts=dict, sim_facts=dict, clock=self.clock, sim_displays=lambda: {"nd"})
+        self.assertEqual(self.run_rate(adv, 1, 20), [])              # "pfd" here is a test pattern, not a sim window
+        adv = advisor.Advisor(gpu_facts=dict, sim_facts=dict, clock=self.clock, sim_displays=lambda: {"pfd"})
+        self.assertEqual([a["id"] for a in self.run_rate(adv, 1, 20)], ["slow_source"])
+
     def test_steps_follow_the_graphics_card(self):
         nv = " ".join(advisor.slow_source_steps({"nvidia": True}, {"glass_refresh": 2}))
         self.assertIn("Smooth Motion", nv)
