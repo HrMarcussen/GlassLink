@@ -71,7 +71,9 @@ internal static class Program
 
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();                    // the DMC has its own log; the web server stays quiet
-        builder.WebHost.UseUrls($"http://{host}:{port}");
+        // "0.0.0.0" in the configuration means every interface: IPv6 too, so that "localhost" (::1 first on Windows)
+        // connects at once instead of after a 2 s fallback to 127.0.0.1
+        builder.WebHost.UseUrls(host is "0.0.0.0" or "::" or "*" ? $"http://*:{port}" : $"http://{host}:{port}");
         builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(5));
         var app = builder.Build();
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });

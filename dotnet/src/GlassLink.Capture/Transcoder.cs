@@ -10,7 +10,7 @@ namespace GlassLink.Capture;
 public sealed class Transcoder(int maxSize, int quality) : IDisposable
 {
     private readonly TJDecompressor _decoder = new();
-    private readonly JpegEncoder _encoder = new(quality, subsample420: true);
+    private readonly JpegEncoder _encoder = new(quality > 0 ? quality : 85, subsample420: true);      // no quality asked: the DMC's usual
     private readonly object _gate = new();
     private uint _seq;
     private ReadOnlyMemory<byte>? _last;
