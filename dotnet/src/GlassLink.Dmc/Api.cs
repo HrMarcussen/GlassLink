@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GlassLink.Capture;
 using GlassLink.Capture.Windows;
 using GlassLink.Core.Config;
 using GlassLink.Core.Du;
@@ -300,7 +301,8 @@ public static class Api
 
     // -- viewers ---------------------------------------------------------------------------------------------
     /// <summary>The viewer protocol: the client asks for the next frame with "n" and gets the newest one as soon as it
-    /// is newer than what it has (8 bytes: sequence number and server milliseconds, then the JPEG).</summary>
+    /// is newer than what it has (8 bytes: sequence number and server milliseconds, then the JPEG). A lighter client
+    /// (a phone on Wi-Fi) asks for a smaller picture with ?max=384 (longer side in pixels) and/or ?quality=70.</summary>
     private static async Task Viewer(DmcRuntime dmc, string name, HttpContext http)
     {
         if (dmc.Displays.Slot(name) is not { } slot || !http.WebSockets.IsWebSocketRequest)
@@ -309,6 +311,9 @@ public static class Api
             return;
         }
 
+        var max = int.TryParse(http.Request.Query["max"], out var m) ? Math.Clamp(m, 64, 4096) : 0;
+        var quality = int.TryParse(http.Request.Query["quality"], out var q) ? Math.Clamp(q, 20, 100) : 0;
+        using var lighter = Transcoder.Wanted(max, quality) ? new Transcoder(max, quality) : null;
         using var socket = await http.WebSockets.AcceptWebSocketAsync();
         slot.AddClient();
         try
@@ -342,10 +347,11 @@ public static class Api
                     break;
                 }
 
-                var message = new byte[8 + frame.Jpeg.Length];
+                var jpeg = lighter is null ? frame.Jpeg : await Task.Run(() => lighter.Convert(frame.Jpeg, frame.Seq, slot.Width, slot.Height));
+                var message = new byte[8 + jpeg.Length];
                 BinaryPrimitives.WriteUInt32LittleEndian(message, frame.Seq);
                 BinaryPrimitives.WriteUInt32LittleEndian(message.AsSpan(4), (uint)(Environment.TickCount64 & 0xFFFFFFFF));
-                frame.Jpeg.CopyTo(message.AsMemory(8));
+                jpeg.CopyTo(message.AsMemory(8));
                 await socket.SendAsync(message, WebSocketMessageType.Binary, true, http.RequestAborted);
                 last = frame.Seq;
             }

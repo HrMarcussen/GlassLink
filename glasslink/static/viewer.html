@@ -25,6 +25,12 @@
   const showFps = q.get('fps') === '1';
   const rotate = parseInt(q.get('rotate') || '0', 10) || 0;
   const mode = q.get('mode') || 'ws';
+  // A lighter stream for small screens: ?max=384 (longer side in pixels) and ?quality=70 are passed to the DMC, which
+  // re-encodes just for this client. Without ?max, a screen smaller than the display (a phone) asks for its own size.
+  const screenPx = Math.round(Math.min(screen.width, screen.height) * (devicePixelRatio || 1));
+  const max = parseInt(q.get('max') || '0', 10) || (screenPx < 700 ? screenPx : 0);
+  const quality = parseInt(q.get('quality') || '0', 10) || 0;
+  const light = [max ? `max=${max}` : '', quality ? `quality=${quality}` : ''].filter(Boolean).join('&');
   const wrap = document.getElementById('wrap');
   const overlay = document.getElementById('overlay');
   const msg = document.getElementById('msg');
@@ -57,7 +63,7 @@
 
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/${name}`);
+    const ws = new WebSocket(`${proto}://${location.host}/ws/${name}${light ? '?' + light : ''}`);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => { setMsg(''); backoff = 500; ws.send('n'); };
     ws.onmessage = async (ev) => {

@@ -36,6 +36,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - System tab says in words how firmware updates work ("DU firmware this DMC expects", "Firmware image on this PC";
   nothing is fetched from the internet).
 
+- **A lighter stream for phones** (.NET DMC): `/ws/<name>?max=384&quality=70` re-encodes the frames smaller for
+  that one client (about 3 ms a frame, never on the DU path). The viewer page passes `?max=` and `?quality=` on,
+  and on a screen smaller than the display (a phone) asks for its own size by itself: about a quarter of the data
+  over Wi-Fi, same frame rate.
 - **The .NET DMC is the default DMC** (22 Sept 2026): `start-server.bat` starts `GlassLink.exe`; the Python DMC is
   started with `start-dmc-python.bat` and stays as the reference implementation and test tool. Every layer of the
   port was verified against it on the sim and on both DUs before the switch (two DUs at 30 fps, firmware update,
