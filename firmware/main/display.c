@@ -130,12 +130,17 @@ static esp_err_t make_panel(int mode, int dsivar)
     esp_lcd_panel_lt8912b_video_timing_t vt_1024 = ESP_LCD_LT8912B_VIDEO_TIMING_1024x768_60Hz();
     esp_lcd_panel_lt8912b_video_timing_t vt_800 = ESP_LCD_LT8912B_VIDEO_TIMING_800x600_60Hz();
     esp_lcd_panel_lt8912b_video_timing_t vt_720 = ESP_LCD_LT8912B_VIDEO_TIMING_1280x720_60Hz();
+    /* 1080p: one frame buffer (12 MB for two would not leave room for the decode buffers), 30 Hz on two DSI lanes */
+    static esp_lcd_dpi_panel_config_t dpi_1080 = LT8912B_1920x1080_PANEL_30HZ_DPI_CONFIG_WITH_FBS(1);
+    esp_lcd_panel_lt8912b_video_timing_t vt_1080 = ESP_LCD_LT8912B_VIDEO_TIMING_1920x1080_30Hz();
+    dpi_1080.flags.use_dma2d = true;
 
     lt8912b_vendor_config_t vendor = {.mipi_config = {.dsi_bus = dsi, .lane_num = DSI_LANES}};
     switch (mode) {
     case 1: vendor.mipi_config.dpi_config = &dpi_1024; vendor.video_timing = vt_1024; s_info = (display_info_t){1024, 768, 1}; break;
     case 2: vendor.mipi_config.dpi_config = &dpi_800;  vendor.video_timing = vt_800;  s_info = (display_info_t){800, 600, 2}; break;
     case 3: vendor.mipi_config.dpi_config = &dpi_720;  vendor.video_timing = vt_720;  s_info = (display_info_t){1280, 720, 3}; break;
+    case 4: vendor.mipi_config.dpi_config = &dpi_1080; vendor.video_timing = vt_1080; s_info = (display_info_t){1920, 1080, 4}; break;
     default: vendor.mipi_config.dpi_config = &dpi_768; vendor.video_timing = vt_768;  s_info = (display_info_t){768, 768, 0}; break;
     }
     s_vt = vendor.video_timing;

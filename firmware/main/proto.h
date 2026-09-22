@@ -16,9 +16,9 @@
 #define XD_T_SHOW_IDENT     0x05
 #define XD_T_PING           0x06
 #define XD_T_SET_ASSIGNED   0x07   /* arg 1 = a display is assigned, 0 = show NOT ASSIGNED */
-#define XD_T_SET_MODE       0x09
+#define XD_T_SET_MODE       0x09   /* arg = HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720, 4 1920x1080@30): stored, then reboot */
 #define XD_T_SET_LAYOUT     0x0A   /* payload = tiles, 8 bytes each: uint16 LE x, y, w, h (up to 6); arg bit 0 = show test cards */
-#define XD_T_TILE           0x0B   /* a JPEG for one tile of the layout (arg = tile index); answered with READY like FRAME */   /* arg = HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720): stored, then reboot */
+#define XD_T_TILE           0x0B   /* a JPEG for one tile of the layout (arg = tile index); answered with READY like FRAME */
 #define XD_T_OTA_BEGIN      0x10
 #define XD_T_OTA_DATA       0x11
 #define XD_T_OTA_END        0x12

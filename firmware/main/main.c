@@ -401,7 +401,7 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         break;
     }
     case XD_T_SET_MODE:
-        if (h->arg <= 3) {                  /* the HDMI DU on another screen: takes effect after the restart */
+        if (h->arg <= 4) {                  /* the HDMI DU on another screen: takes effect after the restart */
             nvs_set_int("mode", (int)h->arg);
             send_log(1, "HDMI mode %u stored, restarting", (unsigned)h->arg);
             vTaskDelay(pdMS_TO_TICKS(300));

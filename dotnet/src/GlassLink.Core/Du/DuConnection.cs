@@ -287,8 +287,8 @@ public sealed class DuConnection : IDisposable
 
     public void Reboot() => Send(MessageType.Reboot);
 
-    /// <summary>The DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720); it restarts into it.</summary>
-    public void SetMode(int mode) => Send(MessageType.SetMode, arg: (uint)Math.Clamp(mode, 0, 3));
+    /// <summary>The DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720, 4 1920x1080 at 30 Hz); it restarts into it.</summary>
+    public void SetMode(int mode) => Send(MessageType.SetMode, arg: (uint)Math.Clamp(mode, 0, 4));
 
     /// <summary>Installs a firmware image; runs on the DU's own thread, progress in <see cref="Ota"/>.</summary>
     public void BeginUpdate(byte[] image)

@@ -73,12 +73,14 @@
   .banner b { font-size:1.0625rem; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* Layout editor: the DU's screen to scale, the tiles in it; drag a tile or use its number fields (steps of 16). */
-  .layout { display:grid; gap:.6rem; margin-top:.5rem; }
-  .layout .screen { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; width:100%; max-width:34rem; touch-action:none; }
+  .layout { display:flex; flex-direction:column; gap:.6rem; margin-top:.5rem; align-items:flex-start; }
+  .layout .preview { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; height:14rem; max-width:100%; touch-action:none; }
+  .layout .tile { background:color-mix(in srgb, var(--accent) 45%, #000); }
+  tr.layout-row td { padding-top:0; border-top:none; } tr.layout-row details summary { font-size:.875rem; color:var(--dim); }
   .layout .tile { position:absolute; box-sizing:border-box; border:2px solid var(--accent); background:color-mix(in srgb, var(--accent) 25%, transparent); color:var(--fg); font-size:.75rem; padding:.15rem .3rem; cursor:move; user-select:none; overflow:hidden; }
   .layout .tile:focus { outline:2px solid var(--fg); outline-offset:-4px; }
   .layout .tile.off { display:none; }
-  .layout table.tiles td { padding:.2rem .4rem; } .layout table.tiles input[type=number] { width:5.5rem; }
+  .layout table.tiles { width:auto; } .layout table.tiles td { padding:.2rem .6rem; } .layout table.tiles input[type=number] { width:5.5rem; }
   .layout .hint { font-size:.8125rem; color:var(--dim); }
   /* Getting started: done steps carry a tick, the step to do now an arrow and its hint, later steps a circle. */
   #checklist { margin:0 0 .9rem; padding:.8rem 1rem; border-radius:.6rem; border:1px solid var(--line); background:var(--card); }
@@ -341,7 +343,7 @@
       return;
     }
     const openMore = new Set([...document.querySelectorAll('#modules details.more[open]')].map(x => x.closest('tr').dataset.serial));
-    const openLayout = new Set([...document.querySelectorAll('#modules details.layout-box[open]')].map(x => x.closest('tr').dataset.serial));
+    const openLayout = new Set([...document.querySelectorAll('#modules tr.layout-row details[open]')].map(x => x.closest('tr').dataset.serial));
     const opts2 = (cur) => ['<option value="">— not assigned —</option>']
       .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${nice(n)}</option>`)).join('');
     const rows = serials.map(serial => {
@@ -364,9 +366,8 @@
             ${x.alive ? `<button class="ping" title="measures the round trip to the DU">Ping</button><span class="dim pingms"></span>
               ${x.fw_outdated ? '' : `<button class="update" title="installs the built firmware image again">Reinstall firmware</button>`}` : ''}
             ${!x.alive ? `<button class="forget danger" title="removes this DU's assignment and label">Forget this DU</button>` : ''}
-            <span class="facts">${facts}<span class="sent"></span></span></div></details>
-          ${(info.caps || []).includes('tiles') || (info.caps || []).includes('mode') ? `<details class="layout-box" ${openLayout.has(serial) ? 'open' : ''}><summary>Screen and layout</summary><div class="box layout"></div></details>` : ''}</td>
-      </tr>`;
+            <span class="facts">${facts}<span class="sent"></span></span></div></details></td>
+      </tr>${(info.caps || []).includes('tiles') || (info.caps || []).includes('mode') ? `<tr class="layout-row" data-serial="${serial}"><td colspan="7" data-label=""><details class="layout-box" ${openLayout.has(serial) ? 'open' : ''}><summary>Screen and layout of ${x.label || serial.slice(0, 8)}</summary><div class="box layout"></div></details></td></tr>` : ''}`;
     }).join('');
     $('#modules').innerHTML = `<table><thead><tr><th>Display unit</th><th>State</th><th>Shows</th><th>Brightness</th><th>Picture</th><th>Firmware</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     labelCells($('#modules'));
@@ -375,7 +376,7 @@
       const post = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
       const ds = tr.querySelector('.display'); if (ds) ds.onchange = (e) => post({ display: e.target.value });
-      const lb = tr.querySelector('.layout-btn'); const box = tr.querySelector('details.layout-box');
+      const lb = tr.querySelector('.layout-btn'); const box = document.querySelector(`#modules tr.layout-row[data-serial="${serial}"] details.layout-box`);
       if (lb && box) lb.onclick = () => { box.open = true; box.scrollIntoView({ block: 'nearest' }); };
       if (box) { renderLayout(box.querySelector('.layout'), serial, m[serial], post); box.ontoggle = () => { if (box.open) renderLayout(box.querySelector('.layout'), serial, m[serial], post); }; }
       tr.querySelector('.label').onchange = (e) => post({ label: e.target.value });
@@ -397,7 +398,7 @@
   // ---- screen and layout of one DU ------------------------------------------------------------------------
   // The DU's screen to scale with the tiles in it. A tile is a display at a position; its size is the display's own
   // picture size (Setup tab), so nothing is scaled on the way. Positions are free; sizes are multiples of 8.
-  const SCREENS = [[0, '768x768 (GlassLink panel)'], [1, '1024x768'], [2, '800x600'], [3, '1280x720']];
+  const SCREENS = [[0, '768x768 (GlassLink panel)'], [1, '1024x768'], [2, '800x600'], [3, '1280x720'], [4, '1920x1080 (30 Hz)']];
   function renderLayout(el, serial, x, post) {
     if (!el || !x) return;
     const info = x.info || {}; const st = x.settings || {}; const tiles = st.tiles || {};
@@ -416,15 +417,15 @@
         <td><label>y <input type="number" class="ty" min="0" step="1" value="${t ? t.y : 0}" ${t ? '' : 'disabled'} aria-label="${nice(n)} y"></label></td></tr>`;
     }).join('');
     el.innerHTML = `
-      ${(info.caps || []).includes('mode') ? `<label>Screen <select class="screen" aria-label="HDMI mode of this DU"><option value="">as it is (${panel.join('x')})</option>${SCREENS.map(([v, t]) => `<option value="${v}" ${String(v) === String(screen) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span>` : ''}
-      <div class="screen" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen with its tiles">
+      <div class="full">${(info.caps || []).includes('mode') ? `<label>Screen <select class="screen" aria-label="HDMI mode of this DU"><option value="">as it is (${panel.join('x')})</option>${SCREENS.map(([v, t]) => `<option value="${v}" ${String(v) === String(screen) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span>` : ''}</div>
+      <div class="preview" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen with its tiles">
         ${displaysOrder.map(n => { const t = tiles[n]; const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'}" tabindex="${t ? 0 : -1}" data-display="${n}" style="left:${(t ? t.x : 0) / panel[0] * 100}%;top:${(t ? t.y : 0) / panel[1] * 100}%;width:${sz[0] / panel[0] * 100}%;height:${sz[1] / panel[1] * 100}%" title="drag, or arrow keys (1 px; with Shift 8 px)">${nice(n)}</div>`; }).join('')}
       </div>
       <table class="tiles"><tbody>${rows}</tbody></table>
       <div><label><input type="checkbox" class="cards" ${x.cards ? 'checked' : ''}> Show test cards on the DU</label>
         <span class="hint">Each tile as a bright border with its number: stand at the panel and nudge until the border just disappears behind the cutout.</span></div>
-      <div class="hint">Sizes come from each display's picture size on the Setup tab (multiples of 8: the DU's decoder wants that); a tile must lie inside the screen. Without any tile the DU shows the single display chosen in "Shows".</div>`;
+      <div class="hint full">Sizes come from each display's picture size on the Setup tab (multiples of 8: the DU's decoder wants that); a tile must lie inside the screen. Without any tile the DU shows the single display chosen in "Shows".</div>`;
     const read = () => { const out = {}; for (const tr of el.querySelectorAll('table.tiles tr')) { if (tr.querySelector('.on').checked) out[tr.dataset.display] = { x: +tr.querySelector('.tx').value || 0, y: +tr.querySelector('.ty').value || 0 }; } return out; };
     const snap = (v) => Math.max(0, Math.round(v));
     const save = () => { const out = read(); el.dataset.key = ''; post({ tiles: Object.keys(out).length ? out : null }).then(() => setTimeout(refresh, 300)); };
@@ -432,7 +433,7 @@
       tr.querySelector('.on').onchange = save;
       tr.querySelectorAll('.tx, .ty').forEach(i => i.onchange = () => { i.value = snap(+i.value); save(); });
     });
-    const sc = el.querySelector('.screen');
+    const sc = el.querySelector('.preview');
     const move = (n, x, y) => { const tr = el.querySelector(`table.tiles tr[data-display="${n}"]`); tr.querySelector('.tx').value = snap(x); tr.querySelector('.ty').value = snap(y);
       const d = el.querySelector(`.tile[data-display="${n}"]`); d.style.left = `${snap(x) / panel[0] * 100}%`; d.style.top = `${snap(y) / panel[1] * 100}%`; };
     el.querySelectorAll('.tile').forEach(d => {

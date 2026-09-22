@@ -8,7 +8,7 @@
 typedef struct {
     int width;      /* active pixels of the HDMI mode */
     int height;
-    int mode;       /* 0 = 768x768@60 (custom), 1 = 1024x768@60, 2 = 800x600@60, 3 = 1280x720@60 */
+    int mode;       /* 0 = 768x768@60 (custom), 1 = 1024x768@60, 2 = 800x600@60, 3 = 1280x720@60, 4 = 1920x1080@30 (two DSI lanes carry no more) */
 } display_info_t;
 
 /* dsivar: 0 = IDF default (burst, EoTp on), 1 = EoTp off, 2 = + non-burst sync events, 3 = + non-burst sync pulses */

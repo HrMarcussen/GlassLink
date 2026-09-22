@@ -50,6 +50,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   `GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards]`. Picture sizes must be
   multiples of 8 (the ESP32-P4's JPEG decoder: "Picture sizes not divisible by 8 are not supported"); positions
   are free. The display editor rounds `client_size` to 8 accordingly.
+- **[DU firmware] HDMI mode 4 = 1920x1080 at 30 Hz** for an ordinary monitor behind a panel (two DSI lanes carry
+  no more than 30 Hz at that size; one frame buffer). Measured on DU2 without a screen: a 768x768 tile 31 tiles/s
+  (decode 9 ms, draw 18 ms with the DMA2D copy, which the 1080p configuration lacked at first: 56 ms and 14/s
+  without it); two busy 768x768 tiles share that, 15 each. Enough for one busy display and one quiet one; the
+  DU-side pipelining in the backlog would about double it. To be seen on the Arzopa.
 - **A DU with several displays** (.NET DMC): a DU's entry gets `screen` (the HDMI mode it is asked for) and `tiles`
   (display -> position); the DU manager keeps the connected DU in step (mode first, then the layout with the
   displays' sizes, then which display feeds which tile), leaves out tiles that do not fit the screen and says so,

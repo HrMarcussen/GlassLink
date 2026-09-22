@@ -227,7 +227,7 @@ public sealed class DuManager : IDisposable
             var entry = ConfigFile.Section(ConfigFile.Section(root, "modules"), serial);
             if (screen is { } m)
             {
-                entry["screen"] = Math.Clamp(m, 0, 3);
+                entry["screen"] = Math.Clamp(m, 0, 4);
             }
             else
             {
