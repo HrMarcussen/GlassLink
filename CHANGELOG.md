@@ -39,7 +39,14 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - **A lighter stream for phones** (.NET DMC): `/ws/<name>?max=384&quality=70` re-encodes the frames smaller for
   that one client (about 3 ms a frame, never on the DU path). The viewer page passes `?max=` and `?quality=` on,
   and on a screen smaller than the display (a phone) asks for its own size by itself: about a quarter of the data
-  over Wi-Fi, same frame rate.
+  over Wi-Fi, same frame rate. Measured on the sim: a PFD frame 49 KB full size, 18 KB at 384 px, 12 KB at 384 px
+  and quality 60.
+- The .NET DMC listens on IPv6 as well when the configuration says `0.0.0.0`: `localhost` on Windows tries `::1`
+  first and connected only after a 2 s fallback; now 0.01 s.
+- **Endurance, .NET DMC** (22 Sept 2026, sim idle in the cockpit, six displays captured, two DUs fed, one hour, a
+  sample every 30 s): 5.6-9.8 % of one core (average 7.3), working set 176 MB at the start and 187 MB at the end
+  (a brief 227 MB during stream tests), private bytes 106 -> 113 MB, threads 43-52, handles 1288-1329 ending lower
+  than they started: no drift.
 - **The .NET DMC is the default DMC** (22 Sept 2026): `start-server.bat` starts `GlassLink.exe`; the Python DMC is
   started with `start-dmc-python.bat` and stays as the reference implementation and test tool. Every layer of the
   port was verified against it on the sim and on both DUs before the switch (two DUs at 30 fps, firmware update,
