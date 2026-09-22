@@ -21,6 +21,9 @@ public sealed record DisplayEntry(string Name, FrameSlot Slot, DisplayCapture Ca
 public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool> shownOnDu, Action<string> log) : IDisposable
 {
     private const int ParkX0 = 2600, ParkY0 = 0, ParkDx = 800, ParkDy = 820, ParkColumns = 4;
+    /// <summary>The DU's hardware JPEG decoder takes picture sizes that are multiples of 8 only.</summary>
+    private static int Round8(int v) => Math.Max(64, (v + 4) / 8 * 8);
+
     private static readonly string[] Editable = ["client_size", "position", "fps", "quality", "max_size"];
     private readonly Dictionary<string, DisplayEntry> _entries = [];
     private readonly Dictionary<string, FrameSlot> _slots = [];
@@ -275,8 +278,9 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
 
             switch (key)
             {
-                case "client_size":
-                    result[key] = PairOf(value, "size", 64, 4096);
+                case "client_size":                           // multiples of 8: the DU's hardware JPEG decoder takes nothing else
+                    var size = PairOf(value, "size", 64, 4096);
+                    result[key] = new JsonArray(Round8((int)size[0]!.AsDouble()), Round8((int)size[1]!.AsDouble()));
                     break;
                 case "position":
                     result[key] = PairOf(value, "position", -20000, 20000);

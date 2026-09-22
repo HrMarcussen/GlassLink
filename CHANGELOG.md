@@ -47,8 +47,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   cutouts; the last picture of every tile is kept and redrawn after Identify or a brightness change. Measured on
   DU2 in its 1280x720 mode: two 640x640 tiles 48 tiles/s in total (decode 5.6 ms, draw 11.2 ms, transfer 2.5 ms
   each), four tiles of 432x432 and 1280x288 77 tiles/s, one 768x720 tile 36/s. Bench:
-  `GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards]`. The DMC side (a DU with
-  several displays, the layout editor on the status page) follows.
+  `GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards]`. Picture sizes must be
+  multiples of 8 (the ESP32-P4's JPEG decoder: "Picture sizes not divisible by 8 are not supported"); positions
+  are free. The display editor rounds `client_size` to 8 accordingly.
+- **A DU with several displays** (.NET DMC): a DU's entry gets `screen` (the HDMI mode it is asked for) and `tiles`
+  (display -> position); the DU manager keeps the connected DU in step (mode first, then the layout with the
+  displays' sizes, then which display feeds which tile), leaves out tiles that do not fit the screen and says so,
+  and the brightness knob of the first tile's display dims the whole screen. Status page: "Several displays…" on a
+  DU that can (Screen dropdown, the screen to scale with the tiles in it, drag or arrow keys, x/y fields, "Show
+  test cards on the DU"). Verified on the sim: DU2 in 1024x768 with the Captain PFD as a tile at 128,0 fed from the
+  real capture; test cards on and off; back to a single display.
 - **Measured: one DU driving two displays side by side** (DU2 in its 1280x720 mode, test pattern, 22 Sept 2026):
   768x768 41.5 fps (decode 6 ms, draw 13 ms), 1024x704 29 fps (10 / 20 ms), 1280x640 26 fps (11 / 22 ms),
   1280x720 23 fps (12.5 / 25 ms); transfer 3-4 ms throughout. Decode and draw scale with the pixels and run in

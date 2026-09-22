@@ -39,7 +39,7 @@ public class DuManagerTests
     [Fact]
     public void A_du_with_tiles_gets_a_layout_and_each_tile_its_own_frames()
     {
-        var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":3,"tiles":{"pfd":{"x":0,"y":0},"nd":{"x":390,"y":0},"ecam_upper":{"x":0,"y":700}}}}}""");
+        var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":3,"tiles":{"pfd":{"x":0,"y":0},"nd":{"x":381,"y":0},"ecam_upper":{"x":0,"y":700}}}}}""");
         using var _m = manager;
         manager.DisplaySize = name => name == "pfd" ? (384, 384) : (384, 376);
         manager.ScanOnce();
@@ -55,7 +55,7 @@ public class DuManagerTests
         var layout = dus[0].Of(MessageType.SetLayout)[0].Payload.ToArray();
         Assert.Equal(16, layout.Length);
         Assert.Equal((0, 0, 384, 384), (BitConverter.ToUInt16(layout, 0), BitConverter.ToUInt16(layout, 2), BitConverter.ToUInt16(layout, 4), BitConverter.ToUInt16(layout, 6)));
-        Assert.Equal((384, 0, 384, 368), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // snapped to 16
+        Assert.Equal((381, 0, 384, 376), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // the position as given, the size a multiple of 8
         Assert.Contains("ecam_upper", manager.Status().Single().LayoutProblem);                     // 0,700 + 376 does not fit the 768x768 fake: left out, reported
         Assert.Empty(dus[0].Of(MessageType.SetMode));
 

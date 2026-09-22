@@ -58,7 +58,8 @@ def clean_fields(fields: dict[str, Any]) -> dict[str, Any]:
         if value in (None, ""):
             out[key] = None
         elif key == "client_size":
-            out[key] = _pair(value, "size", 64, 4096)
+            # multiples of 8: the DU's hardware JPEG decoder refuses other picture sizes
+            out[key] = [max(64, (v + 4) // 8 * 8) for v in _pair(value, "size", 64, 4096)]
         elif key == "position":
             out[key] = _pair(value, "position", -20000, 20000)
         elif key == "fps":

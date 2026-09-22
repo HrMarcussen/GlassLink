@@ -163,7 +163,7 @@ public sealed class DuManager : IDisposable
         foreach (var (display, x, y) in s.Tiles)
         {
             var (w, h) = DisplaySize(display) ?? (768, 768);
-            var tile = new DuConnection.Tile(Snap(x), Snap(y), Math.Max(16, Snap(w)), Math.Max(16, Snap(h)));
+            var tile = new DuConnection.Tile(Math.Max(0, x), Math.Max(0, y), Math.Max(8, Snap(w)), Math.Max(8, Snap(h)));
             if (tile.X + tile.Width > conn.Info.PanelWidth || tile.Y + tile.Height > conn.Info.PanelHeight)
             {
                 outside.Add($"{display} {tile.Width}x{tile.Height} at {tile.X},{tile.Y} lies outside the {conn.Info.PanelWidth}x{conn.Info.PanelHeight} screen");
@@ -214,8 +214,9 @@ public sealed class DuManager : IDisposable
         }
     }
 
-    /// <summary>Tile positions and sizes on multiples of 16: the DU's decoder and DMA want that (a tile at 854 failed).</summary>
-    private static int Snap(int v) => Math.Max(0, v / 16 * 16);
+    /// <summary>Picture sizes on multiples of 8: the DU's hardware JPEG decoder refuses others ("Picture sizes not divisible
+    /// by 8 are not supported"); positions are free. The display editor rounds client_size the same way.</summary>
+    private static int Snap(int v) => Math.Max(0, (v + 4) / 8 * 8);
 
     // -- screens and layouts (the user's decisions) ------------------------------------------------------------
     /// <summary>The HDMI mode a DU is asked for (null = leave it); applied at once if it is connected.</summary>
@@ -247,7 +248,7 @@ public sealed class DuManager : IDisposable
                 var o = new JsonObject();
                 foreach (var (display, x, y) in tiles)
                 {
-                    o[display] = new JsonObject { ["x"] = Snap(x), ["y"] = Snap(y) };
+                    o[display] = new JsonObject { ["x"] = Math.Max(0, x), ["y"] = Math.Max(0, y) };
                 }
 
                 entry["tiles"] = o;
