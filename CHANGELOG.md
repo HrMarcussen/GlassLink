@@ -36,6 +36,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - System tab says in words how firmware updates work ("DU firmware this DMC expects", "Firmware image on this PC";
   nothing is fetched from the internet).
 
+- **[DU firmware] `SET_MODE` (0x09)**: the host sets the DU's HDMI mode (0 = 768x768, 1 = 1024x768, 2 = 800x600,
+  3 = 1280x720); the DU stores it and restarts into it, and keeps it across normal boots (the bring-up code used
+  to reset it to 768x768 at every start). The first step towards a DU on an ordinary HDMI screen. Bench:
+  `GlassLink.Bench mode 3 --serial <prefix>`, `stream --size 1280x640 --only <prefix>`.
+- **Measured: one DU driving two displays side by side** (DU2 in its 1280x720 mode, test pattern, 22 Sept 2026):
+  768x768 41.5 fps (decode 6 ms, draw 13 ms), 1024x704 29 fps (10 / 20 ms), 1280x640 26 fps (11 / 22 ms),
+  1280x720 23 fps (12.5 / 25 ms); transfer 3-4 ms throughout. Decode and draw scale with the pixels and run in
+  series, so a full-size 1536x768 pair would be about 19 fps: at the Fenix's ~20 changes a second, no headroom.
+  A 1280x640 pair (two 640x640 displays on a 720p screen) has some. Pipelining decode and draw in the DU
+  (backlog) would roughly double these.
 - **A lighter stream for phones** (.NET DMC): `/ws/<name>?max=384&quality=70` re-encodes the frames smaller for
   that one client (about 3 ms a frame, never on the DU path). The viewer page passes `?max=` and `?quality=` on,
   and on a screen smaller than the display (a phone) asks for its own size by itself: about a quarter of the data

@@ -15,7 +15,8 @@ public enum MessageType : byte
     ShowIdent = 0x05,
     Ping = 0x06,
     SetAssigned = 0x07,
-    SetPanelPower = 0x08,       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
+    SetPanelPower = 0x08,
+    SetMode = 0x09,             // HDMI mode 0..3; the DU stores it and restarts       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
     OtaBegin = 0x10,
     OtaData = 0x11,
     OtaEnd = 0x12,

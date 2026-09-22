@@ -1,7 +1,8 @@
 // Bench tool for the DU layer: talks to real DUs over WinUSB without the rest of the DMC.
 //
 //   GlassLink.Bench list
-//   GlassLink.Bench stream [--seconds 20] [--fps 30]      a moving test picture to every DU at once
+//   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>]   a moving test picture to the DUs
+//   GlassLink.Bench mode <0..3> --serial <prefix>          set a DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720); it restarts
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
 //   GlassLink.Bench run [--seconds 30] [--config ../config.json] [--sim] [--close-all]
@@ -293,8 +294,23 @@ switch (command)
         break;
 
     case "stream":
-        Stream(connections, Option("--seconds", 20), Option("--fps", 30));
+    {
+        var size = (Text("--size") ?? "768x768").Split('x');
+        var only = Text("--only");
+        Stream(connections.Where(c => only is null || c.Serial.StartsWith(only, StringComparison.OrdinalIgnoreCase)).ToList(),
+            Option("--seconds", 20), Option("--fps", 30), int.Parse(size[0]), int.Parse(size[1]));
         break;
+    }
+
+    case "mode":
+    {
+        var prefix = Text("--serial") ?? throw new InvalidOperationException("--serial <prefix> is needed");
+        var du = connections.First(c => c.Serial.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        du.SetMode(int.Parse(args[1]));
+        Console.WriteLine($"{du.Short}: HDMI mode {args[1]} sent; the DU restarts");
+        Thread.Sleep(1000);
+        break;
+    }
 }
 
 foreach (var c in connections)
@@ -305,11 +321,12 @@ foreach (var c in connections)
 
 return 0;
 
-static void Stream(List<DuConnection> connections, int seconds, int fps)
+static void Stream(List<DuConnection> connections, int seconds, int fps, int width = 768, int height = 768)
 {
-    Console.WriteLine($"rendering test pictures ({fps} fps for {seconds} s to {connections.Count} DU(s))...");
+    Console.WriteLine($"rendering test pictures ({width}x{height}, {fps} fps for {seconds} s to {connections.Count} DU(s))...");
     var slots = connections.Select((c, i) => new FrameSlot($"pattern{i}")).ToList();
-    var cycles = slots.Select((_, i) => Pattern.Render(768, 768, 60, i)).ToList();     // one second of motion each, encoded up front
+    var cycles = slots.Select((_, i) => Pattern.Render(width, height, 60, i)).ToList();     // one second of motion each, encoded up front
+    Console.WriteLine($"  {cycles[0].Average(f => f.Length) / 1024:0} KB per frame");
     for (var i = 0; i < connections.Count; i++)
     {
         connections[i].Source = slots[i];
@@ -368,13 +385,15 @@ internal static class Pattern
         using var g = Graphics.FromImage(bitmap);
         using var font = new Font("Consolas", 40, FontStyle.Bold);
         using var pen = new Pen(variant == 0 ? Color.Lime : Color.Cyan, 6);
+        var s = Math.Min(width, height) / 768f;              // the same picture on any screen size
+        var (cx, cy) = (width / 2f, height / 2f);
         for (var i = 0; i < count; i++)
         {
             g.Clear(Color.Black);
-            g.DrawEllipse(Pens.White, 84, 84, 600, 600);
+            g.DrawEllipse(Pens.White, cx - 300 * s, cy - 300 * s, 600 * s, 600 * s);
             var a = i * 2 * Math.PI / count;
-            g.DrawLine(pen, 384, 384, 384 + (float)(290 * Math.Sin(a)), 384 - (float)(290 * Math.Cos(a)));
-            g.FillRectangle(Brushes.Orange, i * (width - 60) / count, 720, 60, 24);
+            g.DrawLine(pen, cx, cy, cx + (float)(290 * s * Math.Sin(a)), cy - (float)(290 * s * Math.Cos(a)));
+            g.FillRectangle(Brushes.Orange, i * (width - 60) / count, height - 48, 60, 24);
             g.DrawString($"{caption ?? $".NET DU{variant + 1}"}  {i:00}", font, Brushes.White, 20, 16);
             using var stream = new MemoryStream();
             bitmap.Save(stream, codec, quality);

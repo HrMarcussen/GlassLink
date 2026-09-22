@@ -288,6 +288,15 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
     case XD_T_SET_ASSIGNED:
         s_assigned = h->arg != 0;           /* the screen task switches between picture and NOT ASSIGNED */
         break;
+    case XD_T_SET_MODE:
+        if (h->arg <= 3) {                  /* the HDMI DU on another screen: takes effect after the restart */
+            nvs_set_int("mode", (int)h->arg);
+            send_log(1, "HDMI mode %u stored, restarting", (unsigned)h->arg);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+        }
+        send_log(1, "HDMI mode %u unknown", (unsigned)h->arg);
+        break;
     case XD_T_OTA_BEGIN: ota_begin(h->arg); break;
     case XD_T_OTA_DATA: ota_data(payload, h->length, h->arg); break;
     case XD_T_OTA_END: ota_end(h->arg); break;
@@ -303,7 +312,7 @@ static bool header_valid(const xd_header_t *h)
     }
     switch (h->type) {   /* known host->module types only, so JPEG data cannot fake a header */
     case XD_T_FRAME: case XD_T_GET_INFO: case XD_T_SET_BRIGHTNESS: case XD_T_SET_ROTATION: case XD_T_SHOW_IDENT:
-    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
+    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
         return true;
     default:
         return false;
@@ -489,8 +498,7 @@ void app_main(void)
     s_frame_mutex = xSemaphoreCreateMutex();
 
     if (!nvs_get_int("diag", 0)) {
-        nvs_set_int("mode", 0);        /* cycling builds leave these behind */
-        nvs_set_int("dsivar", 0);
+        nvs_set_int("dsivar", 0);      /* a diagnostics run leaves this behind; "mode" is the user's HDMI mode (SET_MODE) and stays */
     }
     ESP_ERROR_CHECK(display_init(nvs_get_int("mode", 0), nvs_get_int("dsivar", 0)));
     display_set_brightness(nvs_get_int("brightness", 100));

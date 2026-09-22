@@ -16,6 +16,7 @@
 #define XD_T_SHOW_IDENT     0x05
 #define XD_T_PING           0x06
 #define XD_T_SET_ASSIGNED   0x07   /* arg 1 = a display is assigned, 0 = show NOT ASSIGNED */
+#define XD_T_SET_MODE       0x09   /* arg = HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720): stored, then reboot */
 #define XD_T_OTA_BEGIN      0x10
 #define XD_T_OTA_DATA       0x11
 #define XD_T_OTA_END        0x12
