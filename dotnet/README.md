@@ -1,6 +1,7 @@
 # GlassLink DMC for .NET
 
-The port of the Python DMC (`../glasslink`), layer by layer, with the Python version as the reference. Same USB
+The GlassLink DMC since 22 Sept 2026 (`start-server.bat`, the setup program). Ported from the Python DMC (`../glasslink`)
+layer by layer, with the Python version as the reference and test tool (`start-dmc-python.bat`). Same USB
 protocol (`../docs/usb-protocol.md`), same `config.json`, same HTTP API and status page. Plan and UI requirements:
 `../docs/BACKLOG.md`, item 5.
 

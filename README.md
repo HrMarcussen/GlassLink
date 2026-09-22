@@ -9,7 +9,7 @@ Terms used in this project, borrowed from the aircraft:
 
 | Term | In the aircraft | Here |
 |---|---|---|
-| **DMC** | Display Management Computer, feeds the display units | the GlassLink server on the sim PC (`glasslink/`, Python today, a .NET tray app later) |
+| **DMC** | Display Management Computer, feeds the display units | the GlassLink server on the sim PC: `GlassLink.exe`, a .NET tray app (`dotnet/`); the Python original (`glasslink/`) remains the reference and test tool |
 | **DU** | Display Unit, one screen in the panel | one GlassLink module: ESP32-P4 board + HDMI bridge + LCD (`firmware/`) |
 
 The DMC pops the displays out of the sim automatically, parks the windows off-screen, captures them, and sends
@@ -26,7 +26,7 @@ The sections below are the engineering log, oldest first: the original LAN proof
  │ MSFS pop-out windows (PFD, ND, …)   │  Windows.       │ Browser (Chromium kiosk)     │
  │ or FenixDisplay.exe windows         │  Graphics.      │   http://simpc:8765/view/pfd │
  │            │                        │  Capture        │                              │
- │ glasslink DMC server (Python)       │  → JPEG → WS    │ or native viewer (pygame)    │
+ │ GlassLink DMC (GlassLink.exe)       │  → JPEG → WS    │ or native viewer (pygame)    │
  │  capture → crop → JPEG → WebSocket  │─────LAN/USB────▶│   pi/viewer.py               │
  └─────────────────────────────────────┘                 └──────────────────────────────┘
 ```
@@ -38,8 +38,10 @@ software. Capturing the rendered windows gives an exact copy for any aircraft. L
 ## Requirements (sim PC)
 
 - Windows 10 1903+ / Windows 11 (Windows.Graphics.Capture).
-- Python 3.10+ (the Microsoft Store Python 3.13 on this PC works).
-- `pip install -r requirements.txt` inside a venv.
+- The DMC: either the setup program from a release (`GlassLink-<version>-setup.exe`, nothing else to install), or
+  a checkout with the .NET 10 SDK (`start-server.bat` builds and starts it). See `dotnet/README.md`.
+- The Python reference DMC and the tools (`tools/*.py`, `firmware/`): Python 3.10+ and a venv with
+  `pip install -r requirements.txt`. Not needed to run a release.
 
 ```
 python -m venv .venv
@@ -48,7 +50,9 @@ python -m venv .venv
 
 ## Quick start
 
-1. Start the server: double-click `start-server.bat` (or `.venv\Scripts\python -m glasslink serve`).
+1. Start the DMC: double-click `start-server.bat` (a checkout) or the Start menu entry (an installed release). It
+   sits in the notification area; its menu opens the status page, and offers "Start with Windows" and "Start and
+   stop with the simulator". The Python reference DMC is `start-dmc-python.bat`; only one DMC runs at a time.
 2. Start the sim and load the aircraft. Once you are in the cockpit, the server notices that the configured
    displays have no window, resets the cockpit camera through SimConnect, zooms out, pops out PFD / ND /
    upper ECAM / lower ECAM with Right-Alt + click, renames them, resizes them to `client_size`, parks them

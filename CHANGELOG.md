@@ -36,6 +36,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - System tab says in words how firmware updates work ("DU firmware this DMC expects", "Firmware image on this PC";
   nothing is fetched from the internet).
 
+- **The .NET DMC is the default DMC** (22 Sept 2026): `start-server.bat` starts `GlassLink.exe`; the Python DMC is
+  started with `start-dmc-python.bat` and stays as the reference implementation and test tool. Every layer of the
+  port was verified against it on the sim and on both DUs before the switch (two DUs at 30 fps, firmware update,
+  cold-start pop-out of all six displays, Learn, the brightness link, the status page).
 - **.NET DMC: release build and installer.** `tools\build-release.ps1` publishes one self-contained `GlassLink.exe`
   (nothing to install first) with the status page, the DU firmware image and `config.example.json` as a folder and
   a zip under `dist\`, and with Inno Setup 6 installed the setup program `GlassLink-<version>-setup.exe`
