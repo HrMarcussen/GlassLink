@@ -100,7 +100,21 @@ public sealed class SimWatch : IDisposable
 
     private void Tick()
     {
-        var there = System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(GlassLink.Sim.PopoutProcedure.SimProcess)).Length > 0;
+        bool there;
+        try
+        {
+            var processes = System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(GlassLink.Sim.PopoutProcedure.SimProcess));
+            there = processes.Length > 0;
+            foreach (var p in processes)
+            {
+                p.Dispose();
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return;                                          // the process list could not be read this time: no verdict
+        }
+
         if (there)
         {
             (_seen, _missing) = (true, 0);

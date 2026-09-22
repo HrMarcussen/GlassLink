@@ -21,7 +21,7 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
         var (w, h) = (0, 0);
         if (j.TryGetProperty("panel", out var p) && p.ValueKind == JsonValueKind.Array && p.GetArrayLength() == 2)
         {
-            (w, h) = (p[0].GetInt32(), p[1].GetInt32());
+            (w, h) = (p[0].TryGetInt32(out var pw) ? pw : 0, p[1].TryGetInt32(out var ph) ? ph : 0);
         }
 
         var up = j.TryGetProperty("uptime_s", out var u) && u.TryGetInt64(out var s) ? s : 0;
@@ -245,6 +245,14 @@ public sealed class DuConnection : IDisposable
         catch (IOException ex)
         {
             Fail(ex.Message);
+        }
+        catch (ObjectDisposedException)
+        {
+            Fail("closed");                                 // disposed while a write was still timing out
+        }
+        catch (Exception ex)                                 // a DU's thread must never take the DMC down
+        {
+            Fail($"{ex.GetType().Name}: {ex.Message}");
         }
         finally
         {

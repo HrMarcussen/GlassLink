@@ -45,6 +45,15 @@ public sealed class ConfigFile
         }
     }
 
+    /// <summary>A copy of the whole tree for a reader on another thread (JsonObject is not thread-safe; the tree is small).</summary>
+    public JsonObject Snapshot()
+    {
+        lock (_gate)
+        {
+            return (JsonObject)Root.DeepClone();
+        }
+    }
+
     public T Read<T>(Func<JsonObject, T> read)
     {
         lock (_gate)

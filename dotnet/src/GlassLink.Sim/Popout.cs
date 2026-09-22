@@ -295,7 +295,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             camera.SetZoom(z);
         }
 
-        var key = PopoutSettings.From(config.Root).RestoreKey;
+        var key = PopoutSettings.From(config.Snapshot()).RestoreKey;
         if (key is not null)
         {
             Thread.Sleep(800);

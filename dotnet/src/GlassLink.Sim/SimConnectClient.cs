@@ -81,9 +81,9 @@ public sealed class SimConnectClient : IDisposable
     {
         _stop.Cancel();
         _signal.Set();
-        if (_thread.IsAlive)
+        if (_thread.IsAlive && !_thread.Join(2000))
         {
-            _thread.Join(2000);
+            return;                                          // still inside SimConnect_Open: the handles must stay valid for it
         }
 
         _signal.Dispose();
@@ -134,7 +134,7 @@ public sealed class SimConnectClient : IDisposable
                 Pump();
                 _signal.WaitOne(250);
             }
-            catch (Exception ex) when (ex is SEHException or AccessViolationException or DllNotFoundException)
+            catch (Exception ex) when (ex is SEHException or DllNotFoundException or ObjectDisposedException)
             {
                 _log?.Invoke($"SimConnect: {ex.GetType().Name}: {ex.Message}");
                 Disconnect();
@@ -160,7 +160,7 @@ public sealed class SimConnectClient : IDisposable
 
     private unsafe void Pump()
     {
-        while (_connected && Native.SimConnect_GetNextDispatch(_handle, out var data, out var size) == 0 && size >= 12)
+        while (NextDispatch(out var data, out var size))
         {
             var header = (uint*)data;
             switch (header[2])
@@ -193,6 +193,21 @@ public sealed class SimConnectClient : IDisposable
                     Disconnect();
                     return;
             }
+        }
+    }
+
+    /// <summary>SimConnect is not thread-safe per handle: never inside the sim library at the same time as Set.</summary>
+    private bool NextDispatch(out nint data, out uint size)
+    {
+        lock (_gate)
+        {
+            if (!_connected)
+            {
+                (data, size) = (0, 0);
+                return false;
+            }
+
+            return Native.SimConnect_GetNextDispatch(_handle, out data, out size) == 0 && size >= 12;
         }
     }
 

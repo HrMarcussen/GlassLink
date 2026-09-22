@@ -37,6 +37,15 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
     /// <summary>Frames per second the sim delivers to each display's window.</summary>
     public Dictionary<string, double> Rates { get; } = [];
 
+    /// <summary>A copy of the rates, safe to read while another request updates them.</summary>
+    public IReadOnlyDictionary<string, double> RatesNow()
+    {
+        lock (_previous)
+        {
+            return new Dictionary<string, double>(Rates);
+        }
+    }
+
     public IReadOnlyList<Advice> Advise(AdvisorInput input)
     {
         lock (_previous)

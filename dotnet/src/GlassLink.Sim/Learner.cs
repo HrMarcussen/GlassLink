@@ -58,6 +58,7 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
                 throw new InvalidOperationException("the simulator is not running");
             }
 
+            _cancel?.Dispose();
             _cancel = new CancellationTokenSource();
             State = new LearnState("preparing", display, "setting the camera", null);
             var token = _cancel.Token;
@@ -65,7 +66,13 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
         }
     }
 
-    public void Cancel() => _cancel?.Cancel();
+    public void Cancel()
+    {
+        lock (_gate)
+        {
+            _cancel?.Cancel();
+        }
+    }
 
     private void Say(string text)
     {
@@ -91,7 +98,7 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
             }
 
             var title = camera.Title;
-            var profile = Profiles.Select(config.Root, title);
+            var profile = Profiles.Select(config.Snapshot(), title);
             var key = profile?.Key ?? (title.Trim().Length > 0 ? title.Trim() : "aircraft");     // first display of an unknown aircraft
             var zoom = profile?.Zoom ?? PopoutDefaultZoom();
             var spec = view == "copilot" ? CameraSpec.Copilot : CameraSpec.PilotReset;

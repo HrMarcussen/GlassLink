@@ -58,7 +58,8 @@ public static class Api
         // -- displays (editor), pop-outs, learning ------------------------------------------------------------
         app.MapGet("/displays", () =>
         {
-            var profile = Profiles.Select(dmc.Config.Root, dmc.Camera.Title) ?? Profiles.Select(dmc.Config.Root, dmc.Config.Read(r => Str((r["popout"] as JsonObject)?["aircraft"])));
+            var config = dmc.Config.Snapshot();
+            var profile = Profiles.Select(config, dmc.Camera.Title) ?? Profiles.Select(config, Str((config["popout"] as JsonObject)?["aircraft"]));
             return Json(new JsonObject { ["profile"] = profile?.Key, ["displays"] = dmc.Displays.Describe(profile) });
         });
         app.MapPost("/displays", async (HttpRequest request) => await Guarded(async () =>
@@ -117,7 +118,7 @@ public static class Api
             strays.ForEach(w => WindowFinder.Close(w.Handle));
             return Json(new JsonObject { ["closed"] = strays.Count });
         });
-        app.MapGet("/popout/settings", () => Json(new JsonObject { ["camera_restore_key"] = PopoutSettings.From(dmc.Config.Root).RestoreKey }));
+        app.MapGet("/popout/settings", () => Json(new JsonObject { ["camera_restore_key"] = PopoutSettings.From(dmc.Config.Snapshot()).RestoreKey }));
         app.MapPost("/popout/settings", async (HttpRequest request) =>
         {
             var key = (Str((await Body(request))["camera_restore_key"]) ?? "").Trim().ToLowerInvariant();
@@ -194,7 +195,7 @@ public static class Api
             {
                 ["id"] = a.Id, ["level"] = a.Level, ["tab"] = a.Tab, ["title"] = a.Title, ["detail"] = a.Detail, ["steps"] = new JsonArray([.. a.Steps.Select(s => (JsonNode)s)]),
             })]),
-            ["source_fps"] = new JsonObject(dmc.Advisor.Rates.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)Math.Round(kv.Value, 1)))),
+            ["source_fps"] = new JsonObject(dmc.Advisor.RatesNow().Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)Math.Round(kv.Value, 1)))),
         };
     }
 

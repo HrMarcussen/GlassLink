@@ -50,7 +50,7 @@ public sealed class BrightnessLink(ConfigFile config, SimConnectClient sim, SimC
         var title = camera.Title;
         if (title != _profileFor)
         {
-            (_profileFor, _profile) = (title, Profiles.Select(config.Root, title));
+            (_profileFor, _profile) = (title, Profiles.Select(config.Snapshot(), title));
         }
 
         return _profile;

@@ -87,7 +87,7 @@ public sealed class AutoPopout : IDisposable
 
     private void Step()
     {
-        var settings = PopoutSettings.From(_config.Root);
+        var settings = PopoutSettings.From(_config.Snapshot());
         if (Paused)
         {
             State = new("waiting", "paused while a pop-out click point is being learned", State.Missing, State.LastAttempt);
@@ -143,7 +143,7 @@ public sealed class AutoPopout : IDisposable
             return;
         }
 
-        if (Profiles.Select(_config.Root, _camera.Title) is not { } profile)
+        if (Profiles.Select(_config.Snapshot(), _camera.Title) is not { } profile)
         {
             State = new("waiting", $"no pop-out profile for aircraft '{_camera.Title}': use Learn on the status page", missing, State.LastAttempt);
             return;

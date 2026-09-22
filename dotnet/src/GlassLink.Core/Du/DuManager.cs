@@ -21,6 +21,8 @@ public sealed class DuManager : IDisposable
     private readonly Func<string, IDuTransport> _open;
     private readonly Action<string>? _log;
     private readonly object _gate = new();
+    private volatile HashSet<string> _lastShown = [];
+    private bool _disposed;
     private readonly Dictionary<string, DuConnection> _connections = [];
     private readonly Dictionary<string, int> _brightnessSent = [];
     private readonly Dictionary<string, double?> _brightnessSim = [];
@@ -69,6 +71,11 @@ public sealed class DuManager : IDisposable
 
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return;                                      // a scan that was waiting for the gate while Dispose ran
+            }
+
             foreach (var (serial, conn) in _connections.Where(kv => !kv.Value.Alive).ToList())
             {
                 conn.Dispose();                     // unplugged or failed: free the handle so it can come back
@@ -202,9 +209,23 @@ public sealed class DuManager : IDisposable
     /// <summary>True while a connected DU shows this display: the capture layer runs a display at full rate only then.</summary>
     public bool IsShown(string display)
     {
-        lock (_gate)
+        // Called for every captured frame of every display. A DU being disposed holds the gate for up to a few
+        // seconds; rather than stall every capture meanwhile, the last answer stands until the gate is free again.
+        if (!Monitor.TryEnter(_gate, 2))
         {
-            return _connections.Any(kv => kv.Value.Alive && ReferenceEquals(kv.Value.Source, _display(display)) && kv.Value.Source is not null);
+            return _lastShown.Contains(display);
+        }
+
+        try
+        {
+            var shown = _connections.Any(kv => kv.Value.Alive && ReferenceEquals(kv.Value.Source, _display(display)) && kv.Value.Source is not null);
+            _lastShown = shown ? _lastShown.Contains(display) ? _lastShown : new HashSet<string>(_lastShown) { display }
+                : _lastShown.Contains(display) ? new HashSet<string>(_lastShown.Where(d => d != display)) : _lastShown;
+            return shown;
+        }
+        finally
+        {
+            Monitor.Exit(_gate);
         }
     }
 
@@ -239,6 +260,7 @@ public sealed class DuManager : IDisposable
         _brightnessTimer?.Dispose();
         lock (_gate)
         {
+            _disposed = true;
             foreach (var conn in _connections.Values)
             {
                 conn.Source = null;                 // the panels show NOT ASSIGNED rather than a frozen last picture

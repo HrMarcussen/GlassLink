@@ -105,12 +105,15 @@ public sealed class DisplayCapture : IDisposable
                 if (_capture is null && WindowFinder.Find(WindowMatch.From(_display["match"] as JsonObject)) is { } found)
                 {
                     Window = ApplyGeometry(found);
-                    _capture = new WindowCapture(Window.Handle, OnPixels, _settings.Fps) { WantFrame = WantFrame };
-                    _capture.Closed += () => ThreadPool.QueueUserWorkItem(_ =>
+                    var capture = _capture = new WindowCapture(Window.Handle, OnPixels, _settings.Fps) { WantFrame = WantFrame };
+                    capture.Closed += () => ThreadPool.QueueUserWorkItem(_ =>
                     {
                         lock (_gate)
                         {
-                            Stop($"window of '{Name}' was closed");
+                            if (ReferenceEquals(_capture, capture))   // not a late Closed from a capture Watch has replaced already
+                            {
+                                Stop($"window of '{Name}' was closed");
+                            }
                         }
                     });
                     Error = "";
@@ -232,6 +235,21 @@ public sealed class DisplayCapture : IDisposable
         var picture = _previous;
         return () =>
         {
+            lock (_gate)                                     // Dispose (settings saved, display removed) waits for this encode
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                EncodeAndPublish(picture, w, h);
+            }
+        };
+    }
+
+    private void EncodeAndPublish(byte[] picture, int w, int h)
+    {
+        {
             var started = Stopwatch.GetTimestamp();
             var (pixels, pw, ph) = Downscale.Fit(picture, w, h, w * 4, _settings.MaxSize) ?? (picture, w, h);      // max_size: a smaller picture, sent as such
             var jpeg = _encoder.Encode(pixels, pw, ph, pw * 4);
@@ -239,6 +257,6 @@ public sealed class DisplayCapture : IDisposable
             _jpegBytes = jpeg.Length;
             _slot.Publish(jpeg, pw, ph);
             _published++;
-        };
+        }
     }
 }

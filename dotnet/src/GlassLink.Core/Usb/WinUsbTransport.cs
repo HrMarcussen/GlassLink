@@ -172,10 +172,10 @@ public sealed class WinUsbTransport : IDuTransport
         }
 
         _closing = true;
-        Native.WinUsb_AbortPipe(_usb, _pipeIn);
+        Native.WinUsb_AbortPipe(_usb, _pipeIn);           // the pending read returns at once ...
+        _reader.Join(1000);                              // ... and the reader sees _closing; only then may the handles go
         Native.WinUsb_Free(_usb);
         _file.Dispose();
-        _reader.Join(1000);
         _chunks.Dispose();
     }
 

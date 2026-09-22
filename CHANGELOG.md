@@ -98,6 +98,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
   may be slow without the DMC blaming the sim.
 - A DU's dropped-frame count from before the DMC connected was reported as new drops ("stall") at connect.
+- **.NET DMC, a review pass before it became the default** (22 Sept 2026), nine findings fixed, none seen in use
+  yet: the WinUSB handles were freed before the reader thread had stopped (a crash possible at quit or unplug); a
+  JPEG encode could still be running while its encoder was freed after a settings save; a DU's thread could end the
+  process on an unexpected error; SimConnect wait handles were disposed under a thread still using them, and two
+  threads could be inside the SimConnect library at once; the "stop with the sim" timer was the only unguarded
+  timer; a closed pop-out's capture object was kept alive by the capture item (a small leak per re-pop-out) and a
+  late "closed" event could stop the new capture; the advice rates and the configuration tree were read on one
+  thread while written on another; a DU scan could run after the manager was disposed, and every capture callback
+  queued behind a DU being unplugged; `max_size` allocated two large buffers per frame.
 
 ## [0.5.0] - 2026-09-20
 

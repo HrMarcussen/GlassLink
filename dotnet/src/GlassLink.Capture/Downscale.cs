@@ -22,8 +22,13 @@ public static class Downscale
         var xs = Weights(width, w);
         var ys = Weights(height, h);
 
-        // pass 1: each source row shrunk to w pixels, as floats
-        var rows = new float[height * w * 4];
+        // pass 1: each source row shrunk to w pixels, as floats (pooled: this runs per frame)
+        var rows = System.Buffers.ArrayPool<float>.Shared.Rent(height * w * 4);
+        rows.AsSpan(0, height * w * 4).Clear();
+        var acc = System.Buffers.ArrayPool<float>.Shared.Rent(h * w * 4);
+        acc.AsSpan(0, h * w * 4).Clear();
+        try
+        {
         for (var y = 0; y < height; y++)
         {
             var src = bgra.Slice(y * stride, width * 4);
@@ -40,7 +45,6 @@ public static class Downscale
         }
 
         // pass 2: the shrunk rows combined into h rows
-        var acc = new float[h * w * 4];
         foreach (var (from, to, weight) in ys)
         {
             var src = rows.AsSpan(from * w * 4, w * 4);
@@ -58,6 +62,12 @@ public static class Downscale
         }
 
         return (pixels, w, h);
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<float>.Shared.Return(rows);
+            System.Buffers.ArrayPool<float>.Shared.Return(acc);
+        }
     }
 
     /// <summary>For every source index along one axis: the output index it lands in and the share of that output

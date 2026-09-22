@@ -79,7 +79,7 @@ public sealed class WindowCapture : IDisposable
         _poolSize = _item.Size;
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_winrtDevice!, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, _poolSize);
         _pool.FrameArrived += OnFrameArrived;
-        _item.Closed += (_, _) => Closed?.Invoke();
+        _item.Closed += OnClosed;
         _session = _pool.CreateCaptureSession(_item);
         _session.IsCursorCaptureEnabled = false;
         if (ApiInformation.IsPropertyPresent("Windows.Graphics.Capture.GraphicsCaptureSession", "IsBorderRequired"))
@@ -111,6 +111,7 @@ public sealed class WindowCapture : IDisposable
 
         _disposed = true;
         _pool.FrameArrived -= OnFrameArrived;
+        _item.Closed -= OnClosed;
         _session.Dispose();
         _pool.Dispose();
         lock (DeviceGate)
@@ -118,6 +119,8 @@ public sealed class WindowCapture : IDisposable
             _staging?.Dispose();
         }
     }
+
+    private void OnClosed(GraphicsCaptureItem sender, object? args) => Closed?.Invoke();
 
     private unsafe void OnFrameArrived(Direct3D11CaptureFramePool pool, object? args)
     {
