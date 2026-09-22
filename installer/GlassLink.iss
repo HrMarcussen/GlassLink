@@ -29,6 +29,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; The "start at sign-in" task writes the Run key of the user who runs the setup (on a one-person sim PC the same user).
+UsedUserAreasWarning=no
 UninstallDisplayIcon={app}\GlassLink.exe
 MinVersion=10.0.19041
 SetupIconFile=..\dotnet\src\GlassLink.Dmc\glasslink.ico

@@ -36,9 +36,9 @@ if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path "$out\*" -DestinationPath $zip
 Write-Host "built $out ($build) and $zip"
 
-$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+$iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($NoInstaller) { return }
-if (Test-Path $iscc) {
+if ($iscc) {
     & $iscc "/DVersion=$version" "/DBuild=$build" "$root\installer\GlassLink.iss"
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
     Write-Host "built $root\dist\GlassLink-$version-setup.exe"
