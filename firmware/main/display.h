@@ -17,6 +17,10 @@ display_info_t display_get_info(void);
 
 /* Decode a JPEG with the hardware decoder and show it centred on the panel. Returns decode time in ms. */
 esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms);
+/* The same inside one tile of a layout: centred in the rectangle x, y, w, h; the rest of the screen is untouched. */
+esp_err_t display_show_jpeg_at(const uint8_t *jpeg, size_t len, int x, int y, int w, int h, uint32_t *decode_ms);
+/* Show an RGB888 buffer of w x h at x, y. */
+esp_err_t display_show_rgb_at(const uint8_t *rgb, int w, int h, int x, int y);
 
 /* Fill the panel with a colour (RGB888 as 0xRRGGBB). */
 void display_fill(uint32_t rgb);

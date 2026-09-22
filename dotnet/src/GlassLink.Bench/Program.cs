@@ -2,6 +2,9 @@
 //
 //   GlassLink.Bench list
 //   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>]   a moving test picture to the DUs
+//   GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards] [--seconds 20] [--fps 30]
+//        a layout of tiles on one DU (its HDMI mode must fit: see mode), then test pictures to every tile; --cards shows
+//        the tiles as test cards instead
 //   GlassLink.Bench mode <0..3> --serial <prefix>          set a DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720); it restarts
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
@@ -302,6 +305,26 @@ switch (command)
         break;
     }
 
+    case "tiles":
+    {
+        var prefix = Text("--serial") ?? throw new InvalidOperationException("--serial <prefix> is needed");
+        var du = connections.First(c => c.Serial.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        var layout = (Text("--layout") ?? "0,0,640,640;640,0,640,640").Split(';')
+            .Select(t => t.Split(',').Select(int.Parse).ToArray()).Select(r => new DuConnection.Tile(r[0], r[1], r[2], r[3])).ToList();
+        Thread.Sleep(1500);                                   // INFO first (caps)
+        Console.WriteLine($"{du.Short}: tiles supported: {du.SupportsTiles}, panel {du.Info?.PanelWidth}x{du.Info?.PanelHeight}");
+        du.SetLayout(layout, args.Contains("--cards"));
+        if (args.Contains("--cards"))
+        {
+            Console.WriteLine($"showing {layout.Count} test card(s) for {Option("--seconds", 20)} s");
+            Thread.Sleep(Option("--seconds", 20) * 1000);
+            break;
+        }
+
+        StreamTiles(du, layout, Option("--seconds", 20), Option("--fps", 30));
+        break;
+    }
+
     case "mode":
     {
         var prefix = Text("--serial") ?? throw new InvalidOperationException("--serial <prefix> is needed");
@@ -320,6 +343,46 @@ foreach (var c in connections)
 }
 
 return 0;
+
+static void StreamTiles(DuConnection du, List<DuConnection.Tile> layout, int seconds, int fps)
+{
+    Console.WriteLine($"rendering {layout.Count} test pictures ({string.Join(", ", layout.Select(t => $"{t.Width}x{t.Height}"))}, {fps} fps each for {seconds} s)...");
+    var slots = layout.Select((t, i) => new FrameSlot($"tile{i}")).ToArray();
+    var cycles = layout.Select((t, i) => Pattern.Render(t.Width, t.Height, 60, i % 2, $"TILE {i + 1}")).ToList();
+    du.TileSources = slots;
+    var watch = Stopwatch.StartNew();
+    var frame = 0;
+    var lastReport = 0L;
+    var sentAtReport = du.FramesSent;
+    while (watch.Elapsed.TotalSeconds < seconds)
+    {
+        for (var i = 0; i < slots.Length; i++)
+        {
+            slots[i].Publish(cycles[i][frame % cycles[i].Count]);
+        }
+
+        frame++;
+        var wait = frame * 1000.0 / fps - watch.Elapsed.TotalMilliseconds;
+        if (wait > 0)
+        {
+            Thread.Sleep((int)wait);
+        }
+
+        if (watch.ElapsedMilliseconds - lastReport >= 5000)
+        {
+            var dt = (watch.ElapsedMilliseconds - lastReport) / 1000.0;
+            lastReport = watch.ElapsedMilliseconds;
+            var rate = (du.FramesSent - sentAtReport) / dt;
+            sentAtReport = du.FramesSent;
+            var s = du.Stats;
+            Console.WriteLine($"  {du.Short}  sent {rate,5:0.0} tiles/s ({rate / slots.Length:0.0} per tile)   DU shows {s?.Fps,5:0.0}/s  decode {s?.DecodeMs,4:0.0} ms  draw {s?.DrawMs,4:0.0} ms  " +
+                              $"transfer {s?.RxMs,4:0.0} ms  dropped {s?.Dropped}  {(du.HealthReasons.Count > 0 ? string.Join("; ", du.HealthReasons) : "ok")}");
+        }
+    }
+
+    du.TileSources = new IFrameSource?[slots.Length];
+    du.SetLayout([]);
+}
 
 static void Stream(List<DuConnection> connections, int seconds, int fps, int width = 768, int height = 768)
 {

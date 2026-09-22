@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Hashing;
 using System.Text;
@@ -67,6 +68,11 @@ public sealed class DuConnection : IDisposable
     private readonly Thread _thread;
     private readonly CancellationTokenSource _stop = new();
     private readonly object _sourceGate = new();
+    private IFrameSource?[] _tileSources = [];
+    private IFrameSource?[] _tileLast = [];
+    private uint[] _tileSeqSent = [];
+    private int _tileNext;
+    private bool _cards;
     private IFrameSource? _source;
     private IFrameSource? _lastSource;
     private uint _lastSeqSent;
@@ -122,6 +128,93 @@ public sealed class DuConnection : IDisposable
     public IReadOnlyList<string> HealthReasons { get; private set; } = [];
 
     public int Resyncs => _reader.Resyncs;
+
+    /// <summary>One tile of a layout: a rectangle of the DU's screen that shows one display.</summary>
+    public sealed record Tile(int X, int Y, int Width, int Height);
+
+    /// <summary>The DU's layout (a screen with several displays on it); empty for a single-display DU.</summary>
+    public IReadOnlyList<Tile> Layout { get; private set; } = [];
+
+    /// <summary>True when the DU's firmware knows SET_LAYOUT and TILE (INFO caps).</summary>
+    public bool SupportsTiles => InfoJson is { } j && j.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array
+                                 && caps.EnumerateArray().Any(c => c.ValueKind == JsonValueKind.String && c.GetString() == "tiles");
+
+    /// <summary>Gives the DU a layout (or takes it away with an empty list) and, with <paramref name="cards"/>, shows
+    /// the tiles as test cards for lining them up with the panel's cutouts. The sources per tile follow separately
+    /// (<see cref="TileSources"/>). Sent again after every INFO, so a DU that restarts gets it back.</summary>
+    public void SetLayout(IReadOnlyList<Tile> tiles, bool cards = false)
+    {
+        lock (_sourceGate)
+        {
+            Layout = tiles;
+            _cards = cards;
+            if (_tileSources.Length != tiles.Count)
+            {
+                _tileSources = new IFrameSource?[tiles.Count];
+                _tileSeqSent = new uint[tiles.Count];
+                _tileLast = new IFrameSource?[tiles.Count];
+            }
+        }
+
+        SendLayout();
+    }
+
+    /// <summary>The display of every tile (null = nothing there yet), in layout order.</summary>
+    public IFrameSource?[] TileSources
+    {
+        get
+        {
+            lock (_sourceGate)
+            {
+                return (IFrameSource?[])_tileSources.Clone();
+            }
+        }
+
+        set
+        {
+            lock (_sourceGate)
+            {
+                for (var i = 0; i < _tileSources.Length && i < value.Length; i++)
+                {
+                    _tileSources[i] = value[i];
+                }
+            }
+
+            Send(MessageType.SetAssigned, arg: value.Any(v => v is not null) ? 1u : 0u);
+        }
+    }
+
+    private void SendLayout()
+    {
+        Tile[] tiles;
+        bool cards;
+        lock (_sourceGate)
+        {
+            (tiles, cards) = ([.. Layout], _cards);
+        }
+
+        var payload = new byte[tiles.Length * 8];
+        for (var i = 0; i < tiles.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8), (ushort)tiles[i].X);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 2), (ushort)tiles[i].Y);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 4), (ushort)tiles[i].Width);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 6), (ushort)tiles[i].Height);
+        }
+
+        Send(MessageType.SetLayout, payload, arg: cards ? 1u : 0u);
+    }
+
+    private bool HasSource
+    {
+        get
+        {
+            lock (_sourceGate)
+            {
+                return _source is not null || _tileSources.Any(s => s is not null);
+            }
+        }
+    }
 
     /// <summary>The display this DU shows; null = not assigned (the DU shows its own NOT ASSIGNED screen).</summary>
     public IFrameSource? Source
@@ -230,9 +323,9 @@ public sealed class DuConnection : IDisposable
 
                 // With a READY pending, wait for the next picture rather than for the DU (it has nothing to say until it
                 // gets one); still drain what the DU sent. Without one, the DU is the only thing to wait for.
-                if (_readyPending && Source is { } src)
+                if (_readyPending && HasSource)
                 {
-                    if (ServeReady(src, 5))                   // short, so that a PONG or STATS is not left waiting
+                    if (Layout.Count > 0 ? ServeTile(5) : Source is { } src && ServeReady(src, 5))     // short, so that a PONG or STATS is not left waiting
                     {
                         continue;
                     }
@@ -277,6 +370,57 @@ public sealed class DuConnection : IDisposable
         }
     }
 
+    /// <summary>Tiles take turns: after a READY the first tile (from the one after the last sent) with a newer frame
+    /// goes; if none has one, one tile is waited on briefly and the loop comes round again.</summary>
+    private bool ServeTile(int waitMs)
+    {
+        IFrameSource?[] sources;
+        lock (_sourceGate)
+        {
+            sources = (IFrameSource?[])_tileSources.Clone();
+        }
+
+        var n = sources.Length;
+        for (var k = 1; k <= n; k++)
+        {
+            var i = (_tileNext + k) % n;
+            if (sources[i] is not { } src)
+            {
+                continue;
+            }
+
+            if (!ReferenceEquals(src, _tileLast[i]))
+            {
+                (_tileLast[i], _tileSeqSent[i]) = (src, 0);  // another display on this tile: its sequence numbers are unrelated
+            }
+
+            var frame = src.Latest;
+            if (frame is null || frame.Seq <= _tileSeqSent[i])
+            {
+                if (k < n)
+                {
+                    continue;                                // look at the other tiles first
+                }
+
+                frame = src.WaitNewer(_tileSeqSent[i], waitMs);
+                if (frame is null)
+                {
+                    return false;
+                }
+            }
+
+            Send(MessageType.Tile, frame.Jpeg.Span, seq: frame.Seq, arg: (uint)i);
+            FramesSent++;
+            BytesSent += frame.Jpeg.Length;
+            _tileSeqSent[i] = frame.Seq;
+            _tileNext = i;
+            _readyPending = false;
+            return true;
+        }
+
+        return false;
+    }
+
     private bool ServeReady(IFrameSource src, int waitMs)
     {
         if (!ReferenceEquals(src, _lastSource))
@@ -314,7 +458,12 @@ public sealed class DuConnection : IDisposable
                 InfoJson = m.Json();
                 Info = DuInfo.From(InfoJson);
                 _log?.Invoke($"DU {Short} info: {m.Text()}");
-                Send(MessageType.SetAssigned, arg: Source is null ? 0u : 1u);
+                if (Layout.Count > 0)
+                {
+                    SendLayout();                            // a DU that restarted has forgotten it
+                }
+
+                Send(MessageType.SetAssigned, arg: HasSource ? 1u : 0u);
                 break;
             case MessageType.Stats:
                 StatsJson = m.Json();

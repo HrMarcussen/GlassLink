@@ -1,4 +1,4 @@
-﻿/* GlassLink module firmware - main: serial GUID, display bring-up, USB link, protocol loop, OTA.
+/* GlassLink module firmware - main: serial GUID, display bring-up, USB link, protocol loop, OTA.
  *
  * Protocol: docs/usb-protocol.md. The module sends READY, the host answers with the newest JPEG FRAME,
  * the module decodes it with the hardware JPEG engine, shows it, and sends READY again.
@@ -40,6 +40,18 @@ static char s_label[32];    /* human-readable unit name sent by the host with SH
 static uint8_t *s_rx;               /* frame receive buffer (PSRAM) */
 static uint8_t *s_last_jpeg;        /* copy of the last frame shown, redrawn after IDENT / idle screens (PSRAM) */
 static uint32_t s_last_jpeg_len;
+
+/* A layout: the screen split into tiles, one display each (an HDMI screen behind a panel with several cutouts).
+   Set by SET_LAYOUT, fed by TILE; a tile costs what a frame costs on a single-display DU, whatever the screen size. */
+#define MAX_TILES 6
+typedef struct { uint16_t x, y, w, h; } tile_t;
+static tile_t s_tiles[MAX_TILES];
+static int s_tile_n;                    /* > 0: tile mode */
+static bool s_tile_cards;               /* show the tiles as test cards (for lining them up with the cutouts) */
+static uint8_t *s_tile_jpeg[MAX_TILES]; /* the last JPEG of each tile, redrawn after IDENT and brightness changes (PSRAM) */
+static uint32_t s_tile_jpeg_len[MAX_TILES];
+static bool has_last(void);
+static void redraw_last(void);
 static SemaphoreHandle_t s_frame_mutex;
 static uint32_t s_last_seq;
 static uint32_t s_frames, s_dropped, s_decode_ms_acc, s_decode_n, s_draw_us_acc, s_rx_us_acc;
@@ -122,11 +134,11 @@ static void send_log(int level, const char *fmt, ...)
 static void send_info(void)
 {
     display_info_t di = display_get_info();
-    char buf[256];
+    char buf[320];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"slot\":\"%s\"}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\"],\"tiles\":%d,\"slot\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
-                     esp_timer_get_time() < s_ident_until_us ? 1 : 0,
+                     esp_timer_get_time() < s_ident_until_us ? 1 : 0, s_tile_n,
                      esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?");
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }
@@ -182,8 +194,8 @@ static void ota_begin(uint32_t size)
     s_ota.active = true;
     s_ota.last_us = esp_timer_get_time();
     display_set_overlay("UPDATING FIRMWARE", "DO NOT UNPLUG");
-    if (s_last_jpeg_len && xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-        display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
+    if (has_last() && xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+        redraw_last();
         xSemaphoreGive(s_frame_mutex);
     }
     send_msg(XD_T_OTA_PROGRESS, NULL, 0, 0, 0);
@@ -240,6 +252,52 @@ static size_t read_exact(uint8_t *dst, size_t len, uint32_t timeout_ms)
     return got;
 }
 
+/* One tile as a test card: a bright border, its number and its size, so it can be lined up with a panel cutout. */
+static void draw_tile_card(int i)
+{
+    const tile_t *t = &s_tiles[i];
+    static const uint32_t colours[MAX_TILES] = {0x00C0FF, 0xFFC000, 0x40FF40, 0xFF60FF, 0x40FFFF, 0xFF8040};
+    uint8_t *buf = heap_caps_malloc((size_t)t->w * t->h * 3, MALLOC_CAP_SPIRAM);
+    if (!buf) return;
+    uint32_t c = colours[i], bg = 0x202020;
+    for (int y = 0; y < t->h; y++) {
+        for (int x = 0; x < t->w; x++) {
+            bool edge = x < 6 || y < 6 || x >= t->w - 6 || y >= t->h - 6;
+            bool cross = (x == t->w / 2 || y == t->h / 2) && (x > t->w / 2 - 40 && x < t->w / 2 + 40) && (y > t->h / 2 - 40 && y < t->h / 2 + 40);
+            uint32_t v = edge || cross ? c : bg;
+            uint8_t *p = buf + ((size_t)y * t->w + x) * 3;
+            p[0] = v & 0xFF; p[1] = (v >> 8) & 0xFF; p[2] = (v >> 16) & 0xFF;      /* B, G, R */
+        }
+    }
+    char l1[24], l2[48];
+    snprintf(l1, sizeof(l1), "TILE %d", i + 1);
+    snprintf(l2, sizeof(l2), "%uX%u AT %u,%u", t->w, t->h, t->x, t->y);
+    int big = t->w / 120 > 0 ? t->w / 120 : 1;
+    ident_draw_text(buf, t->w, t->h, 20, t->h / 2 - 60 * big / 4, big, c, l1);
+    ident_draw_text(buf, t->w, t->h, 20, t->h / 2 + 20, big / 2 > 0 ? big / 2 : 1, 0xC0C0C0, l2);
+    display_show_rgb_at(buf, t->w, t->h, t->x, t->y);
+    free(buf);
+}
+
+static bool has_last(void)
+{
+    return s_last_jpeg_len || s_tile_n;
+}
+
+/* Redraws what the screen last showed: the tiles (or their test cards) in tile mode, the last frame otherwise.
+   Called with s_frame_mutex held. */
+static void redraw_last(void)
+{
+    if (s_tile_n) {
+        for (int i = 0; i < s_tile_n; i++) {
+            if (s_tile_cards) draw_tile_card(i);
+            else if (s_tile_jpeg_len[i]) display_show_jpeg_at(s_tile_jpeg[i], s_tile_jpeg_len[i], s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, NULL);
+        }
+    } else if (s_last_jpeg_len) {
+        redraw_last();
+    }
+}
+
 static int64_t s_hdr_us;   /* when the last header arrived (for rx time accounting) */
 
 static void handle_message(const xd_header_t *h, const uint8_t *payload)
@@ -271,10 +329,10 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
     case XD_T_GET_INFO: send_info(); send_ready(); break;   /* a (re)connecting host learns we can take a frame */
     case XD_T_SET_BRIGHTNESS:
         display_set_brightness((int)h->arg);        /* follows the cockpit knob: not persisted */
-        if (s_last_jpeg_len && esp_timer_get_time() - s_last_frame_us > 40000) {
+        if (has_last() && esp_timer_get_time() - s_last_frame_us > 40000) {
             /* no frame is arriving right now: redraw the last one so the change shows at once */
             xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
-            display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
+            redraw_last();
             xSemaphoreGive(s_frame_mutex);
         }
         break;
@@ -288,6 +346,60 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
     case XD_T_SET_ASSIGNED:
         s_assigned = h->arg != 0;           /* the screen task switches between picture and NOT ASSIGNED */
         break;
+    case XD_T_SET_LAYOUT: {
+        if (s_ota.active) { break; }
+        display_info_t di = display_get_info();
+        int n = (int)(h->length / 8);
+        if (n > MAX_TILES) n = MAX_TILES;
+        xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+        s_tile_n = 0;
+        for (int i = 0; i < n; i++) {
+            const uint8_t *p = payload + i * 8;
+            tile_t t = {(uint16_t)(p[0] | p[1] << 8), (uint16_t)(p[2] | p[3] << 8), (uint16_t)(p[4] | p[5] << 8), (uint16_t)(p[6] | p[7] << 8)};
+            if (t.w == 0 || t.h == 0 || t.x + t.w > di.width || t.y + t.h > di.height) {
+                send_log(2, "tile %d: %ux%u at %u,%u is outside the %dx%d screen, ignored", i + 1, t.w, t.h, t.x, t.y, di.width, di.height);
+                continue;
+            }
+            s_tiles[s_tile_n++] = t;
+        }
+        s_tile_cards = (h->arg & 1) != 0;
+        display_fill(0x000000);
+        redraw_last();
+        xSemaphoreGive(s_frame_mutex);
+        send_log(1, "layout: %d tile(s)%s", s_tile_n, s_tile_cards ? ", test cards" : "");
+        break;
+    }
+    case XD_T_TILE: {
+        if (s_ota.active) { break; }
+        int i = (int)h->arg;
+        if (i < 0 || i >= s_tile_n) {
+            s_dropped++;
+            send_log(2, "tile %d: not in the layout (%d tiles)", i + 1, s_tile_n);
+            send_ready();
+            break;
+        }
+        uint32_t ms = 0;
+        int64_t rx_done = esp_timer_get_time();
+        xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+        esp_err_t err = s_tile_cards ? ESP_OK      /* while the cards are up the picture is kept, not drawn */
+                        : display_show_jpeg_at(payload, h->length, s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, &ms);
+        if (err == ESP_OK) {
+            if (!s_tile_jpeg[i]) s_tile_jpeg[i] = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);
+            if (s_tile_jpeg[i]) { memcpy(s_tile_jpeg[i], payload, h->length); s_tile_jpeg_len[i] = h->length; }
+        }
+        xSemaphoreGive(s_frame_mutex);
+        if (err == ESP_OK) {
+            s_frames++; s_decode_ms_acc += ms; s_decode_n++;
+            s_draw_us_acc += s_tile_cards ? 0 : display_last_draw_us();
+            s_rx_us_acc += (uint32_t)(rx_done - s_hdr_us);
+            s_last_seq = h->seq; s_last_frame_us = esp_timer_get_time(); s_assigned = true;
+        } else {
+            s_dropped++;
+            send_log(2, "tile %d decode failed seq %lu: %s", i + 1, (unsigned long)h->seq, esp_err_to_name(err));
+        }
+        send_ready();
+        break;
+    }
     case XD_T_SET_MODE:
         if (h->arg <= 3) {                  /* the HDMI DU on another screen: takes effect after the restart */
             nvs_set_int("mode", (int)h->arg);
@@ -312,7 +424,7 @@ static bool header_valid(const xd_header_t *h)
     }
     switch (h->type) {   /* known host->module types only, so JPEG data cannot fake a header */
     case XD_T_FRAME: case XD_T_GET_INFO: case XD_T_SET_BRIGHTNESS: case XD_T_SET_ROTATION: case XD_T_SHOW_IDENT:
-    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
+    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_SET_LAYOUT: case XD_T_TILE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
         return true;
     default:
         return false;
@@ -404,10 +516,10 @@ static void screen_task(void *arg)
             } else {
                 display_set_overlay(NULL, NULL);
             }
-            if ((state == 0 && last_state > 0) || (state == 1 && s_last_jpeg_len)) {
+            if ((state == 0 && last_state > 0) || (state == 1 && has_last())) {
                 /* redraw the last received frame: without the banner (back to normal) or with it (ident) */
                 if (xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-                    if (s_last_jpeg_len) display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
+                    redraw_last();
                     xSemaphoreGive(s_frame_mutex);
                 }
             } else if (state == 1) {

@@ -375,12 +375,13 @@ static void stamp_overlay(uint8_t *bgr, int w, int h)
     ident_draw_text(bgr, w, h, big, 2 * big + 7 * big, small, 0xFFFFFF, s_overlay2);
 }
 
-esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms)
+/* The picture goes centred into the box at_x, at_y, box_w, box_h: the whole panel for a FRAME, one tile for a TILE. */
+static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, int box_w, int box_h, bool allow_flip, uint32_t *decode_ms)
 {
     jpeg_decode_picture_info_t pic;
     ESP_RETURN_ON_ERROR(jpeg_decoder_get_info(jpeg, len, &pic), TAG, "jpeg info");
-    if (pic.width > s_info.width || pic.height > s_info.height) {
-        ESP_LOGW(TAG, "frame %ux%u larger than panel %dx%d", (unsigned)pic.width, (unsigned)pic.height, s_info.width, s_info.height);
+    if (pic.width > (uint32_t)box_w || pic.height > (uint32_t)box_h) {
+        ESP_LOGW(TAG, "frame %ux%u larger than its %dx%d box", (unsigned)pic.width, (unsigned)pic.height, box_w, box_h);
         return ESP_ERR_INVALID_SIZE;
     }
     jpeg_decode_cfg_t cfg = {
@@ -410,7 +411,7 @@ esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
              * that lies inside a frame buffer makes the panel driver flip to it instead of copying: no 12 ms
              * copy and no tearing. Smaller pictures keep the copy path so the surround stays intact. */
             size_t fb_bytes = (size_t)s_info.width * s_info.height * 3;
-            bool flip = s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
+            bool flip = allow_flip && s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
                         && fb_bytes % 64 == 0;
             if (flip) {
                 b.out.buffer = s_fb[1 - s_front];
@@ -436,7 +437,7 @@ esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     if (decode_ms) {
         *decode_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
     }
-    int x = (s_info.width - pic.width) / 2, y = (s_info.height - pic.height) / 2;
+    int x = at_x + (box_w - (int)pic.width) / 2, y = at_y + (box_h - (int)pic.height) / 2;
     int64_t t1 = esp_timer_get_time();
     esp_err_t err = draw_sync(x, y, pic.width, pic.height, shown);
     if (err == ESP_OK && s_fb[1] && shown == (uint8_t *)s_fb[1 - s_front]) {
@@ -444,4 +445,25 @@ esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
     }
     s_last_draw_us = (uint32_t)(esp_timer_get_time() - t1);
     return err;
+}
+
+esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms)
+{
+    return show_jpeg(jpeg, len, 0, 0, s_info.width, s_info.height, true, decode_ms);
+}
+
+esp_err_t display_show_jpeg_at(const uint8_t *jpeg, size_t len, int x, int y, int w, int h, uint32_t *decode_ms)
+{
+    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > s_info.width || y + h > s_info.height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return show_jpeg(jpeg, len, x, y, w, h, false, decode_ms);
+}
+
+esp_err_t display_show_rgb_at(const uint8_t *rgb, int w, int h, int x, int y)
+{
+    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > s_info.width || y + h > s_info.height) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return draw_sync(x, y, w, h, rgb);
 }

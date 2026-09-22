@@ -40,6 +40,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   3 = 1280x720); the DU stores it and restarts into it, and keeps it across normal boots (the bring-up code used
   to reset it to 768x768 at every start). The first step towards a DU on an ordinary HDMI screen. Bench:
   `GlassLink.Bench mode 3 --serial <prefix>`, `stream --size 1280x640 --only <prefix>`.
+- **[DU firmware] Tiles: several displays on one DU** (`SET_LAYOUT` 0x0A, `TILE` 0x0B). The host gives the DU a
+  layout (up to six rectangles of its screen) and then sends each display as a frame of its own for its tile, so a
+  change on one display costs only that display's pixels, whatever the screen size. Test cards (`SET_LAYOUT` with
+  bit 0) draw every tile as a bright border with its number and size, for lining the tiles up with a panel's
+  cutouts; the last picture of every tile is kept and redrawn after Identify or a brightness change. Measured on
+  DU2 in its 1280x720 mode: two 640x640 tiles 48 tiles/s in total (decode 5.6 ms, draw 11.2 ms, transfer 2.5 ms
+  each), four tiles of 432x432 and 1280x288 77 tiles/s, one 768x720 tile 36/s. Bench:
+  `GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards]`. The DMC side (a DU with
+  several displays, the layout editor on the status page) follows.
 - **Measured: one DU driving two displays side by side** (DU2 in its 1280x720 mode, test pattern, 22 Sept 2026):
   768x768 41.5 fps (decode 6 ms, draw 13 ms), 1024x704 29 fps (10 / 20 ms), 1280x640 26 fps (11 / 22 ms),
   1280x720 23 fps (12.5 / 25 ms); transfer 3-4 ms throughout. Decode and draw scale with the pixels and run in
