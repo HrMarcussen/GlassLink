@@ -70,9 +70,10 @@ internal sealed class FakeDu : IDuTransport
             {
                 case MessageType.GetInfo when AnswerInfo:
                     _toHost.Add(Wire.Pack(MessageType.Info, Encoding.UTF8.GetBytes(
-                        "{\"fw\":\"0.5.0\",\"build\":\"abc1234\",\"hw\":\"fake\",\"panel\":[768,768],\"slot\":\"ota_0\",\"uptime_s\":5}")));
+                        "{\"fw\":\"0.5.0\",\"build\":\"abc1234\",\"hw\":\"fake\",\"panel\":[768,768],\"mode\":3,\"caps\":[\"mode\",\"tiles\"],\"slot\":\"ota_0\",\"uptime_s\":5}")));
                     break;
                 case MessageType.Frame:
+                case MessageType.Tile:                       // a tile is answered like a frame
                     _toHost.Add(Wire.Pack(MessageType.Ready, seq: m.Seq));
                     break;
                 case MessageType.Ping:

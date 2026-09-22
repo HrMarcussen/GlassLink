@@ -29,6 +29,8 @@ public sealed class DmcRuntime : IDisposable
         Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log);
         Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
         Dus.SimBrightness = display => BrightnessEnabled ? Brightness.For(display) : null;
+        Dus.DisplaySize = display => Config.Read<(int, int)?>(root => (root["displays"] as JsonObject)?[display] is JsonObject d && d["client_size"] is JsonArray a && a.Count == 2
+            ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null);
         Displays.Removed = Dus.DisplayRemoved;
         Learner = new Learner(Config, Camera, Log) { PauseAuto = paused => { if (Auto is not null) { Auto.Paused = paused; } } };
         Advisor = new Advisor();

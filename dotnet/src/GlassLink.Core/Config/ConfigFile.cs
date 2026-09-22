@@ -77,11 +77,18 @@ public sealed class ConfigFile
 }
 
 /// <summary>What the configuration says about one DU (section "modules", keyed by serial).</summary>
-public sealed record DuSettings(string Display, string Label, int Brightness, int? Rotation)
+/// <summary>A DU's entry in the configuration. <c>Tiles</c> (display -> position on the DU's screen, in the order the
+/// tiles are numbered) puts the DU into tile mode, where <c>Display</c> is ignored; <c>Screen</c> is the HDMI mode
+/// the DU is asked for (null = left as it is).</summary>
+public sealed record DuSettings(string Display, string Label, int Brightness, int? Rotation, int? Screen, IReadOnlyList<(string Display, int X, int Y)> Tiles)
 {
     public static DuSettings From(JsonObject? o) => new(
         o?["display"]?.GetValue<string>() ?? "",
         o?["label"]?.GetValue<string>() ?? "",
         Math.Clamp(o?["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : 100, 0, 100),
-        o?["rotation"] is { } r && r.GetValueKind() == JsonValueKind.Number ? (int)r.AsDouble() : null);
+        o?["rotation"] is { } r && r.GetValueKind() == JsonValueKind.Number ? (int)r.AsDouble() : null,
+        o?["screen"] is { } sc && sc.GetValueKind() == JsonValueKind.Number ? (int)sc.AsDouble() : null,
+        (o?["tiles"] as JsonObject)?.Select(kv => (kv.Key,
+            (kv.Value as JsonObject)?["x"] is { } x && x.GetValueKind() == JsonValueKind.Number ? (int)x.AsDouble() : 0,
+            (kv.Value as JsonObject)?["y"] is { } y && y.GetValueKind() == JsonValueKind.Number ? (int)y.AsDouble() : 0)).ToList() ?? []);
 }

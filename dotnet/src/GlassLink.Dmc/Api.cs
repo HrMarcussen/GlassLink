@@ -45,6 +45,29 @@ public static class Api
                 dmc.Dus.Assign(serial, Str(body["display"]), Str(body["label"]), body["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : null);
             }
 
+            if (body.ContainsKey("screen"))
+            {
+                dmc.Dus.SetScreen(serial, body["screen"] is { } sc && sc.GetValueKind() == JsonValueKind.Number ? (int)sc.AsDouble() : null);
+            }
+
+            if (body.ContainsKey("tiles"))
+            {
+                var tiles = (body["tiles"] as JsonObject)?.Select(kv => (kv.Key,
+                    (kv.Value as JsonObject)?["x"] is { } x && x.GetValueKind() == JsonValueKind.Number ? (int)x.AsDouble() : 0,
+                    (kv.Value as JsonObject)?["y"] is { } y && y.GetValueKind() == JsonValueKind.Number ? (int)y.AsDouble() : 0)).ToList();
+                if (tiles is not null && tiles.Any(t => dmc.Displays.Slot(t.Key) is null))
+                {
+                    return Plain(400, "unknown display in the tiles");
+                }
+
+                dmc.Dus.SetTiles(serial, tiles);
+            }
+
+            if (body["cards"] is { } cards && cards.GetValueKind() is JsonValueKind.True or JsonValueKind.False)
+            {
+                dmc.Dus.ShowCards(serial, cards.GetValue<bool>());
+            }
+
             if (Str(body["command"]) is { Length: > 0 } command && !dmc.Command(serial, command, body["arg"] is { } a && a.GetValueKind() == JsonValueKind.Number ? (int)a.AsDouble() : 0))
             {
                 return Plain(404, "module not connected");
@@ -260,7 +283,14 @@ public static class Api
                 ["connected_s"] = conn is null ? null : Math.Round((DateTime.UtcNow - conn.ConnectedAt).TotalSeconds, 1),
                 ["last_msg_age_s"] = conn is null ? null : Math.Round((DateTime.UtcNow - conn.LastMessageAt).TotalSeconds, 1),
                 ["health"] = new JsonObject { ["bad"] = d.Health.Count > 0, ["reasons"] = new JsonArray([.. d.Health.Select(h => (JsonNode)h)]) },
-                ["settings"] = new JsonObject { ["display"] = d.Display, ["label"] = d.Label, ["brightness"] = d.Trim },
+                ["settings"] = new JsonObject
+                {
+                    ["display"] = d.Display, ["label"] = d.Label, ["brightness"] = d.Trim, ["screen"] = d.Screen,
+                    ["tiles"] = d.Tiles.Count > 0 ? new JsonObject(d.Tiles.Select(t => KeyValuePair.Create(t.Display, (JsonNode?)new JsonObject { ["x"] = t.X, ["y"] = t.Y }))) : null,
+                },
+                ["layout"] = new JsonArray([.. d.Layout.Select(l => (JsonNode)new JsonObject { ["display"] = l.Display, ["x"] = l.Tile.X, ["y"] = l.Tile.Y, ["w"] = l.Tile.Width, ["h"] = l.Tile.Height })]),
+                ["cards"] = d.Cards,
+                ["layout_problem"] = d.LayoutProblem.Length > 0 ? d.LayoutProblem : null,
                 ["log_tail"] = new JsonArray(),
             };
         }

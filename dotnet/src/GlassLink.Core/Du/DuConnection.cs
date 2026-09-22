@@ -136,8 +136,19 @@ public sealed class DuConnection : IDisposable
     public IReadOnlyList<Tile> Layout { get; private set; } = [];
 
     /// <summary>True when the DU's firmware knows SET_LAYOUT and TILE (INFO caps).</summary>
-    public bool SupportsTiles => InfoJson is { } j && j.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array
-                                 && caps.EnumerateArray().Any(c => c.ValueKind == JsonValueKind.String && c.GetString() == "tiles");
+    public bool SupportsTiles => Has("tiles");
+
+    /// <summary>True when the DU's firmware knows SET_MODE.</summary>
+    public bool SupportsMode => Has("mode");
+
+    /// <summary>The HDMI mode the DU runs (INFO), null before the first INFO.</summary>
+    public int? Mode => InfoJson is { } j && j.TryGetProperty("mode", out var m) && m.TryGetInt32(out var v) ? v : null;
+
+    /// <summary>Test cards instead of pictures on the tiles (the last SET_LAYOUT).</summary>
+    public bool Cards => _cards;
+
+    private bool Has(string cap) => InfoJson is { } j && j.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array
+                                    && caps.EnumerateArray().Any(c => c.ValueKind == JsonValueKind.String && c.GetString() == cap);
 
     /// <summary>Gives the DU a layout (or takes it away with an empty list) and, with <paramref name="cards"/>, shows
     /// the tiles as test cards for lining them up with the panel's cutouts. The sources per tile follow separately

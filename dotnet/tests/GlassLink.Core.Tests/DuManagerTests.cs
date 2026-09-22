@@ -37,6 +37,51 @@ public class DuManagerTests
     }
 
     [Fact]
+    public void A_du_with_tiles_gets_a_layout_and_each_tile_its_own_frames()
+    {
+        var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":3,"tiles":{"pfd":{"x":0,"y":0},"nd":{"x":390,"y":0},"ecam_upper":{"x":0,"y":700}}}}}""");
+        using var _m = manager;
+        manager.DisplaySize = name => name == "pfd" ? (384, 384) : (384, 376);
+        manager.ScanOnce();
+        var deadline = Environment.TickCount64 + 3000;
+        while (dus[0].Of(MessageType.SetLayout).Count == 0 && Environment.TickCount64 < deadline)
+        {
+            manager.ScanOnce();                                      // the sync pass once INFO is in: the mode fits (3), so the layout goes
+            Thread.Sleep(5);
+        }
+
+        var conn = manager.Connection(Serial)!;
+        Assert.True(dus[0].Of(MessageType.SetLayout).Count == 1, $"received: {string.Join(",", dus[0].Received.Select(r => r.Type))}; info {conn.Info is not null}, mode {conn.Mode}, tiles {conn.SupportsTiles}, alive {conn.Alive}, settings tiles {manager.Settings(Serial).Tiles.Count}");
+        var layout = dus[0].Of(MessageType.SetLayout)[0].Payload.ToArray();
+        Assert.Equal(16, layout.Length);
+        Assert.Equal((0, 0, 384, 384), (BitConverter.ToUInt16(layout, 0), BitConverter.ToUInt16(layout, 2), BitConverter.ToUInt16(layout, 4), BitConverter.ToUInt16(layout, 6)));
+        Assert.Equal((384, 0, 384, 368), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // snapped to 16
+        Assert.Contains("ecam_upper", manager.Status().Single().LayoutProblem);                     // 0,700 + 376 does not fit the 768x768 fake: left out, reported
+        Assert.Empty(dus[0].Of(MessageType.SetMode));
+
+        displays["nd"].Publish(new byte[] { 2 });
+        Until(() => dus[0].Of(MessageType.Tile).Count == 1);
+        Assert.Equal((1u, 2), (dus[0].Of(MessageType.Tile)[0].Arg, (int)dus[0].Of(MessageType.Tile)[0].Payload.Span[0]));
+        displays["pfd"].Publish(new byte[] { 1 });
+        Until(() => dus[0].Of(MessageType.Tile).Count == 2);
+        Assert.Equal(0u, dus[0].Of(MessageType.Tile)[1].Arg);
+        Assert.Empty(dus[0].Of(MessageType.Frame));                  // never a plain frame in tile mode
+        Assert.True(manager.IsShown("pfd") && manager.IsShown("nd"));
+
+        manager.ShowCards(Serial, true);
+        Until(() => dus[0].Of(MessageType.SetLayout).Count == 2);
+        Assert.Equal(1u, dus[0].Of(MessageType.SetLayout)[1].Arg);
+        var row = manager.Status().Single();
+        Assert.True(row.Cards);
+        Assert.Equal(2, row.Layout.Count);
+
+        manager.SetTiles(Serial, null);                              // a single-display DU again
+        Until(() => dus[0].Of(MessageType.SetLayout).Count == 3);
+        Assert.Equal(0, dus[0].Of(MessageType.SetLayout)[2].Payload.Length);
+        Assert.Null(((JsonObject)config.Root["modules"]![Serial]!)["tiles"]);
+    }
+
+    [Fact]
     public void A_plugged_in_du_gets_its_display_from_the_configuration()
     {
         var (manager, dus, displays, _, _) = Make("""{"modules":{"SERIAL":{"display":"nd","label":"DU2","brightness":80}},"other":{"kept":true}}""");

@@ -72,6 +72,14 @@
   .banner.done { border-color:var(--ok); background:var(--ok-bg); } .banner.bad { border-color:var(--bad); background:var(--bad-bg); }
   .banner b { font-size:1.0625rem; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  /* Layout editor: the DU's screen to scale, the tiles in it; drag a tile or use its number fields (steps of 16). */
+  .layout { display:grid; gap:.6rem; margin-top:.5rem; }
+  .layout .screen { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; width:100%; max-width:34rem; touch-action:none; }
+  .layout .tile { position:absolute; box-sizing:border-box; border:2px solid var(--accent); background:color-mix(in srgb, var(--accent) 25%, transparent); color:var(--fg); font-size:.75rem; padding:.15rem .3rem; cursor:move; user-select:none; overflow:hidden; }
+  .layout .tile:focus { outline:2px solid var(--fg); outline-offset:-4px; }
+  .layout .tile.off { display:none; }
+  .layout table.tiles td { padding:.2rem .4rem; } .layout table.tiles input[type=number] { width:5.5rem; }
+  .layout .hint { font-size:.8125rem; color:var(--dim); }
   /* Getting started: done steps carry a tick, the step to do now an arrow and its hint, later steps a circle. */
   #checklist { margin:0 0 .9rem; padding:.8rem 1rem; border-radius:.6rem; border:1px solid var(--line); background:var(--card); }
   #checklist .head { display:flex; align-items:center; gap:.8rem; } #checklist .head b { font-size:1.0625rem; } #checklist .head button { margin-left:auto; }
@@ -218,6 +226,7 @@
   const titled = (name) => NICE[name] ? `${NICE[name]}<span class="idname">${name}</span>` : name;
   const cockpitOrder = (names) => [...names].sort((a, b) => ((COCKPIT.indexOf(a) + 1) || 99) - ((COCKPIT.indexOf(b) + 1) || 99) || a.localeCompare(b));
   let modsNow = {};                               // the DUs as of the last refresh (who shows what)
+  let displaysNow = {};                           // the displays as of the last refresh (their picture sizes)
   try { $('#show-tech').checked = localStorage.getItem('glasslink.tech') === '1'; } catch (e) {}
   const applyTech = () => { $('#displays').classList.toggle('tech', $('#show-tech').checked); try { localStorage.setItem('glasslink.tech', $('#show-tech').checked ? '1' : '0'); } catch (e) {} };
   $('#show-tech').onchange = applyTech; applyTech();
@@ -332,6 +341,7 @@
       return;
     }
     const openMore = new Set([...document.querySelectorAll('#modules details.more[open]')].map(x => x.closest('tr').dataset.serial));
+    const openLayout = new Set([...document.querySelectorAll('#modules details.layout-box[open]')].map(x => x.closest('tr').dataset.serial));
     const opts2 = (cur) => ['<option value="">— not assigned —</option>']
       .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${nice(n)}</option>`)).join('');
     const rows = serials.map(serial => {
@@ -342,7 +352,9 @@
       return `<tr data-serial="${serial}">
         <td><input type="text" class="label" value="${x.label || ''}" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${serial.slice(0, 8)}</code></span></td>
         <td>${alive}</td>
-        <td><select class="display" aria-label="display shown on this unit">${opts2(x.display)}</select></td>
+        <td>${(x.settings && x.settings.tiles) ? `<span class="tiles-summary">${Object.keys(x.settings.tiles).map(nice).join(' + ')}</span><br><span class="dim small">${(x.layout || []).map(l => `${nice(l.display)} ${l.w}x${l.h} at ${l.x},${l.y}`).join(' · ') || 'layout not sent yet'}</span>${x.layout_problem ? '<br>' + pill(x.layout_problem, 'warn') : ''}`
+              : `<select class="display" aria-label="display shown on this unit">${opts2(x.display)}</select>`}
+            ${(info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="several displays on this DU's screen, each in its own place">${(x.settings && x.settings.tiles) ? 'Layout…' : 'Several displays…'}</button>` : ''}</td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
         <td class="stats"></td>
         <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
@@ -352,7 +364,8 @@
             ${x.alive ? `<button class="ping" title="measures the round trip to the DU">Ping</button><span class="dim pingms"></span>
               ${x.fw_outdated ? '' : `<button class="update" title="installs the built firmware image again">Reinstall firmware</button>`}` : ''}
             ${!x.alive ? `<button class="forget danger" title="removes this DU's assignment and label">Forget this DU</button>` : ''}
-            <span class="facts">${facts}<span class="sent"></span></span></div></details></td>
+            <span class="facts">${facts}<span class="sent"></span></span></div></details>
+          ${(info.caps || []).includes('tiles') || (info.caps || []).includes('mode') ? `<details class="layout-box" ${openLayout.has(serial) ? 'open' : ''}><summary>Screen and layout</summary><div class="box layout"></div></details>` : ''}</td>
       </tr>`;
     }).join('');
     $('#modules').innerHTML = `<table><thead><tr><th>Display unit</th><th>State</th><th>Shows</th><th>Brightness</th><th>Picture</th><th>Firmware</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -361,7 +374,10 @@
       const serial = tr.dataset.serial;
       const post = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
-      tr.querySelector('.display').onchange = (e) => post({ display: e.target.value });
+      const ds = tr.querySelector('.display'); if (ds) ds.onchange = (e) => post({ display: e.target.value });
+      const lb = tr.querySelector('.layout-btn'); const box = tr.querySelector('details.layout-box');
+      if (lb && box) lb.onclick = () => { box.open = true; box.scrollIntoView({ block: 'nearest' }); };
+      if (box) { renderLayout(box.querySelector('.layout'), serial, m[serial], post); box.ontoggle = () => { if (box.open) renderLayout(box.querySelector('.layout'), serial, m[serial], post); }; }
       tr.querySelector('.label').onchange = (e) => post({ label: e.target.value });
       tr.querySelector('.brightness').onchange = (e) => post({ brightness: parseInt(e.target.value, 10) });
       const ib0 = tr.querySelector('.ident');
@@ -376,6 +392,60 @@
       const fb0 = tr.querySelector('.forget');
       if (fb0) fb0.onclick = (e) => { e.target.blur(); if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${serial}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
     });
+  }
+
+  // ---- screen and layout of one DU ------------------------------------------------------------------------
+  // The DU's screen to scale with the tiles in it. A tile is a display at a position; its size is the display's own
+  // picture size (Setup tab), so nothing is scaled on the way. Positions snap to 16 (the DU's decoder wants that).
+  const SCREENS = [[0, '768x768 (GlassLink panel)'], [1, '1024x768'], [2, '800x600'], [3, '1280x720']];
+  function renderLayout(el, serial, x, post) {
+    if (!el || !x) return;
+    const info = x.info || {}; const st = x.settings || {}; const tiles = st.tiles || {};
+    const screen = st.screen ?? '';
+    const panel = info.panel || [768, 768];
+    const sizes = {}; for (const [n, d] of Object.entries(displaysNow)) sizes[n] = d.size || [768, 768];
+    const key = JSON.stringify([screen, tiles, panel, x.cards, sizes, displaysOrder]);
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    const scale = Math.min(1, 34 * 16 / panel[0]);
+    const rows = displaysOrder.map(n => {
+      const t = tiles[n]; const sz = sizes[n];
+      return `<tr data-display="${n}"><td><label><input type="checkbox" class="on" ${t ? 'checked' : ''}> ${nice(n)}</label></td>
+        <td class="dim small">${sz[0]}x${sz[1]}</td>
+        <td><label>x <input type="number" class="tx" min="0" step="16" value="${t ? t.x : 0}" ${t ? '' : 'disabled'} aria-label="${nice(n)} x"></label></td>
+        <td><label>y <input type="number" class="ty" min="0" step="16" value="${t ? t.y : 0}" ${t ? '' : 'disabled'} aria-label="${nice(n)} y"></label></td></tr>`;
+    }).join('');
+    el.innerHTML = `
+      ${(info.caps || []).includes('mode') ? `<label>Screen <select class="screen" aria-label="HDMI mode of this DU"><option value="">as it is (${panel.join('x')})</option>${SCREENS.map(([v, t]) => `<option value="${v}" ${String(v) === String(screen) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span>` : ''}
+      <div class="screen" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen with its tiles">
+        ${displaysOrder.map(n => { const t = tiles[n]; const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'}" tabindex="${t ? 0 : -1}" data-display="${n}" style="left:${(t ? t.x : 0) / panel[0] * 100}%;top:${(t ? t.y : 0) / panel[1] * 100}%;width:${sz[0] / panel[0] * 100}%;height:${sz[1] / panel[1] * 100}%" title="drag, or arrow keys (16 px)">${nice(n)}</div>`; }).join('')}
+      </div>
+      <table class="tiles"><tbody>${rows}</tbody></table>
+      <div><label><input type="checkbox" class="cards" ${x.cards ? 'checked' : ''}> Show test cards on the DU</label>
+        <span class="hint">Each tile as a bright border with its number: stand at the panel and nudge until the border just disappears behind the cutout.</span></div>
+      <div class="hint">Sizes come from each display's picture size on the Setup tab; a tile must lie inside the screen. Without any tile the DU shows the single display chosen in "Shows".</div>`;
+    const read = () => { const out = {}; for (const tr of el.querySelectorAll('table.tiles tr')) { if (tr.querySelector('.on').checked) out[tr.dataset.display] = { x: +tr.querySelector('.tx').value || 0, y: +tr.querySelector('.ty').value || 0 }; } return out; };
+    const snap = (v) => Math.max(0, Math.round(v / 16) * 16);
+    const save = () => { const out = read(); el.dataset.key = ''; post({ tiles: Object.keys(out).length ? out : null }).then(() => setTimeout(refresh, 300)); };
+    el.querySelectorAll('table.tiles tr').forEach(tr => {
+      tr.querySelector('.on').onchange = save;
+      tr.querySelectorAll('.tx, .ty').forEach(i => i.onchange = () => { i.value = snap(+i.value); save(); });
+    });
+    const sc = el.querySelector('.screen');
+    const move = (n, x, y) => { const tr = el.querySelector(`table.tiles tr[data-display="${n}"]`); tr.querySelector('.tx').value = snap(x); tr.querySelector('.ty').value = snap(y);
+      const d = el.querySelector(`.tile[data-display="${n}"]`); d.style.left = `${snap(x) / panel[0] * 100}%`; d.style.top = `${snap(y) / panel[1] * 100}%`; };
+    el.querySelectorAll('.tile').forEach(d => {
+      const n = d.dataset.display;
+      d.onpointerdown = (e) => { d.setPointerCapture(e.pointerId); const r = sc.getBoundingClientRect(); const t = read()[n] || { x: 0, y: 0 };
+        const ox = e.clientX - r.left - t.x / panel[0] * r.width, oy = e.clientY - r.top - t.y / panel[1] * r.height;
+        d.onpointermove = (ev) => move(n, (ev.clientX - r.left - ox) / r.width * panel[0], (ev.clientY - r.top - oy) / r.height * panel[1]);
+        d.onpointerup = () => { d.onpointermove = null; save(); }; };
+      d.onkeydown = (e) => { const t = read()[n]; if (!t) return; const dx = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0, dy = e.key === 'ArrowUp' ? -16 : e.key === 'ArrowDown' ? 16 : 0;
+        if (dx || dy) { e.preventDefault(); move(n, t.x + dx, t.y + dy); clearTimeout(d._t); d._t = setTimeout(save, 400); } };
+    });
+    const ss = el.querySelector('.screen-select, select.screen'); if (ss) ss.onchange = () => post({ screen: ss.value === '' ? null : +ss.value }).then(() => setTimeout(refresh, 300));
+    el.querySelector('.cards').onchange = (e) => post({ cards: e.target.checked }).then(() => setTimeout(refresh, 300));
   }
 
   // ---- display editor -------------------------------------------------------------------------------------
@@ -571,7 +641,7 @@
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
       $('#version').textContent = `v${s.version}`; $('#version').title = `build ${s.build || '?'}${s.engine ? ' · ' + s.engine : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
-      advised = s.advice || []; sourceFps = s.source_fps || {}; modsNow = s.modules || {};
+      advised = s.advice || []; sourceFps = s.source_fps || {}; modsNow = s.modules || {}; displaysNow = s.displays || {};
       renderChain(s);
       renderChecklist(s);
       renderAdvice(s.advice || []);
@@ -597,7 +667,7 @@
       const mods = s.modules || {};
       const key = JSON.stringify(Object.fromEntries(Object.entries(mods).map(([k, x]) => [k, {
         display: x.display, alive: x.alive, error: x.error, label: x.label, settings: x.settings, info: x.info,
-        ident: x.ident_active, outdated: x.fw_outdated }]))) + '|' + Object.keys(s.displays || {}).join(',') + '|' + (s.firmware_version || '');
+        ident: x.ident_active, outdated: x.fw_outdated, layout: x.layout, cards: x.cards, problem: x.layout_problem }]))) + '|' + Object.keys(s.displays || {}).join(',') + '|' + (s.firmware_version || '');
       // an input or dropdown being edited blocks a rebuild; a focused button does not
       const busy = document.activeElement && document.activeElement.closest?.('#modules') && !['BUTTON', 'SUMMARY'].includes(document.activeElement.tagName);
       if (key !== modulesHtmlKey && !busy) { modulesHtmlKey = key; renderModules(mods); }

@@ -6,7 +6,8 @@ namespace GlassLink.Core.Du;
 
 /// <summary>One row of the DU list: what the configuration says plus what the DU reports.</summary>
 public sealed record DuStatus(string Serial, string Label, string Display, int Trim, bool Alive, string Error, DuInfo? Info, DuStats? Stats,
-    long FramesSent, double? PingMs, int? BrightnessSent, double? BrightnessSim, OtaStatus Ota, IReadOnlyList<string> Health);
+    long FramesSent, double? PingMs, int? BrightnessSent, double? BrightnessSim, OtaStatus Ota, IReadOnlyList<string> Health,
+    int? Screen, IReadOnlyList<(string Display, int X, int Y)> Tiles, IReadOnlyList<(string Display, DuConnection.Tile Tile)> Layout, bool Cards, string LayoutProblem);
 
 /// <summary>
 /// Finds DUs as they are plugged in, gives each its display from the configuration, and carries the user's commands.
@@ -28,12 +29,19 @@ public sealed class DuManager : IDisposable
     private readonly Dictionary<string, double?> _brightnessSim = [];
     private readonly Dictionary<string, string> _openErrors = [];
     private readonly HashSet<string> _rotationSent = [];
+    private readonly HashSet<string> _modeSent = [];
+    private readonly HashSet<string> _cards = [];
+    private readonly Dictionary<string, List<(string Display, DuConnection.Tile Tile)>> _layouts = [];
+    private readonly Dictionary<string, string> _layoutProblems = [];
     private Timer? _scanTimer;
     private Timer? _brightnessTimer;
 
     /// <summary>The cockpit's brightness for a display, 0..1 (the sim's knob); null = not known, the trim alone counts.
     /// Set by the brightness link (layer 3).</summary>
     public Func<string, double?> SimBrightness { get; set; } = _ => null;
+
+    /// <summary>A display's picture size (its client_size), for the size of its tile; null = 768x768.</summary>
+    public Func<string, (int Width, int Height)?> DisplaySize { get; set; } = _ => null;
 
     public string LastScanError { get; private set; } = "";
 
@@ -98,7 +106,10 @@ public sealed class DuManager : IDisposable
                     _connections[serial] = conn;
                     _openErrors.Remove(serial);
                     conn.Start();
-                    conn.Source = _display(Settings(serial).Display);
+                    if (Settings(serial).Tiles.Count == 0)
+                    {
+                        conn.Source = _display(Settings(serial).Display);
+                    }
                 }
                 catch (IOException ex)
                 {
@@ -109,6 +120,169 @@ public sealed class DuManager : IDisposable
 
                     _openErrors[serial] = ex.Message;
                 }
+            }
+
+            foreach (var (serial, conn) in _connections)
+            {
+                SyncScreen(serial, conn);
+            }
+        }
+    }
+
+    /// <summary>Brings a connected DU's HDMI mode and layout in line with its settings: the mode first (the DU restarts
+    /// into it, so nothing else is sent until it is back), then the layout with the displays' sizes, then which
+    /// display feeds which tile. Runs under the gate; sends only what changed.</summary>
+    private void SyncScreen(string serial, DuConnection conn)
+    {
+        if (!conn.Alive || conn.Info is null)
+        {
+            return;
+        }
+
+        var s = Settings(serial);
+        if (s.Screen is { } screen && conn.SupportsMode && conn.Mode is { } mode)
+        {
+            if (mode != screen)
+            {
+                if (_modeSent.Add(serial))                   // once per connection: a DU that refuses does not loop
+                {
+                    _log?.Invoke($"DU {serial[..8]}: HDMI mode {screen} (has {mode}); it restarts");
+                    conn.SetMode(screen);
+                }
+
+                return;
+            }
+
+            _modeSent.Remove(serial);
+        }
+
+        // Tiles that do not fit the screen the DU reports are left out (the DU would ignore them and the frames
+        // would be wasted); the status page says so.
+        var layout = new List<(string Display, DuConnection.Tile Tile)>();
+        var outside = new List<string>();
+        foreach (var (display, x, y) in s.Tiles)
+        {
+            var (w, h) = DisplaySize(display) ?? (768, 768);
+            var tile = new DuConnection.Tile(Snap(x), Snap(y), Math.Max(16, Snap(w)), Math.Max(16, Snap(h)));
+            if (tile.X + tile.Width > conn.Info.PanelWidth || tile.Y + tile.Height > conn.Info.PanelHeight)
+            {
+                outside.Add($"{display} {tile.Width}x{tile.Height} at {tile.X},{tile.Y} lies outside the {conn.Info.PanelWidth}x{conn.Info.PanelHeight} screen");
+                continue;
+            }
+
+            layout.Add((display, tile));
+        }
+
+        var problem = string.Join("; ", outside);
+        if (_layoutProblems.GetValueOrDefault(serial, "") != problem)
+        {
+            _layoutProblems[serial] = problem;
+            if (problem.Length > 0)
+            {
+                _log?.Invoke($"DU {serial[..8]}: {problem}");
+            }
+        }
+
+        if (layout.Count > 0 && conn.SupportsTiles)
+        {
+            var cards = _cards.Contains(serial);
+            if (!conn.Layout.SequenceEqual(layout.Select(l => l.Tile)) || conn.Cards != cards)
+            {
+                if (conn.Source is not null)
+                {
+                    conn.Source = null;
+                }
+
+                conn.SetLayout(layout.Select(l => l.Tile).ToList(), cards);
+                _log?.Invoke($"DU {serial[..8]}: layout {string.Join(", ", layout.Select(l => $"{l.Display} {l.Tile.Width}x{l.Tile.Height} at {l.Tile.X},{l.Tile.Y}"))}{(cards ? " (test cards)" : "")}");
+            }
+
+            var sources = layout.Select(l => _display(l.Display)).ToArray();
+            if (!conn.TileSources.SequenceEqual(sources))
+            {
+                conn.TileSources = sources;
+            }
+
+            _layouts[serial] = layout;
+        }
+        else if (conn.Layout.Count > 0)
+        {
+            conn.SetLayout([]);                              // back to one display
+            conn.TileSources = new IFrameSource?[0];
+            conn.Source = _display(s.Display);
+            _layouts.Remove(serial);
+        }
+    }
+
+    /// <summary>Tile positions and sizes on multiples of 16: the DU's decoder and DMA want that (a tile at 854 failed).</summary>
+    private static int Snap(int v) => Math.Max(0, v / 16 * 16);
+
+    // -- screens and layouts (the user's decisions) ------------------------------------------------------------
+    /// <summary>The HDMI mode a DU is asked for (null = leave it); applied at once if it is connected.</summary>
+    public void SetScreen(string serial, int? screen)
+    {
+        _config.Update(root =>
+        {
+            var entry = ConfigFile.Section(ConfigFile.Section(root, "modules"), serial);
+            if (screen is { } m)
+            {
+                entry["screen"] = Math.Clamp(m, 0, 3);
+            }
+            else
+            {
+                entry.Remove("screen");
+            }
+        });
+        Resync(serial);
+    }
+
+    /// <summary>The DU's tiles: display -> position, in tile order; null or empty = a single-display DU again.</summary>
+    public void SetTiles(string serial, IReadOnlyList<(string Display, int X, int Y)>? tiles)
+    {
+        _config.Update(root =>
+        {
+            var entry = ConfigFile.Section(ConfigFile.Section(root, "modules"), serial);
+            if (tiles is { Count: > 0 })
+            {
+                var o = new JsonObject();
+                foreach (var (display, x, y) in tiles)
+                {
+                    o[display] = new JsonObject { ["x"] = Snap(x), ["y"] = Snap(y) };
+                }
+
+                entry["tiles"] = o;
+            }
+            else
+            {
+                entry.Remove("tiles");
+            }
+        });
+        Resync(serial);
+    }
+
+    /// <summary>Test cards on the DU's tiles while the layout is being lined up (not stored).</summary>
+    public void ShowCards(string serial, bool on)
+    {
+        if (on)
+        {
+            _cards.Add(serial);
+        }
+        else
+        {
+            _cards.Remove(serial);
+        }
+
+        Resync(serial);
+    }
+
+    private void Resync(string serial)
+    {
+        lock (_gate)
+        {
+            _modeSent.Remove(serial);
+            if (_connections.TryGetValue(serial, out var conn))
+            {
+                SyncScreen(serial, conn);
             }
         }
     }
@@ -131,7 +305,8 @@ public sealed class DuManager : IDisposable
                     conn.Send(GlassLink.Core.Protocol.MessageType.SetRotation, arg: (uint)(((rotation % 360) + 360) % 360));   // once per connection
                 }
 
-                var sim = settings.Display.Length > 0 ? SimBrightness(settings.Display) : null;
+                var knob = settings.Tiles.Count > 0 ? settings.Tiles[0].Display : settings.Display;     // a layout follows its first tile's knob
+                var sim = knob.Length > 0 ? SimBrightness(knob) : null;
                 var percent = sim is { } s ? (int)Math.Round(Math.Clamp(s, 0, 1) * settings.Brightness) : settings.Brightness;
                 _brightnessSim[serial] = sim;
                 if (!_brightnessSent.TryGetValue(serial, out var sent) || sent != percent)
@@ -171,7 +346,7 @@ public sealed class DuManager : IDisposable
         var settings = Settings(serial);
         lock (_gate)
         {
-            if (display is not null && _connections.TryGetValue(serial, out var conn))
+            if (display is not null && settings.Tiles.Count == 0 && _connections.TryGetValue(serial, out var conn))
             {
                 conn.Source = _display(settings.Display);
             }
@@ -188,6 +363,13 @@ public sealed class DuManager : IDisposable
         foreach (var serial in serials)
         {
             Assign(serial, display: "");
+        }
+
+        var tiled = _config.Read(root => (root["modules"] as JsonObject)?
+            .Where(kv => ((kv.Value as JsonObject)?["tiles"] as JsonObject)?.ContainsKey(display) == true).Select(kv => kv.Key).ToList() ?? []);
+        foreach (var serial in tiled)
+        {
+            SetTiles(serial, Settings(serial).Tiles.Where(t => t.Display != display).ToList());
         }
     }
 
@@ -218,7 +400,8 @@ public sealed class DuManager : IDisposable
 
         try
         {
-            var shown = _connections.Any(kv => kv.Value.Alive && ReferenceEquals(kv.Value.Source, _display(display)) && kv.Value.Source is not null);
+            var src = _display(display);
+            var shown = src is not null && _connections.Any(kv => kv.Value.Alive && (ReferenceEquals(kv.Value.Source, src) || kv.Value.TileSources.Any(t => ReferenceEquals(t, src))));
             _lastShown = shown ? _lastShown.Contains(display) ? _lastShown : new HashSet<string>(_lastShown) { display }
                 : _lastShown.Contains(display) ? new HashSet<string>(_lastShown.Where(d => d != display)) : _lastShown;
             return shown;
@@ -249,7 +432,8 @@ public sealed class DuManager : IDisposable
                 var c = _connections.GetValueOrDefault(serial);
                 return new DuStatus(serial, s.Label, s.Display, s.Brightness, c?.Alive ?? false, c?.Error ?? _openErrors.GetValueOrDefault(serial, ""),
                     c?.Info, c?.Stats, c?.FramesSent ?? 0, c?.PingMs, _brightnessSent.TryGetValue(serial, out var b) ? b : null,
-                    _brightnessSim.GetValueOrDefault(serial), c?.Ota ?? new OtaStatus(OtaState.Idle, 0, ""), c?.HealthReasons ?? []);
+                    _brightnessSim.GetValueOrDefault(serial), c?.Ota ?? new OtaStatus(OtaState.Idle, 0, ""), c?.HealthReasons ?? [],
+                    s.Screen, s.Tiles, c?.Layout.Count > 0 ? _layouts.GetValueOrDefault(serial) ?? [] : [], c?.Cards ?? false, _layoutProblems.GetValueOrDefault(serial, ""));
             }).ToList();
         }
     }
@@ -268,6 +452,8 @@ public sealed class DuManager : IDisposable
             }
 
             _connections.Clear();
+            _layouts.Clear();
+            _layoutProblems.Clear();
         }
     }
 
