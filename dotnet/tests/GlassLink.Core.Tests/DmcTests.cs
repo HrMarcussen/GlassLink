@@ -138,6 +138,62 @@ public class RegistryAndFirmwareTests
     }
 
     [Fact]
+    public void Max_size_shrinks_a_picture_by_area_averaging()
+    {
+        const int w = 8, h = 4;
+        var pixels = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                pixels[(y * w + x) * 4] = (byte)(x < 4 ? 0 : 200);       // blue: left half 0, right half 200
+                pixels[(y * w + x) * 4 + 3] = 255;
+            }
+        }
+
+        Assert.Null(GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 8));       // fits already
+        var (small, sw, sh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 4)!.Value;
+        Assert.Equal((4, 2), (sw, sh));
+        Assert.Equal(0, small[0]);                                        // left
+        Assert.Equal(200, small[3 * 4]);                                  // right
+        Assert.Equal(255, small[3]);                                      // alpha kept
+        var (odd, ow, oh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 3)!.Value;
+        Assert.Equal((3, 2), (ow, oh));
+        Assert.InRange(odd[1 * 4], 90, 110);                              // the middle pixel straddles both halves: about 100
+    }
+
+    [Fact]
+    public void The_sim_launch_entry_is_added_and_removed_without_touching_the_others()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"glasslink-exe-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<SimBase.Document Type=\"Launch\" version=\"1,0\">\n  <Descr>Launch</Descr>\n  <Launch.Addon>\n    <Name>FSUIPC7</Name>\n    <Disabled>False</Disabled>\n    <Path>C:\\FSUIPC7\\FSUIPC7.exe</Path>\n    <CommandLine>-auto</CommandLine>\n  </Launch.Addon>\n</SimBase.Document>");
+        try
+        {
+            Assert.False(SimLaunch.IsEnabledIn(file));
+            SimLaunch.Set(true, "C:\\Dev\\GlassLink\\config.json", file, "C:\\Program Files\\GlassLink\\GlassLink.exe");
+            var text = File.ReadAllText(file);
+            Assert.True(SimLaunch.IsEnabledIn(file));
+            Assert.Contains("<Name>FSUIPC7</Name>", text);
+            Assert.Contains("<CommandLine>-auto</CommandLine>", text);
+            Assert.Contains("<Name>GlassLink DMC</Name>", text);
+            Assert.Contains("--config \"C:\\Dev\\GlassLink\\config.json\" --with-sim", text);
+            Assert.True(File.Exists(file + ".before-glasslink"));
+            SimLaunch.Set(true, "C:\\Dev\\GlassLink\\config.json", file, "C:\\Program Files\\GlassLink\\GlassLink.exe");       // twice: still one entry
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "GlassLink DMC"));
+            SimLaunch.Set(false, "C:\\Dev\\GlassLink\\config.json", file, "GlassLink.exe");
+            text = File.ReadAllText(file);
+            Assert.False(SimLaunch.IsEnabledIn(file));
+            Assert.DoesNotContain("GlassLink", text);
+            Assert.Contains("<Name>FSUIPC7</Name>", text);
+        }
+        finally
+        {
+            File.Delete(file);
+            File.Delete(file + ".before-glasslink");
+        }
+    }
+
+    [Fact]
     public void Firmware_versions_compare_by_number()
     {
         Assert.True(Firmware.IsOutdated("0.3.0", "0.5.0"));

@@ -12,6 +12,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon>glasslink.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,7 +25,7 @@
   <ItemGroup>
     <!-- One status page for both DMCs: the files of the Python version are served as they are. -->
     <Content Include="..\..\..\glasslink\static\**" Link="static\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\..\VERSION;..\..\..\FIRMWARE_VERSION" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\VERSION;..\..\..\FIRMWARE_VERSION;..\..\..\config.example.json" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -61,7 +61,7 @@ public sealed class Tray : IDisposable
     private readonly string _url;
     private readonly NotifyIcon _icon;
     private readonly System.Windows.Forms.Timer _timer;
-    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart;
+    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart, _withSim;
     private readonly Dictionary<Health, Icon> _icons = [];
     private Health? _shown;
 
@@ -77,13 +77,15 @@ public sealed class Tray : IDisposable
         _displays = new ToolStripMenuItem { Enabled = false };
         _dus = new ToolStripMenuItem { Enabled = false };
         _autostart = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleAutostart()) { Checked = AutostartEnabled };
+        _withSim = new ToolStripMenuItem("Start and stop with the simulator", null, (_, _) => ToggleWithSim()) { Checked = SimLaunch.Enabled, Enabled = SimLaunch.File_ is not null,
+            ToolTipText = SimLaunch.File_ is null ? "The simulator's exe.xml was not found" : "An entry in the simulator's exe.xml; the DMC quits when the simulator does" };
         var menu = new ContextMenuStrip();
         menu.Items.AddRange(
         [
             new ToolStripMenuItem($"GlassLink DMC {dmc.Version}") { Enabled = false }, _sim, _displays, _dus, new ToolStripSeparator(),
             new ToolStripMenuItem("Open status page", null, (_, _) => OpenStatusPage()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) },
             new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.Auto?.Retry()),
-            _autostart, new ToolStripSeparator(),
+            _autostart, _withSim, new ToolStripSeparator(),
             new ToolStripMenuItem("Quit", null, (_, _) => quit()),
         ]);
         menu.Opening += (_, _) => { TrayMenuStyle.Apply(menu, Palette.Current); Refresh(); };      // follows the system theme, live
@@ -148,6 +150,7 @@ public sealed class Tray : IDisposable
         menu.Items.Add(new ToolStripMenuItem("Open status page") { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) });
         menu.Items.Add(new ToolStripMenuItem("Pop out missing displays now"));
         menu.Items.Add(new ToolStripMenuItem("Start with Windows") { Checked = true });
+        menu.Items.Add(new ToolStripMenuItem("Start and stop with the simulator"));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Quit"));
         TrayMenuStyle.Apply(menu, palette);
@@ -210,6 +213,21 @@ public sealed class Tray : IDisposable
 
         _autostart.Checked = AutostartEnabled;
         _dmc.Log($"start with Windows: {(_autostart.Checked ? "on" : "off")}");
+    }
+
+    private void ToggleWithSim()
+    {
+        try
+        {
+            SimLaunch.Set(!SimLaunch.Enabled, _dmc.ConfigPath);
+            _withSim.Checked = SimLaunch.Enabled;
+            _dmc.Log($"start and stop with the simulator: {(_withSim.Checked ? "on" : "off")} ({SimLaunch.File_})");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or System.Xml.XmlException or UnauthorizedAccessException)
+        {
+            _dmc.Log($"start with the simulator: {ex.Message}");
+            MessageBox.Show(ex.Message, "GlassLink DMC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     /// <summary>A disc in the state's colour with the state's symbol in it, drawn at 32 px (Windows scales it down).</summary>

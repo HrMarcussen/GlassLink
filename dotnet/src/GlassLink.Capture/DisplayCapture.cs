@@ -8,7 +8,7 @@ using GlassLink.Core.Du;
 namespace GlassLink.Capture;
 
 /// <summary>Capture settings: the "capture" section of config.json, with a display's own overrides on top.</summary>
-public sealed record CaptureSettings(double Fps, double IdleFps, double IdleAfterSeconds, int Quality, bool Subsample420)
+public sealed record CaptureSettings(double Fps, double IdleFps, double IdleAfterSeconds, int Quality, bool Subsample420, int MaxSize)
 {
     public static CaptureSettings From(JsonObject? capture, JsonObject? display)
     {
@@ -16,7 +16,7 @@ public sealed record CaptureSettings(double Fps, double IdleFps, double IdleAfte
             display?[key] is { } d && d.GetValueKind() == JsonValueKind.Number ? d.AsDouble()
             : capture?[key] is { } c && c.GetValueKind() == JsonValueKind.Number ? c.AsDouble() : fallback;
         var subsampling = capture?["subsampling"] is { } s && s.GetValueKind() == JsonValueKind.String ? s.GetValue<string>() : "420";
-        return new CaptureSettings(Num("fps", 40), Num("idle_fps", 1), Num("idle_after_s", 5), (int)Num("quality", 85), subsampling != "444");
+        return new CaptureSettings(Num("fps", 40), Num("idle_fps", 1), Num("idle_after_s", 5), (int)Num("quality", 85), subsampling != "444", (int)Num("max_size", 0));
     }
 }
 
@@ -233,10 +233,11 @@ public sealed class DisplayCapture : IDisposable
         return () =>
         {
             var started = Stopwatch.GetTimestamp();
-            var jpeg = _encoder.Encode(picture, w, h, w * 4);
+            var (pixels, pw, ph) = Downscale.Fit(picture, w, h, w * 4, _settings.MaxSize) ?? (picture, w, h);      // max_size: a smaller picture, sent as such
+            var jpeg = _encoder.Encode(pixels, pw, ph, pw * 4);
             _encodeMs = _encodeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
             _jpegBytes = jpeg.Length;
-            _slot.Publish(jpeg, w, h);
+            _slot.Publish(jpeg, pw, ph);
             _published++;
         };
     }

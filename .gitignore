@@ -16,6 +16,7 @@ docs/datasheets/
 bench.json
 
 # .NET
+dist/
 dotnet/**/bin/
 dotnet/**/obj/
 *.user

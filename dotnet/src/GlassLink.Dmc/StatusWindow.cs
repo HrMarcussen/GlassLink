@@ -32,7 +32,7 @@ public sealed class StatusWindow : Form
         (_url, _log) = (url, log);
         var palette = Palette.Current;
         Text = "GlassLink DMC";
-        Icon = AppIcon.Value;
+        Icon = (Environment.ProcessPath is { } exe ? Icon.ExtractAssociatedIcon(exe) : null) ?? AppIcon.Value;      // the icon of GlassLink.exe (glasslink.ico)
         BackColor = palette.Background;                      // what shows until the page has loaded: no white flash
         MinimumSize = new Size(480, 360);
         StartPosition = FormStartPosition.Manual;

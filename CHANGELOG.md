@@ -36,6 +36,23 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - System tab says in words how firmware updates work ("DU firmware this DMC expects", "Firmware image on this PC";
   nothing is fetched from the internet).
 
+- **.NET DMC: release build and installer.** `tools\build-release.ps1` publishes one self-contained `GlassLink.exe`
+  (nothing to install first) with the status page, the DU firmware image and `config.example.json` as a folder and
+  a zip under `dist\`, and with Inno Setup 6 installed the setup program `GlassLink-<version>-setup.exe`
+  (`installer\GlassLink.iss`: Program Files, Start menu, optional start at sign-in and firewall rule). An installed
+  copy keeps its configuration and logs in `%LOCALAPPDATA%\GlassLink` (created from the example on first start).
+  `GlassLink.exe --quit` stops the running DMC gracefully and waits until it has gone (used by the installer). The
+  exe carries an icon (`tools\make-icon.ps1`), also shown by the status window in the taskbar.
+- **.NET DMC: start and stop with the simulator.** Tray menu item "Start and stop with the simulator": an entry in
+  the sim's `exe.xml` (MSFS 2024 Store or Steam, MSFS 2020 too), written only when you click it, with a copy of the
+  file kept as `exe.xml.before-glasslink` the first time. The sim then starts the DMC with `--with-sim`, and a DMC
+  started that way quits by itself when the sim's process has gone. Started twice (with Windows and by the sim) the
+  second one simply ends.
+- **.NET DMC: `max_size`** ported (a display's picture is shrunk by area averaging before the encode, as the Python
+  DMC does with cv2.INTER_AREA), and **Learn verified on the sim** in .NET (copilot view, click detected, point
+  stored in the profile, window parked and captured, camera back with Shift+F1).
+- `config.example.json` includes the FO PFD and FO ND, so a first start has all six Airbus displays.
+
 - **.NET DMC, layer 1** (`dotnet/`): protocol and resyncing message reader, a native WinUSB transport (no libusb),
   the DU connection (newest-frame flow, Identify, ping, brightness, health, firmware update) with tests against an
   in-process DU, and a bench tool. Verified on both DUs: 30.0 fps to each at 3.4 % of one core, ceiling 41-43 fps,

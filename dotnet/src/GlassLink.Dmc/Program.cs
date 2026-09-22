@@ -1,6 +1,10 @@
 // GlassLink DMC for .NET.
 //
-//   GlassLink [--config <config.json>] [--port 8765] [--no-tray]
+//   GlassLink [--config <config.json>] [--port 8765] [--no-tray] [--with-sim] [--quit]
+//
+// Without --config the configuration is config.json in or above the working directory (a checkout), else
+// %LOCALAPPDATA%\GlassLink\config.json (an installed copy), created from config.example.json on first start.
+// --quit stops the DMC that is running (as the tray's Quit does) and returns when it has gone: for installers.
 //
 // Same configuration file, USB protocol, HTTP API and status page as the Python DMC. Only one of the two can run at
 // a time (they share the DUs and the port). Stop it from the tray menu, with POST /shutdown, or with
@@ -34,10 +38,20 @@ internal static class Program
             return 0;
         }
 
-        var configPath = Option("--config") ?? FindUpwards("config.json") ?? "config.json";
+        var configPath = Option("--config") ?? FindUpwards("config.json") ?? DefaultConfig();
         using var single = new Mutex(true, @"Local\GlassLink.DMC", out var first);
+        if (args.Contains("--quit"))
+        {
+            return first ? 0 : QuitRunning(RunningPort(configPath, Option("--port")), single);
+        }
+
         if (!first)
         {
+            if (args.Contains(SimLaunch.WithSimFlag))
+            {
+                return 0;                                    // the sim started us but the DMC is running already (e.g. with Windows): nothing to do
+            }
+
             // Started a second time: the DMC is running already, so this is someone looking for it. Show its status page.
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             if (StatusWindow.Available)
@@ -86,12 +100,60 @@ internal static class Program
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             Application.EnableVisualStyles();
             using var tray = new Tray(dmc, url, Application.Exit);
+            using var simWatch = args.Contains(SimLaunch.WithSimFlag) ? new SimWatch(dmc.Log, () => app.Lifetime.StopApplication()) : null;
             app.Lifetime.ApplicationStopping.Register(Application.Exit);         // POST /shutdown ends the message loop too
             Application.Run();
         }
 
         app.StopAsync().GetAwaiter().GetResult();
         return 0;                                            // leaving the using blocks closes captures, DUs and SimConnect in order
+    }
+
+    /// <summary>An installed copy keeps its configuration (and logs) in the user's profile, where it may write; the first
+    /// start copies config.example.json from next to GlassLink.exe, so the six Airbus displays are there from the start.</summary>
+    private static string DefaultConfig()
+    {
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassLink");
+        var path = Path.Combine(folder, "config.json");
+        var example = Path.Combine(AppContext.BaseDirectory, "config.example.json");
+        if (!File.Exists(path) && File.Exists(example))
+        {
+            Directory.CreateDirectory(folder);
+            File.Copy(example, path);
+        }
+
+        return path;
+    }
+
+    /// <summary>Asks the running DMC to stop (POST /shutdown, the same as the tray's Quit: captures and DUs are closed in
+    /// order, never killed) and waits until it has gone. 0 when it has, 1 when it did not go within 20 s.</summary>
+    private static int QuitRunning(int port, Mutex single)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            http.PostAsync($"http://localhost:{port}/shutdown", null).GetAwaiter().GetResult();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // not listening (a broken instance?): only the wait below can tell
+        }
+
+        try
+        {
+            if (!single.WaitOne(TimeSpan.FromSeconds(20)))     // the mutex is released when the other process ends
+            {
+                return 1;
+            }
+
+            single.ReleaseMutex();
+        }
+        catch (AbandonedMutexException)
+        {
+            // the other process ended while holding it: that is what was asked for
+        }
+
+        return 0;
     }
 
     /// <summary>The port of the DMC that is already running: the same answer it came to itself, without starting anything.</summary>

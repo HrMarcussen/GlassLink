@@ -18,7 +18,7 @@ public sealed class DmcRuntime : IDisposable
         Root = Path.GetDirectoryName(ConfigPath)!;
         Version = ReadText("VERSION") ?? "0.0.0";
         FirmwareVersion = ReadText("FIRMWARE_VERSION") ?? Version;
-        Build = GitDescribe(Root);
+        Build = ReadText("BUILD") ?? GitDescribe(Root);        // a released copy carries its build id in a file; a checkout asks git
         Config = ConfigFile.Load(ConfigPath);
 
         WindowFinder.SetDpiAware();
@@ -68,8 +68,11 @@ public sealed class DmcRuntime : IDisposable
 
     public bool BrightnessEnabled => Config.Read(root => (root["brightness"] as JsonObject)?["enabled"] is not { } e || e.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
+    /// <summary>The DU firmware image to install: named in the configuration, else the one built in this checkout,
+    /// else the one shipped next to GlassLink.exe (an installed copy).</summary>
     public string FirmwareImagePath => Config.Read(root => (root["firmware"] as JsonObject)?["image"]?.GetValue<string>())
-                                       ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
+                                       ?? new[] { Path.Combine(Root, "firmware", "build", "glasslink_du.bin"), Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin") }
+                                           .FirstOrDefault(File.Exists) ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
 
     public void Start()
     {

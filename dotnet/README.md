@@ -63,8 +63,28 @@ Design notes
 - **Numbers in the configuration tree** are read with `JsonNode.AsDouble()` only: `GetValue<double>()` throws for a
   number that this program put into the tree itself (as an int), and works for one parsed from the file.
 - **Tray**: a disc with a tick, an exclamation mark or a cross (never colour alone), the three status lines as
-  tooltip and menu, the status page in a window of its own (Edge app mode), "Start with Windows" as a menu item
-  that only the user switches. No console: the log goes to `logs/dmc-<date>.log`.
+  tooltip and menu, the status page in a window of its own (WebView2, `StatusWindow.cs`: no Windows title bar, the
+  page's bar is the title bar), "Start with Windows" and "Start and stop with the simulator" as menu items that only
+  the user switches. No console: the log goes to `logs/dmc-<date>.log`.
 - Ported 21 Sept 2026: the PFD-sphere safety check (the pop-out refuses to click while a lit PFD is not where the
   profile expects it; verified live: "PFD seen at (1238, 1176), as the profile expects") and DU rotation.
-- Still to do: `max_size`, "start and stop with the simulator" (exe.xml), an installer.
+- Ported 22 Sept 2026: `max_size` (area-averaging downscale before the encode, `Downscale.cs`), Learn verified on
+  the sim (copilot view, click detected, point stored, window parked, camera back), "Start and stop with the
+  simulator" (an entry in the sim's exe.xml written only on the user's click in the tray, `--with-sim` makes the DMC
+  quit when the sim's process has gone), and the release build.
+
+## Release build and installer
+
+`tools\build-release.ps1` publishes one self-contained `GlassLink.exe` (no .NET runtime to install, about 170 MB
+unpacked, 66 MB zipped) with the status page, `config.example.json`, the DU firmware image from `firmware\build`
+and a `BUILD` file with the git describe, into `dist\GlassLink-<version>\` and `dist\GlassLink-<version>-win-x64.zip`.
+With Inno Setup 6 installed (`winget install JRSoftware.InnoSetup`) it also builds `dist\GlassLink-<version>-setup.exe`
+from `installer\GlassLink.iss`: Program Files, a Start menu entry, optional "start when I sign in" and an optional
+firewall rule for the status page from other devices; a running DMC is stopped gracefully before its files are
+replaced (`GlassLink.exe --quit` asks the running one to stop and waits until it has gone). The script asks the
+running DMC to stop as well, because its files are in use otherwise.
+
+An installed copy finds no `config.json` above itself and uses `%LOCALAPPDATA%\GlassLink\config.json` (created from
+`config.example.json` on the first start; the logs go next to it), and takes the firmware image from `firmware\`
+next to the exe. A checkout keeps using the `config.json` in the repository root. Starting `GlassLink.exe` while
+the DMC runs opens its status window; the Start menu entry does both.

@@ -78,6 +78,36 @@
         3400,
         820
       ]
+    },
+    "fo_nd": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:fo_nd"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        4200,
+        0
+      ]
+    },
+    "fo_pfd": {
+      "match": {
+        "process": "FlightSimulator2024.exe",
+        "class": "AceApp",
+        "title": "GlassLink:fo_pfd"
+      },
+      "client_size": [
+        768,
+        768
+      ],
+      "position": [
+        4200,
+        820
+      ]
     }
   }
 }
