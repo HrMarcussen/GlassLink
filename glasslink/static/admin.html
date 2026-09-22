@@ -73,6 +73,7 @@
   .banner b { font-size:1.0625rem; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   /* Layout editor: the DU's screen to scale, the tiles in it; drag a tile or use its number fields (steps of 16). */
+  #modules td.stats { min-width:8.5rem; font-variant-numeric:tabular-nums; } #modules td:nth-child(3) { min-width:11rem; }
   .layout { display:flex; flex-direction:column; gap:.6rem; margin-top:.5rem; align-items:flex-start; }
   .layout .preview { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; height:14rem; max-width:100%; touch-action:none; }
   .layout .tile { background:color-mix(in srgb, var(--accent) 45%, #000); }
@@ -327,11 +328,10 @@
       ['Process', `priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`],
       ['Auto pop-out', `${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`],
       ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
-      ['Firmware image on this PC', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified}` : `none (${fi.error || ''})`],
-      ['DU firmware this DMC expects', `${s.firmware_version || '-'} <span class="dim">· a DU on an older one is offered the image above; nothing is fetched from the internet</span>`],
+      ['DU firmware', `${s.firmware_version || '-'} <span class="dim">· a DU with an older version gets an Update button</span>`],
+      ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified} <span class="dim">· on this PC; nothing comes from the internet</span>` : `none (${fi.error || ''})`],
       ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off'],
       ['Getting started', '<button id="show-checklist">Show the checklist again</button>'],
-      ['Settings', 'every change on this page is saved to config.json at once; the page refreshes every 2 s'],
     ];
     $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
   }
@@ -356,7 +356,7 @@
         <td>${alive}</td>
         <td>${(x.settings && x.settings.tiles) ? `<span class="tiles-summary">${Object.keys(x.settings.tiles).map(nice).join(' + ')}</span><br><span class="dim small">${(x.layout || []).map(l => `${nice(l.display)} ${l.w}x${l.h} at ${l.x},${l.y}`).join(' · ') || 'layout not sent yet'}</span>${x.layout_problem ? '<br>' + pill(x.layout_problem, 'warn') : ''}`
               : `<select class="display" aria-label="display shown on this unit">${opts2(x.display)}</select>`}
-            ${(info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="several displays on this DU's screen, each in its own place">${(x.settings && x.settings.tiles) ? 'Layout…' : 'Several displays…'}</button>` : ''}</td>
+            ${(info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${(x.settings && x.settings.tiles) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}</td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
         <td class="stats"></td>
         <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
@@ -401,7 +401,8 @@
   const SCREENS = [[0, '768x768 (GlassLink panel)'], [1, '1024x768'], [2, '800x600'], [3, '1280x720'], [4, '1920x1080 (30 Hz)']];
   function renderLayout(el, serial, x, post) {
     if (!el || !x) return;
-    const info = x.info || {}; const st = x.settings || {}; const tiles = st.tiles || {};
+    const info = x.info || {}; const st = x.settings || {};
+    const tiles = st.tiles || (x.display ? { [x.display]: { x: 0, y: 0 } } : {});     // no layout yet: the single display is the first tile
     const screen = st.screen ?? '';
     const panel = info.panel || [768, 768];
     const sizes = {}; for (const [n, d] of Object.entries(displaysNow)) sizes[n] = d.size || [768, 768];
@@ -425,10 +426,12 @@
       <table class="tiles"><tbody>${rows}</tbody></table>
       <div><label><input type="checkbox" class="cards" ${x.cards ? 'checked' : ''}> Show test cards on the DU</label>
         <span class="hint">Each tile as a bright border with its number: stand at the panel and nudge until the border just disappears behind the cutout.</span></div>
-      <div class="hint full">Sizes come from each display's picture size on the Setup tab (multiples of 8: the DU's decoder wants that); a tile must lie inside the screen. Without any tile the DU shows the single display chosen in "Shows".</div>`;
+      <div class="hint full">Sizes come from each display's picture size on the Setup tab (multiples of 8: the DU's decoder wants that); a tile must lie inside the screen. With one display ticked the DU shows just that one, as before.</div>`;
     const read = () => { const out = {}; for (const tr of el.querySelectorAll('table.tiles tr')) { if (tr.querySelector('.on').checked) out[tr.dataset.display] = { x: +tr.querySelector('.tx').value || 0, y: +tr.querySelector('.ty').value || 0 }; } return out; };
     const snap = (v) => Math.max(0, Math.round(v));
-    const save = () => { const out = read(); el.dataset.key = ''; post({ tiles: Object.keys(out).length ? out : null }).then(() => setTimeout(refresh, 300)); };
+    const save = () => { const out = read(); el.dataset.key = '';
+      const single = Object.keys(out).length === 1 && out[x.display] && out[x.display].x === 0 && out[x.display].y === 0;   // just the one display at 0,0: no layout needed
+      post({ tiles: Object.keys(out).length && !single ? out : null }).then(() => setTimeout(refresh, 300)); };
     el.querySelectorAll('table.tiles tr').forEach(tr => {
       tr.querySelector('.on').onchange = save;
       tr.querySelectorAll('.tx, .ty').forEach(i => i.onchange = () => { i.value = snap(+i.value); save(); });
