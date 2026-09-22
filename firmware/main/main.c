@@ -294,7 +294,7 @@ static void redraw_last(void)
             else if (s_tile_jpeg_len[i]) display_show_jpeg_at(s_tile_jpeg[i], s_tile_jpeg_len[i], s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, NULL);
         }
     } else if (s_last_jpeg_len) {
-        redraw_last();
+        display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
     }
 }
 
