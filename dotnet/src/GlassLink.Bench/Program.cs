@@ -11,8 +11,12 @@
 //   GlassLink.Bench run [--seconds 30] [--config ../config.json] [--sim] [--close-all]
 //        capture the configured windows and feed the DUs; --sim adds SimConnect, automatic pop-out and the brightness
 //        link and works on the real config.json; --close-all closes the pop-outs first (a cold start without restarting the sim)
-//   GlassLink.Bench sim [--seconds 6]                      what SimConnect says: aircraft, camera, fps, brightness knobs
+//   GlassLink.Bench sim [--seconds 6] [<variable>...]      what SimConnect says: aircraft, camera, fps, brightness knobs
+//        (the Fenix's, or the named variables, e.g. L:VC_MIP_CPT_DU_PNL_PFD_BRT_Knob, for another aircraft);
+//        --set <variable>=<value> writes one first (to find out what a variable does)
 //   GlassLink.Bench popout <display> [<display>...]        close those pop-outs and pop them out again from .NET
+//   GlassLink.Bench altclick <x> <y>                       Right-Alt + click at a screen point in the sim, as the pop-out does
+//        (to answer a Learn without a hand on the mouse)
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
 //
 //   stream and tiles also take --444 (JPEG without chroma subsampling, as a display with subsample_420 off) and --busy
@@ -47,15 +51,36 @@ if (command == "sim")
     var zoom = sim.Number("COCKPIT CAMERA ZOOM", "Percent");
     var viewType = sim.Number("CAMERA VIEW TYPE AND INDEX:0", "Enum");
     var viewIndex = sim.Number("CAMERA VIEW TYPE AND INDEX:1", "Enum");
-    var knobs = new[] { "CO", "CI", "ECAM_U", "ECAM_L", "FO", "FI" }.Select(k => sim.Number($"L:N_DISPLAY_BRIGHTNESS_{k}")).ToList();
+    var named = args.Skip(1).Where((a, i) => !a.StartsWith("--") && args[i] is not ("--seconds" or "--set")).ToList();
+    var set = Text("--set")?.Split('=', 2) is [var setName, var setValue] ? (Variable: sim.Number(setName), Value: double.Parse(setValue, CultureInfo.InvariantCulture)) : default;
+    var knobs = (named.Count > 0 ? named : new[] { "CO", "CI", "ECAM_U", "ECAM_L", "FO", "FI" }.Select(k => $"L:N_DISPLAY_BRIGHTNESS_{k}")).Select(n => sim.Number(n)).ToList();
     sim.Start();
     for (var i = 0; i < Option("--seconds", 6); i++)
     {
         Thread.Sleep(1000);
+        if (i == 0 && set.Variable is not null)
+        {
+            Console.WriteLine($"set {set.Variable.Name} = {set.Value}: {sim.Set(set.Variable, set.Value)}");
+            Thread.Sleep(500);
+        }
+
         Console.WriteLine($"connected {sim.Connected}  '{title.Text}'  camera state {state.Value} view {viewType.Value}/{viewIndex.Value} zoom {zoom.Value:0}  " +
                           $"sim {sim.SimFps:0.0} fps  brightness {string.Join(" ", knobs.Select(k => k.Value is { } v ? v.ToString("0.00") : "-"))}");
     }
 
+    return 0;
+}
+
+if (command == "altclick")
+{
+    WindowFinder.SetDpiAware();
+    if (args.Length < 3 || PopoutProcedure.SimMainWindow() is not { } simWindow)
+    {
+        Console.WriteLine("usage: altclick <x> <y> (with the sim running)");
+        return 1;
+    }
+
+    Console.WriteLine(Input.RightAltClick(simWindow.Handle, int.Parse(args[1], CultureInfo.InvariantCulture), int.Parse(args[2], CultureInfo.InvariantCulture)) ? "clicked" : "the sim could not be brought to the front");
     return 0;
 }
 
