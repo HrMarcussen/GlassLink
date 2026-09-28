@@ -17,6 +17,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-28
+
+### Fixed
+- The release's `SimConnect.dll` is a file of its own next to `GlassLink.exe` again, so it can be seen and replaced
+  (THIRD-PARTY-NOTICES.md): the single-file build had packed it into the exe (0.6.0 and 0.6.1). The release script
+  also looks in `dotnet\lib` itself.
+
 ## [0.6.1] - 2026-09-28
 
 ### Added

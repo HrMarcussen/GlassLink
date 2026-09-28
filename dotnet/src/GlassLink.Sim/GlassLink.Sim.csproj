@@ -13,7 +13,7 @@
     <!-- SimConnect.dll is Microsoft's and not in the repository (#58): a developer's own copy in dotnet\lib (gitignored)
          is put next to the exe, and tools\build-release.ps1 ships it in releases; otherwise it is found at run time
          (SimConnectClient.SimConnectCandidates) -->
-    <None Include="..\..\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\lib\SimConnect.dll')" />
+    <None Include="..\..\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" Condition="Exists('..\..\lib\SimConnect.dll')" />
   </ItemGroup>
 
   <ItemGroup>
