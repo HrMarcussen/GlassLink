@@ -94,8 +94,10 @@ offset  size  field
 
 1. Boot, init panel via LT8912B (768x768@60, 2 DSI lanes), show the "not assigned" screen with serial and firmware version.
 2. Start USB; on configuration, send READY.
-3. On FRAME: hardware-JPEG-decode (dimmed in the decoder's colour conversion if the brightness is below 100 %), draw,
-   send READY with the frame's seq. A full-size picture whose rows are whole MCUs is decoded into the frame buffer
+3. On FRAME: hardware-JPEG-decode (dimmed in the decoder's colour conversion if the brightness is below 100 %), draw.
+   READY goes out as soon as the frame is received and handed to the drawing task (0.6.0), so the host sends the
+   next one during the decode; at most one frame waits. Messages other than FRAME, TILE, PING and SET_BRIGHTNESS are
+   handled after the pictures before them are on screen. A full-size picture whose rows are whole MCUs is decoded into the frame buffer
    that is not on screen and the driver switches to it; the next one waits until the old buffer is free, so nothing
    tears. A picture as wide as the panel is decoded straight into its rows of the frame buffer on screen. Anything
    else is decoded into a work buffer and copied into place. So in 1080p the fast way to show several displays is

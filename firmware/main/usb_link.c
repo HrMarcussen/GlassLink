@@ -9,13 +9,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/stream_buffer.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tusb.h"
 #include "usb_link.h"
 
 static const char *TAG = "usb";
-static SemaphoreHandle_t s_rx_ready;    /* given by TinyUSB when data arrived: the reader waits on it, not on ticks */
 
 /* Espressif VID with the development PID (see docs/usb-protocol.md). */
 #define XD_USB_VID 0x303A
@@ -130,17 +130,58 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 }
 
 /* ---- API ------------------------------------------------------------------------------------- */
-/* Runs in the TinyUSB task whenever a bulk OUT transfer landed in the receive FIFO. */
+/* Receiving (#61). The vendor class runs unbuffered (CONFIG_TINYUSB_VENDOR_RX/TX_BUFSIZE 0) with RX transfers
+ * started only by us (CFG_TUD_VENDOR_RX_MANUAL_XFER, firmware/CMakeLists.txt), and we keep the data in a stream
+ * buffer. TinyUSB's own FIFO mode loses data: it marks the endpoint free before it has copied a finished transfer
+ * into its FIFO, and a read by our task in that moment starts the next transfer, sized to room the finished one is
+ * about to take; the rest is dropped (exactly one 16 KB transfer's worth, seen as "short payload" once the decode
+ * ran while the next frame came in). Here the next transfer is started only when the stream buffer has room for a
+ * whole one, after the finished one is in it, under one lock for both cores. */
+#define RX_XFER CFG_TUD_VENDOR_RX_EPSIZE            /* one transfer: up to 16 KB, ends on a short packet or ZLP */
+#define RX_STREAM_SIZE (3 * RX_XFER)
+static StreamBufferHandle_t s_rx_stream;
+static portMUX_TYPE s_rx_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool s_rx_armed;                   /* a transfer is started and not yet in the stream buffer */
+static bool s_was_mounted;
+static SemaphoreHandle_t s_tx_done;                /* given when an IN transfer has gone out */
+
+/* Starts the next OUT transfer if none is running and a whole one fits; from any task. */
+static void rx_arm_if_room(void)
+{
+    bool arm = false;
+    taskENTER_CRITICAL(&s_rx_mux);
+    if (!s_rx_armed && xStreamBufferSpacesAvailable(s_rx_stream) >= RX_XFER) {
+        s_rx_armed = arm = true;
+    }
+    taskEXIT_CRITICAL(&s_rx_mux);
+    if (arm && !tud_vendor_n_read_xfer(0)) {
+        s_rx_armed = false;                        /* not configured (yet): the reader tries again */
+    }
+}
+
+/* Runs in the TinyUSB task with a finished OUT transfer. */
 void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint16_t bufsize)
 {
-    (void)idx; (void)buffer; (void)bufsize;
-    if (s_rx_ready) xSemaphoreGive(s_rx_ready);
+    (void)idx;
+    if (bufsize) {
+        xStreamBufferSend(s_rx_stream, buffer, bufsize, 0);    /* fits: started only with room for a whole one */
+    }
+    s_rx_armed = false;                            /* only now: the data is where the reader looks */
+    rx_arm_if_room();
+}
+
+void tud_vendor_tx_cb(uint8_t idx, uint32_t sent_bytes)
+{
+    (void)idx; (void)sent_bytes;
+    xSemaphoreGive(s_tx_done);
 }
 
 esp_err_t usb_link_start(const char *serial)
 {
     strlcpy(s_serial, serial, sizeof(s_serial));
-    if (!s_rx_ready) s_rx_ready = xSemaphoreCreateBinary();
+    if (!s_rx_stream) s_rx_stream = xStreamBufferCreate(RX_STREAM_SIZE, 1);
+    if (!s_tx_done) s_tx_done = xSemaphoreCreateBinary();
+    if (!s_rx_stream || !s_tx_done) return ESP_ERR_NO_MEM;
     /* High-speed port 0 of the ESP32-P4 (the Type-A socket on the NANO), default PHY and task settings. */
     tinyusb_config_t cfg = TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL);
     /* The USB task must outrank the protocol task and run on its own core, otherwise the two time-slice at the
@@ -166,29 +207,39 @@ bool usb_link_connected(void)
     return tud_mounted() && tud_vendor_mounted();
 }
 
+/* One reader (the protocol task). Returns what is there (at least one byte) or 0 after the timeout. */
 size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     for (;;) {
-        uint32_t avail = tud_vendor_available();
-        if (avail) {
-            /* TinyUSB casts the size to uint16_t (tu_edpt_stream_read), so a request of exactly 65536 bytes reads
-             * nothing, for ever: every frame above 64 KiB froze the DU for 3 s (found 20 Sept 2026). Ask for what
-             * is there, in pieces the 16-bit FIFO arithmetic cannot get wrong. */
-            if (len > 16384) len = 16384;
-            if (len > avail) len = avail;
-            return tud_vendor_read(buf, len);
+        bool mounted = usb_link_connected();
+        if (mounted != s_was_mounted) {
+            /* a new session (or none): the old one's bytes and its transfer are gone with the bus reset */
+            s_was_mounted = mounted;
+            taskENTER_CRITICAL(&s_rx_mux);
+            s_rx_armed = false;
+            taskEXIT_CRITICAL(&s_rx_mux);
+            xStreamBufferReset(s_rx_stream);
+        }
+        if (mounted) {
+            rx_arm_if_room();                      /* the first transfer of a session, or one we could not start */
         }
         TickType_t now = xTaskGetTickCount();
-        if (now >= deadline) {
+        TickType_t slice = pdMS_TO_TICKS(5);       /* awake at least every 5 ms to see the above */
+        TickType_t wait = now >= deadline ? 0 : (deadline - now < slice ? deadline - now : slice);
+        size_t n = xStreamBufferReceive(s_rx_stream, buf, len, wait);
+        if (n) {
+            rx_arm_if_room();                      /* room again: take the next transfer */
+            return n;
+        }
+        if (xTaskGetTickCount() >= deadline) {
             return 0;
         }
-        /* Sleep until TinyUSB says data arrived, not a whole tick: polling in 1 ms steps made a 28 KB frame take
-         * ~4 ms to come in. A give that raced the check above leaves the semaphore set, so nothing is missed. */
-        xSemaphoreTake(s_rx_ready, deadline - now);
     }
 }
 
+/* Callers serialise (main.c send_msg). The data is copied into the endpoint buffer, so buf may be reused at once.
+ * A write that ends on a whole 512-byte packet gets a zero-length packet, or the host's read would wait for more. */
 bool usb_link_write(const uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
     if (!usb_link_connected()) {
@@ -196,17 +247,22 @@ bool usb_link_write(const uint8_t *buf, size_t len, uint32_t timeout_ms)
     }
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     size_t off = 0;
-    while (off < len) {
-        uint32_t n = tud_vendor_write(buf + off, len - off);
-        off += n;
-        tud_vendor_write_flush();
-        if (off < len) {
-            if (xTaskGetTickCount() >= deadline || !usb_link_connected()) {
-                return false;
+    bool zlp = len > 0 && len % 512 == 0;
+    while (off < len || zlp) {
+        if (tud_vendor_write_available() > 0) {    /* the endpoint is idle */
+            xSemaphoreTake(s_tx_done, 0);          /* forget an old completion */
+            if (off < len) {
+                off += tud_vendor_write(buf + off, len - off);
+            } else {
+                tud_vendor_write(buf, 0);
+                zlp = false;
             }
-            vTaskDelay(1);
+            continue;
         }
+        if (xTaskGetTickCount() >= deadline || !usb_link_connected()) {
+            return false;
+        }
+        xSemaphoreTake(s_tx_done, pdMS_TO_TICKS(2));
     }
-    tud_vendor_write_flush();
     return true;
 }

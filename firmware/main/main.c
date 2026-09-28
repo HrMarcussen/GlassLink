@@ -22,6 +22,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "proto.h"
 #include "usb_link.h"
 #include "display.h"
@@ -153,12 +154,15 @@ static bool show_idle_screen(const char *line1, const char *line2, uint32_t colo
 }
 
 /* ---- messaging ------------------------------------------------------------------------------- */
+static SemaphoreHandle_t s_tx_mutex;   /* header and payload of one message go out together: two tasks send (#61) */
+
 static bool send_msg(uint8_t type, const void *payload, uint32_t len, uint32_t seq, uint32_t arg)
 {
     xd_header_t h = {{XD_MAGIC0, XD_MAGIC1}, XD_PROTO_VERSION, type, len, seq, arg};
-    if (!usb_link_write((const uint8_t *)&h, sizeof(h), 500)) return false;
-    if (len && !usb_link_write(payload, len, 2000)) return false;
-    return true;
+    xSemaphoreTake(s_tx_mutex, portMAX_DELAY);
+    bool ok = usb_link_write((const uint8_t *)&h, sizeof(h), 500) && (!len || usb_link_write(payload, len, 2000));
+    xSemaphoreGive(s_tx_mutex);
+    return ok;
 }
 
 static void send_log(int level, const char *fmt, ...)
@@ -380,38 +384,131 @@ static void end_tile_mode(void)
 
 static int64_t s_hdr_us;   /* when the last header arrived (for rx time accounting) */
 
-static void handle_message(const xd_header_t *h, const uint8_t *payload)
+/* ---- pictures (#61) ----------------------------------------------------------------------------
+ * FRAME and TILE are drawn by the picture task while this task already receives the next one: READY goes out as
+ * soon as a picture is handed over, so the transfer overlaps the decode (a 1080p band: 9 ms + 25 ms became the
+ * longer of the two). Three receive buffers go round: the one being received into (s_rx), the one being drawn or
+ * waiting, and the last whole-screen frame kept for redraws (s_last_jpeg). At most one picture waits; every other
+ * message is handled only once the pictures before it are on screen, so the order stays what the host sent. */
+typedef struct {
+    xd_header_t h;
+    uint8_t *buf;
+    int64_t hdr_us, rx_done_us;
+} picture_job_t;
+
+static QueueHandle_t s_jobs;            /* pictures for the picture task (one waits at most) */
+static QueueHandle_t s_free;            /* receive buffers the picture task is done with */
+static TaskHandle_t s_proto_task;
+static int s_pictures;                  /* handed over and not yet drawn (atomic) */
+
+static void queue_picture(const xd_header_t *h)
 {
-    switch (h->type) {
-    case XD_T_FRAME: {
-        if (s_ota.active) { send_ready(); break; }        /* no frames while updating, but the host must not stall */
-        uint32_t ms = 0;
-        int64_t rx_done = esp_timer_get_time();
+    picture_job_t job = {*h, s_rx, s_hdr_us, esp_timer_get_time()};
+    __atomic_add_fetch(&s_pictures, 1, __ATOMIC_SEQ_CST);
+    xQueueSend(s_jobs, &job, portMAX_DELAY);
+    xQueueReceive(s_free, &s_rx, portMAX_DELAY);   /* waits while one picture is drawn and another one waits */
+    s_last_seq = h->seq;
+    send_ready();
+}
+
+/* Before any other message: the pictures that came before it are drawn first. */
+static void wait_pictures(void)
+{
+    while (__atomic_load_n(&s_pictures, __ATOMIC_SEQ_CST) > 0) {
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+    }
+}
+
+/* Draws one picture; returns the buffer that is free afterwards (the old last frame when this one replaced it). */
+static uint8_t *show_picture(const picture_job_t *job)
+{
+    const xd_header_t *h = &job->h;
+    uint8_t *payload = job->buf;
+    uint8_t *spare = payload;
+    uint32_t ms = 0;
+    if (h->type == XD_T_FRAME) {
         xSemaphoreTake(s_frame_mutex, portMAX_DELAY);     /* the screen task may be redrawing the last frame */
         end_tile_mode();                                   /* a whole-screen picture ends a layout (#17) */
         esp_err_t err = display_show_jpeg(payload, h->length, &ms);
         if (err == ESP_OK) {
-            /* keep this frame for redraws by swapping buffers, not copying: the payload is s_rx, both are
-             * RX_BUF_SIZE, and the next frame is read into the old one */
-            uint8_t *old = s_last_jpeg;
-            s_last_jpeg = s_rx;
-            s_rx = old;
+            spare = s_last_jpeg;                           /* kept for redraws by swapping buffers, not copying */
+            s_last_jpeg = payload;
             s_last_jpeg_len = h->length;
         }
         xSemaphoreGive(s_frame_mutex);
         if (err == ESP_OK) {
             s_frames++; s_decode_ms_acc += ms; s_decode_n++;
             s_draw_us_acc += display_last_draw_us();
-            s_rx_us_acc += (uint32_t)(rx_done - s_hdr_us);
-            s_last_seq = h->seq; s_last_frame_us = esp_timer_get_time(); s_assigned = true;
+            s_rx_us_acc += (uint32_t)(job->rx_done_us - job->hdr_us);
+            s_last_frame_us = esp_timer_get_time(); s_assigned = true;
             confirm_app("a picture was shown");
         } else {
             s_dropped++;
             send_log(2, "decode failed seq %lu: %s", (unsigned long)h->seq, esp_err_to_name(err));
         }
-        send_ready();
-        break;
+        return spare;
     }
+
+    int i = (int)h->arg;
+    xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+    if (i < 0 || i >= s_tile_n || !s_tiles[i].on) {
+        int n = s_tile_n;
+        xSemaphoreGive(s_frame_mutex);
+        s_dropped++;
+        static int64_t last_log;                    /* at most one line a second: the host keeps sending */
+        if (esp_timer_get_time() - last_log > 1000000) {
+            last_log = esp_timer_get_time();
+            send_log(2, "tile %d: not in the layout (%d tiles)", i + 1, n);
+        }
+        return spare;
+    }
+    esp_err_t err = s_tile_cards ? ESP_OK      /* while the cards are up the picture is kept, not drawn */
+                    : display_show_jpeg_at(payload, h->length, s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, &ms);
+    if (err == ESP_OK) {
+        if (h->length > s_tile_jpeg_cap[i]) {       /* sized to the pictures of this tile, not to the largest possible (#22) */
+            uint32_t cap = h->length + h->length / 4;
+            uint8_t *b = heap_caps_realloc(s_tile_jpeg[i], cap, MALLOC_CAP_SPIRAM);
+            if (b) { s_tile_jpeg[i] = b; s_tile_jpeg_cap[i] = cap; }
+        }
+        if (s_tile_jpeg[i] && h->length <= s_tile_jpeg_cap[i]) { memcpy(s_tile_jpeg[i], payload, h->length); s_tile_jpeg_len[i] = h->length; }
+        else s_tile_jpeg_len[i] = 0;
+    }
+    bool cards = s_tile_cards;
+    xSemaphoreGive(s_frame_mutex);
+    if (err == ESP_OK) {
+        s_frames++; s_decode_ms_acc += ms; s_decode_n++;
+        s_draw_us_acc += cards ? 0 : display_last_draw_us();
+        s_rx_us_acc += (uint32_t)(job->rx_done_us - job->hdr_us);
+        s_last_frame_us = esp_timer_get_time(); s_assigned = true;
+        confirm_app("a tile was shown");
+    } else {
+        s_dropped++;
+        send_log(2, "tile %d decode failed seq %lu: %s", i + 1, (unsigned long)h->seq, esp_err_to_name(err));
+    }
+    return spare;
+}
+
+static void picture_task(void *arg)
+{
+    picture_job_t job;
+    for (;;) {
+        xQueueReceive(s_jobs, &job, portMAX_DELAY);
+        uint8_t *spare = show_picture(&job);
+        xQueueSend(s_free, &spare, portMAX_DELAY);
+        if (__atomic_sub_fetch(&s_pictures, 1, __ATOMIC_SEQ_CST) == 0 && s_proto_task) {
+            xTaskNotifyGive(s_proto_task);
+        }
+    }
+}
+
+static void handle_message(const xd_header_t *h, const uint8_t *payload)
+{
+    switch (h->type) {
+    case XD_T_FRAME:
+    case XD_T_TILE:
+        if (s_ota.active) { send_ready(); break; }        /* no pictures while updating, but the host must not stall */
+        queue_picture(h);
+        break;
     case XD_T_GET_INFO: send_info(); send_ready(); break;   /* a (re)connecting host learns we can take a frame */
     case XD_T_SET_BRIGHTNESS:
         display_set_brightness((int)h->arg);        /* follows the cockpit knob: not persisted */
@@ -472,47 +569,6 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         if (!same) send_log(1, "layout: %d tile(s)%s%s", n - off, off ? " (some left empty)" : "", cards ? ", test cards" : "");
         break;
     }
-    case XD_T_TILE: {
-        if (s_ota.active) { send_ready(); break; }
-        int i = (int)h->arg;
-        if (i < 0 || i >= s_tile_n || !s_tiles[i].on) {
-            s_dropped++;
-            static int64_t last_log;                    /* at most one line a second: the host keeps sending */
-            if (esp_timer_get_time() - last_log > 1000000) {
-                last_log = esp_timer_get_time();
-                send_log(2, "tile %d: not in the layout (%d tiles)", i + 1, s_tile_n);
-            }
-            send_ready();
-            break;
-        }
-        uint32_t ms = 0;
-        int64_t rx_done = esp_timer_get_time();
-        xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
-        esp_err_t err = s_tile_cards ? ESP_OK      /* while the cards are up the picture is kept, not drawn */
-                        : display_show_jpeg_at(payload, h->length, s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, &ms);
-        if (err == ESP_OK) {
-            if (h->length > s_tile_jpeg_cap[i]) {       /* sized to the pictures of this tile, not to the largest possible (#22) */
-                uint32_t cap = h->length + h->length / 4;
-                uint8_t *b = heap_caps_realloc(s_tile_jpeg[i], cap, MALLOC_CAP_SPIRAM);
-                if (b) { s_tile_jpeg[i] = b; s_tile_jpeg_cap[i] = cap; }
-            }
-            if (s_tile_jpeg[i] && h->length <= s_tile_jpeg_cap[i]) { memcpy(s_tile_jpeg[i], payload, h->length); s_tile_jpeg_len[i] = h->length; }
-            else s_tile_jpeg_len[i] = 0;
-        }
-        xSemaphoreGive(s_frame_mutex);
-        if (err == ESP_OK) {
-            s_frames++; s_decode_ms_acc += ms; s_decode_n++;
-            s_draw_us_acc += s_tile_cards ? 0 : display_last_draw_us();
-            s_rx_us_acc += (uint32_t)(rx_done - s_hdr_us);
-            s_last_seq = h->seq; s_last_frame_us = esp_timer_get_time(); s_assigned = true;
-            confirm_app("a tile was shown");
-        } else {
-            s_dropped++;
-            send_log(2, "tile %d decode failed seq %lu: %s", i + 1, (unsigned long)h->seq, esp_err_to_name(err));
-        }
-        send_ready();
-        break;
-    }
     case XD_T_SET_MODE:
         if (h->arg <= 4) {                  /* the HDMI DU on another screen: takes effect after the restart */
             nvs_set_int("mode", (int)h->arg);
@@ -569,12 +625,14 @@ static bool drain(uint32_t len)
 
 static void protocol_task(void *arg)
 {
+    s_proto_task = xTaskGetCurrentTaskHandle();
     bool was_connected = false;
     for (;;) {
         bool connected = usb_link_connected();
         if (connected && !was_connected) {
             ESP_LOGI(TAG, "usb configured");
             s_last_stats_us = esp_timer_get_time();
+            wait_pictures();                /* the old session's last pictures first */
             xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
             end_tile_mode();                /* a new host session starts without the old one's layout (#17) */
             xSemaphoreGive(s_frame_mutex);
@@ -640,10 +698,14 @@ static void protocol_task(void *arg)
             }
             continue;
         }
-        if (h.length && read_exact(s_rx, h.length, 3000) != h.length) {
-            ESP_LOGW(TAG, "short payload for type 0x%02x", h.type);
+        size_t got = 0;
+        if (h.length && (got = read_exact(s_rx, h.length, 3000)) != h.length) {
+            ESP_LOGW(TAG, "short payload for type 0x%02x: %u of %lu bytes", h.type, (unsigned)got, (unsigned long)h.length);
             send_ready();
             continue;
+        }
+        if (h.type != XD_T_FRAME && h.type != XD_T_TILE && h.type != XD_T_PING && h.type != XD_T_SET_BRIGHTNESS) {
+            wait_pictures();                    /* layout, ident, mode, OTA ...: after the pictures sent before them */
         }
         handle_message(&h, s_rx);
         if (esp_timer_get_time() - s_last_stats_us > 2000000) send_stats();
@@ -794,7 +856,12 @@ void app_main(void)
     if (mode == 4) s_rx_size = 1024 * 1024;
     s_rx = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);
     s_last_jpeg = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);
-    ESP_ERROR_CHECK(s_rx && s_last_jpeg ? ESP_OK : ESP_ERR_NO_MEM);
+    uint8_t *third = heap_caps_malloc(RX_BUF_SIZE, MALLOC_CAP_SPIRAM);   /* received into while a picture is drawn (#61) */
+    s_tx_mutex = xSemaphoreCreateMutex();
+    s_jobs = xQueueCreate(1, sizeof(picture_job_t));
+    s_free = xQueueCreate(2, sizeof(uint8_t *));
+    ESP_ERROR_CHECK(s_rx && s_last_jpeg && third && s_tx_mutex && s_jobs && s_free ? ESP_OK : ESP_ERR_NO_MEM);
+    xQueueSend(s_free, &third, 0);
     ESP_ERROR_CHECK(usb_link_start(s_serial));
 
     esp_err_t derr = display_init(mode, nvs_get_int("dsivar", 0));
@@ -812,6 +879,7 @@ void app_main(void)
         s_app_confirmed = true;
     }
 
+    xTaskCreatePinnedToCore(picture_task, "picture", 8192, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(protocol_task, "proto", 8192, NULL, 5, NULL, 0);   /* core 0: TinyUSB owns core 1 */
     if (!display_ready()) return;           /* headless: no screen task */
     if (nvs_get_int("diag", 0)) {

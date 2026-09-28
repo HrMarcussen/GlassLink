@@ -118,13 +118,22 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
   | | old | new |
   |---|---|---|
-  | 768 x 768, brightness 100 | 20 fps (transfer 24 ms, decode 8, copy 13) | 57 fps (transfer 4.9, decode 8, no copy) |
+  | 768 x 768, brightness 100 | 20 fps (transfer 24 ms, decode 8, copy 13) | 60 fps (transfer 5, decode 8, no copy, overlapped) |
   | 768 x 768, brightness 40 | 17.6 fps (dimming 20 ms) | 60 fps (dimming free) |
-  | 1080p, two 768 tiles | 11.9 fps per tile | 24.6-28.4 fps for both, sent as one band |
+  | 768 x 768, 4:4:4 | | 40 -> 60 fps with the overlap |
+  | 1080p, two 768 tiles | 11.9 fps per tile | 30 fps for both (the panel's refresh), sent as one band |
   | 1080p, full-width picture 1920 x 1072 | 9.9 fps | 21.6 fps |
 
   - USB receive in transfers of up to 16 KB instead of one per 512-byte packet: 28 MB/s instead of 6.7. The host
     must end a write of n x 512 bytes with a zero-length packet; both DMCs always did.
+  - The next picture is received while the current one is decoded (#61): READY goes out as soon as a picture is
+    handed to the drawing task, so the transfer no longer adds to every frame. Other messages wait until the
+    pictures sent before them are drawn, so the order is unchanged.
+  - The USB vendor class runs unbuffered and the DU keeps received data itself: TinyUSB's FIFO mode marks the
+    endpoint free before it has stored a finished transfer, and a read in that moment started the next transfer
+    for room that was about to be used, so 16 KB of a frame was lost now and then (a "short payload" and a 3 s
+    stall on the DU, a write timeout on the host). The overlap made it frequent; found with an A/B run that counts
+    errors on the serial console.
   - A full-size picture is decoded straight into the frame buffer that is not on screen and the panel flips to it:
     no copy and no tearing. The same for a picture as wide as the panel (a band), which goes straight into its rows
     of the frame buffer on screen. 1080 rows of 4:2:0 decode as 1088 and do not fit, so a full 1080p picture only
@@ -137,7 +146,7 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - **Several displays on one DU go as one band** (a DU with 0.6.0 firmware): the DMC puts all tiles of the DU's
   layout side by side on black into one picture as wide as the screen, covering the rows they use, and the DU
   decodes it straight into its frame buffer. In 1080p a PFD and an ND of 768 x 768 behind a MIP went from 12 fps
-  each to 28 fps for both (22.7 with a screen full of text, 28 Sept 2026, through the DU manager). The displays come
+  each to 28 fps for both (26.5 with a screen full of text, 28 Sept 2026, through the DU manager). The displays come
   from their raw capture, not decoded again from JPEG; a band is made when a display changed, at most 30 times a
   second, so displays that change together go out together. Nothing changes in the layout editor or on the status
   page, and test cards are still drawn per tile. Firmware without `band` in its INFO gets one TILE per display as
