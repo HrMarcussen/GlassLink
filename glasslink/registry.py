@@ -59,7 +59,8 @@ def clean_fields(fields: dict[str, Any]) -> dict[str, Any]:
             out[key] = None
         elif key == "client_size":
             # multiples of 16: the DU's hardware JPEG decoder works in 16 x 16 blocks for 4:2:0 pictures
-            out[key] = [max(64, (v + 8) // 16 * 16) for v in _pair(value, "size", 64, 4096)]
+            # down to whole 16-pixel blocks, never up: 1080 -> 1072 fits a 1080p DU, 1088 would be refused (#62)
+            out[key] = [max(64, v // 16 * 16) for v in _pair(value, "size", 64, 4096)]
         elif key == "position":
             out[key] = _pair(value, "position", -20000, 20000)
         elif key == "fps":

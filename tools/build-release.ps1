@@ -22,6 +22,9 @@ if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 dotnet publish "$root\dotnet\src\GlassLink.Dmc" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o $out -nologo -v q
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Remove-Item "$out\*.xml", "$out\*.pdb" -ErrorAction SilentlyContinue
+# Microsoft's SimConnect.dll is never shipped (#58): a local developer copy would otherwise land here. The DMC finds it
+# in the MSFS SDK or in %LOCALAPPDATA%\GlassLink (see README, "SimConnect").
+Remove-Item "$out\SimConnect.dll" -ErrorAction SilentlyContinue
 Set-Content "$out\BUILD" $build -Encoding ascii
 Copy-Item "$root\CHANGELOG.md" $out
 if (Test-Path "$root\firmware\build\glasslink_du.bin") {

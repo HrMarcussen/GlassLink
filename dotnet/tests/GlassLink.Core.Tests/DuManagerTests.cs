@@ -97,6 +97,42 @@ public class DuManagerTests
     }
 
     [Fact]
+    public void A_single_display_narrower_than_the_screen_goes_as_a_band_and_is_still_captured()
+    {
+        var (manager, dus, displays, _, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":4,"display":"pfd"}}}""",
+            """{"fw":"0.6.0","panel":[1920,1080],"mode":4,"max_frame":1048576,"caps":["mode","tiles","band"]}""");
+        using var _m = manager;
+        manager.DisplaySize = name => name == "pfd" ? (1056, 1056) : (1920, 1072);
+        var made = new List<(int Width, int Height, IReadOnlyList<BandPart> Parts)>();
+        manager.BandFactory = (name, width, height, parts) =>
+        {
+            lock (made)
+            {
+                made.Add((width, height, parts));
+            }
+
+            return new FrameSlot(name);
+        };
+        List<Message> Layouts() => dus[0].Of(MessageType.SetLayout).Where(m => m.Payload.Length > 0).ToList();
+        manager.ScanOnce();
+        Until(() => Layouts().Count == 1);
+
+        var layout = Layouts()[0].Payload.ToArray();
+        Assert.Equal((0, 12, 1920, 1056), (BitConverter.ToUInt16(layout, 0), BitConverter.ToUInt16(layout, 2), BitConverter.ToUInt16(layout, 4), BitConverter.ToUInt16(layout, 6)));
+        var band = Assert.Single(made);
+        Assert.Equal((432, 0, 1056, 1056), (band.Parts[0].X, band.Parts[0].Y, band.Parts[0].Width, band.Parts[0].Height));    // centred as the DU would
+        Assert.True(manager.IsShown("pfd"));                         // inside a band is shown: its capture must keep running
+        Assert.False(manager.IsShown("nd"));
+        Assert.Empty(manager.Status().Single().Layout);              // no layout of the user's
+
+        manager.Assign(Serial, display: "nd");                       // as wide as the screen: a plain FRAME, the DU draws it straight in
+        Until(() => dus[0].Of(MessageType.SetLayout).Count > 0 && dus[0].Of(MessageType.SetLayout)[^1].Payload.Length == 0);
+        displays["nd"].Publish(new byte[] { 5 });
+        Until(() => dus[0].Of(MessageType.Frame).Count == 1);
+        Assert.False(manager.IsShown("pfd"));
+    }
+
+    [Fact]
     public void A_du_with_tiles_gets_a_layout_and_each_tile_its_own_frames()
     {
         var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":3,"tiles":{"pfd":{"x":0,"y":0},"nd":{"x":381,"y":0},"ecam_upper":{"x":0,"y":700}}}}}""");

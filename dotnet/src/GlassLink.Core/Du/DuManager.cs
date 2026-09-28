@@ -36,7 +36,7 @@ public sealed class DuManager : IDisposable
     private readonly Dictionary<string, List<(string Display, DuConnection.Tile Tile)>> _layouts = [];
     private readonly Dictionary<string, string> _layoutProblems = [];
     /// <summary>Per DU: the band that carries its tiles, and what it was made for (tiles and displays).</summary>
-    private readonly Dictionary<string, (string Key, IFrameSource Band)> _bands = [];
+    private readonly Dictionary<string, (string Key, IFrameSource Band, IFrameSource[] Parts)> _bands = [];
     private Timer? _scanTimer;
     private Timer? _brightnessTimer;
 
@@ -124,7 +124,7 @@ public sealed class DuManager : IDisposable
                     conn.Start();
                     if (Settings(serial).Tiles.Count == 0)
                     {
-                        conn.Source = _display(Settings(serial).Display);
+                        ShowSingle(serial, conn, Settings(serial));     // a band only once INFO says the DU takes one
                     }
                 }
                 catch (IOException ex)
@@ -251,17 +251,8 @@ public sealed class DuManager : IDisposable
             if (!cards && layout.Count > 0 && conn.SupportsBand && BandFactory is { } factory
                 && Band(conn.Info.PanelWidth, conn.Info.PanelHeight, wire) is { } band)
             {
-                var key = $"{band}|{string.Join(";", layout.Select(l => $"{l.Display}@{l.Tile}"))}";
-                if (!_bands.TryGetValue(serial, out var made) || made.Key != key)
-                {
-                    DropBand(serial);
-                    var parts = layout.Select(l => new BandPart(_display(l.Display)!, l.Tile.X, l.Tile.Y - band.Y, l.Tile.Width, l.Tile.Height)).ToList();
-                    made = (key, factory($"band {Short(serial)}", band.Width, band.Height, parts));
-                    _bands[serial] = made;
-                }
-
                 wire = [band];
-                sources = [made.Band];
+                sources = [MakeBand(serial, band, layout, factory)];
             }
             else
             {
@@ -282,13 +273,69 @@ public sealed class DuManager : IDisposable
 
             _layouts[serial] = layout;
         }
-        else if (conn.Layout.Count > 0)
+        else
         {
-            conn.SetLayout([]);                              // back to one display
-            conn.Source = _display(s.Display);
             _layouts.Remove(serial);
-            DropBand(serial);
+            ShowSingle(serial, conn, s);                     // one display (again)
         }
+    }
+
+    /// <summary>One display on a DU. A picture narrower than the screen goes as a band of the screen's width with the
+    /// picture centred, when the DU takes one: decoded straight into the frame buffer instead of decoded and copied,
+    /// which in 1080p is the difference between about 30 and under 20 fps for a large picture (#62). A picture as wide
+    /// as the screen needs no band (the DU draws it straight in anyway); everything else is a plain FRAME.</summary>
+    private void ShowSingle(string serial, DuConnection conn, DuSettings s)
+    {
+        var src = _display(s.Display);
+        if (src is not null && conn.Info is { } info && conn.SupportsBand && BandFactory is { } factory
+            && DisplaySize(s.Display) is { } size && Align16(size.Width) < info.PanelWidth && Align16(size.Height) <= info.PanelHeight)
+        {
+            var (w, h) = (Align16(size.Width), Align16(size.Height));
+            var tile = new DuConnection.Tile((info.PanelWidth - w) / 2, (info.PanelHeight - h) / 2, w, h);   // where the DU would centre it
+            if (Band(info.PanelWidth, info.PanelHeight, [tile]) is { } band)
+            {
+                var made = MakeBand(serial, band, [(s.Display, tile)], factory);
+                if (!conn.Layout.SequenceEqual([band]) || conn.Cards)
+                {
+                    conn.SetLayout([band]);
+                }
+
+                if (!conn.TileSources.SequenceEqual([made]))
+                {
+                    conn.TileSources = [made];
+                }
+
+                return;
+            }
+        }
+
+        DropBand(serial);
+        if (conn.Layout.Count > 0)
+        {
+            conn.SetLayout([]);
+        }
+
+        if (!ReferenceEquals(conn.Source, src))
+        {
+            conn.Source = src;
+        }
+    }
+
+    /// <summary>The band that carries these displays to a DU; the same one as long as they and their places stay.</summary>
+    private IFrameSource MakeBand(string serial, DuConnection.Tile band, IReadOnlyList<(string Display, DuConnection.Tile Tile)> layout,
+        Func<string, int, int, IReadOnlyList<BandPart>, IFrameSource> factory)
+    {
+        var key = $"{band}|{string.Join(";", layout.Select(l => $"{l.Display}@{l.Tile}"))}";
+        if (!_bands.TryGetValue(serial, out var made) || made.Key != key)
+        {
+            DropBand(serial);
+            var parts = layout.Select(l => new BandPart(_display(l.Display)!, l.Tile.X, l.Tile.Y - band.Y, l.Tile.Width, l.Tile.Height)).ToList();
+            made = (key, factory($"band {Short(serial)}", band.Width, band.Height, parts), [.. parts.Select(p => p.Source)]);
+            _bands[serial] = made;
+            _log?.Invoke($"DU {Short(serial)}: {string.Join(", ", layout.Select(l => l.Display))} as one band {band.Width}x{band.Height} at y {band.Y}");
+        }
+
+        return made.Band;
     }
 
     /// <summary>The band for these tiles on a screen of this size: full width, from the first row a tile uses to the
@@ -482,7 +529,7 @@ public sealed class DuManager : IDisposable
         {
             if (display is not null && settings.Tiles.Count == 0 && _connections.TryGetValue(serial, out var conn))
             {
-                conn.Source = _display(settings.Display);
+                ShowSingle(serial, conn, settings);
             }
         }
 
@@ -535,7 +582,9 @@ public sealed class DuManager : IDisposable
         try
         {
             var src = _display(display);
-            var shown = src is not null && _connections.Any(kv => kv.Value.Alive && (ReferenceEquals(kv.Value.Source, src) || kv.Value.TileSources.Any(t => ReferenceEquals(t, src))));
+            // a display inside a band is shown too: its DU gets the band, the band needs the display's pictures
+            var shown = src is not null && (_connections.Any(kv => kv.Value.Alive && (ReferenceEquals(kv.Value.Source, src) || kv.Value.TileSources.Any(t => ReferenceEquals(t, src))))
+                                            || _bands.Any(kv => _connections.TryGetValue(kv.Key, out var c) && c.Alive && kv.Value.Parts.Any(p => ReferenceEquals(p, src))));
             _lastShown = shown ? _lastShown.Contains(display) ? _lastShown : new HashSet<string>(_lastShown) { display }
                 : _lastShown.Contains(display) ? new HashSet<string>(_lastShown.Where(d => d != display)) : _lastShown;
             return shown;

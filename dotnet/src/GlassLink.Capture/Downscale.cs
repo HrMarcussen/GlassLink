@@ -19,7 +19,8 @@ public static class Downscale
 
         var scale = maxSize / (double)longest;
         // whole 16-pixel blocks: the DU's JPEG decoder refuses 4:2:0 pictures of other sizes (#27)
-        var (w, h) = (Math.Max(16, (int)Math.Round(width * scale / 16) * 16), Math.Max(16, (int)Math.Round(height * scale / 16) * 16));
+        // down, so the result never exceeds max_size (rounding 1080 up gave 1088, larger than a 1080p screen) (#62)
+        var (w, h) = (Math.Max(16, (int)(width * scale / 16) * 16), Math.Max(16, (int)(height * scale / 16) * 16));
         var xs = Weights(width, w);
         var ys = Weights(height, h);
 

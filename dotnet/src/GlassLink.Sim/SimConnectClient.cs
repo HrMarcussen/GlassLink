@@ -67,6 +67,8 @@ public sealed class SimConnectClient : IDisposable
     public static IEnumerable<string> SimConnectCandidates()
     {
         yield return Path.Combine(AppContext.BaseDirectory, "SimConnect.dll");
+        // where the DMC keeps its own files (config.json): a copy the user put there survives reinstalls and updates
+        yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassLink", "SimConnect.dll");
         foreach (var variable in new[] { "MSFS2024_SDK", "MSFS_SDK" })
         {
             if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } sdk)

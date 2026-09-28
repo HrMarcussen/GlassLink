@@ -151,6 +151,20 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   second, so displays that change together go out together. Nothing changes in the layout editor or on the status
   page, and test cards are still drawn per tile. Firmware without `band` in its INFO gets one TILE per display as
   before.
+- **No DU setup below 20 fps without a word** (#62):
+  - A single display narrower than the DU's screen goes as a band too (the picture centred on black, as wide as the
+    screen): a 1056 x 1056 PFD on a 1080p screen 17.5 -> 22-26 fps.
+  - Display sizes are rounded down to whole 16-pixel blocks, never up: a full-screen 1920 x 1080 display becomes
+    1920 x 1072, which a 1080p DU draws straight into its screen (26 fps), where 1088 rows were refused as larger
+    than the screen. The same for `max_size`, in both DMCs.
+  - A DU that gets pictures faster than it draws them and still shows fewer than 20 a second is reported on the
+    status page, with what helps (firmware with bands, smaller pictures, fewer displays, a lower HDMI mode), apart
+    from the USB advice.
+- A display inside a band counts as shown, so its capture keeps its full rate (it dropped to the idle rate, and the
+  band with it).
+- `SimConnect.dll` is no longer in the repository or its history (#58), and releases do not ship it: the DMC finds
+  it next to GlassLink.exe, in `%LOCALAPPDATA%\GlassLink\`, or in the MSFS SDK (`MSFS2024_SDK` / `MSFS_SDK`). A
+  developer's own copy in `dotnet/lib/` (ignored by git) is still copied next to the exe when building.
 - Bench tool: `--busy` (gradients and a screen of text, for PFD-sized frames), `--444` and `--brightness`; its test
   pictures are now encoded with the DMC's encoder; `manage` shows the DU's decode, draw and transfer times.
 - **Status page, a pass with UX glasses on.** Displays carry the names a builder uses (Captain PFD, Upper ECAM, FO ND;

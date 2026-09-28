@@ -67,9 +67,22 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
             foreach (var du in input.Dus.Where(d => d.Alive))
             {
                 var who = du.Label.Length > 0 ? du.Label : du.Serial[..Math.Min(8, du.Serial.Length)];
-                if (du.Health.Count > 0 && du.Display.Length > 0)
+                var tooSlow = du.Health.Where(r => r.StartsWith("shows ", StringComparison.Ordinal)).ToList();
+                if (tooSlow.Count > 0 && du.Display.Length > 0)
                 {
-                    result.Add(new Advice($"du_behind:{du.Serial}", "warn", "dus", $"{who} is not keeping up with its display", string.Join("; ", du.Health),
+                    result.Add(new Advice($"du_slow:{du.Serial}", "warn", "dus", $"{who} shows fewer than 20 pictures a second",
+                        $"It {tooSlow[0]}. The DU itself is the limit here, not the sim or the USB link.",
+                    [
+                        "Display units tab: update the DU if an update is offered. From 0.6.0 several displays on one DU go as one picture, which a 1080p DU draws about twice as fast.",
+                        "Smaller pictures: lower the display's size on the Displays tab (a DU draws time in proportion to pixels), or put fewer displays on this DU.",
+                        "Choose a lower HDMI mode for this DU if its screen allows it: 1080p leaves the DU the least memory bandwidth.",
+                    ]));
+                }
+
+                var link = du.Health.Except(tooSlow).ToList();
+                if (link.Count > 0 && du.Display.Length > 0)
+                {
+                    result.Add(new Advice($"du_behind:{du.Serial}", "warn", "dus", $"{who} is not keeping up with its display", string.Join("; ", link),
                     [
                         "Plug the DU into a USB 2.0 high-speed port or hub of its own; avoid sharing a hub with webcams, audio or storage.",
                         "Try another cable: a charge-only or very long cable falls back to a slow link.",

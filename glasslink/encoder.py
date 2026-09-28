@@ -20,7 +20,7 @@ def downscale(bgr: np.ndarray, max_size: int) -> np.ndarray:
 
     scale = max_size / m
     # whole 16-pixel blocks: the DU's JPEG decoder refuses 4:2:0 pictures of other sizes
-    size = (max(16, round(w * scale / 16) * 16), max(16, round(h * scale / 16) * 16))
+    size = (max(16, int(w * scale / 16) * 16), max(16, int(h * scale / 16) * 16))   # down: never past max_size (#62)
     return cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
 
 

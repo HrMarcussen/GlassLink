@@ -17,6 +17,8 @@ bench.json
 
 # .NET
 dist/
+# Microsoft's SimConnect.dll: a developer's local copy only, never committed (#58)
+dotnet/lib/
 dotnet/**/bin/
 dotnet/**/obj/
 *.user

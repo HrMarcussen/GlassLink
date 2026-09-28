@@ -23,7 +23,9 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
     private const int ParkX0 = 2600, ParkY0 = 0, ParkDx = 800, ParkDy = 820, ParkColumns = 4;
     /// <summary>Picture sizes in whole 16-pixel blocks: the DU's hardware JPEG decoder works in 16 x 16 blocks for the
     /// 4:2:0 pictures the DMC sends and refuses other sizes (#15).</summary>
-    private static int Round16(int v) => Math.Max(64, (v + 8) / 16 * 16);
+    // Down to whole 16-pixel blocks, never up: 1080 rows become 1072, which a 1080p DU draws straight into its frame
+    // buffer; 1088 would be larger than its screen and refused (#62).
+    private static int Round16(int v) => Math.Max(64, v / 16 * 16);
 
     private static readonly string[] Editable = ["client_size", "position", "fps", "quality", "max_size"];
     private readonly Dictionary<string, DisplayEntry> _entries = [];

@@ -79,6 +79,20 @@ public class AdvisorTests
     }
 
     [Fact]
+    public void A_du_that_cannot_keep_up_gets_its_own_advice_not_the_usb_steps()
+    {
+        var input = new AdvisorInput([],
+        [
+            ("aa11bb22cc", "MIP", true, "pfd, nd", false, ["shows 12 fps: its pictures come faster than it draws them"]),
+            ("dd44ee55ff", "ECAM", true, "ecam_upper", false, ["shows 15 fps: its pictures come faster than it draws them", "transfer 22 ms"]),
+        ], 0, "", "", [], false, false, null, "");
+        var advice = Make().Advise(input);
+        Assert.Equal(["du_slow:aa11bb22cc", "du_slow:dd44ee55ff", "du_behind:dd44ee55ff"], advice.Select(a => a.Id));
+        Assert.Contains("fewer than 20", advice[0].Title);
+        Assert.Equal("transfer 22 ms", advice[2].Detail);            // the USB advice keeps only what is about the link
+    }
+
+    [Fact]
     public void Sim_settings_are_read_from_usercfg()
     {
         var facts = Advisor.ParseSimFacts("{Graphics\n\tFrameGeneration FSRFG\n\t{GlassCockpitsRefreshRate\n\t\tQuality 1\n\t}\n}\n{GraphicsVR\n\t{GlassCockpitsRefreshRate\n\t\tQuality 2\n\t}\n}\n");
@@ -124,6 +138,8 @@ public class RegistryAndFirmwareTests
         var slot = registry.Slot("pfd");
         var updated = registry.Update("pfd", (JsonObject)JsonNode.Parse("""{"client_size":[800,800],"fps":"12","quality":null,"bogus":1}""")!);
         Assert.Equal(("[800,800]", 12.0), (updated["client_size"]!.ToJsonString(), updated["fps"]!.GetValue<double>()));
+        var full = registry.Update("pfd", (JsonObject)JsonNode.Parse("""{"client_size":[1920,1080]}""")!);
+        Assert.Equal("[1920,1072]", full["client_size"]!.ToJsonString());      // down to whole blocks: 1088 would not fit a 1080p DU (#62)
         Assert.False(updated.ContainsKey("bogus"));
         Assert.Same(slot, registry.Slot("pfd"));                                               // a DU showing it sees the frame numbers continue
         foreach (var bad in new[] { """{"fps":500}""", """{"client_size":[1,2]}""", """{"client_size":"wide"}""", """{"quality":5}""" })
@@ -153,6 +169,7 @@ public class RegistryAndFirmwareTests
         }
 
         Assert.Null(GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 64));       // fits already
+        Assert.Equal((48, 16), GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 56) is { } f ? (f.Width, f.Height) : default);   // never past max_size (#62)
         var (small, sw, sh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 32)!.Value;
         Assert.Equal((32, 16), (sw, sh));
         Assert.Equal(0, small[0]);                                        // left

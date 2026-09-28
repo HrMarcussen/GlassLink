@@ -149,6 +149,10 @@ public sealed class DuConnection : IDisposable
     /// <summary>Reasons from the last health check; empty when the DU keeps up.</summary>
     public IReadOnlyList<string> HealthReasons { get; private set; } = [];
 
+    /// <summary>Below this a DU counts as too slow when its pictures are waiting for it (#62).</summary>
+    public const double MinFps = 20;
+    private int _sendsAll, _sendsWaiting;               // pictures sent, and of those the ones that were already waiting
+
     public int Resyncs => _reader.Resyncs;
 
     /// <summary>One tile of a layout: a rectangle of the DU's screen that shows one display.</summary>
@@ -445,7 +449,7 @@ public sealed class DuConnection : IDisposable
 
             if (src.Latest is { } frame && frame.Seq > _tileSeqSent[i])
             {
-                return SendPicture(screen, MessageType.Tile, frame, (uint)i, seq => { _tileSeqSent[i] = seq; _tileNext = i; });
+                return SendPicture(screen, MessageType.Tile, frame, (uint)i, seq => { _tileSeqSent[i] = seq; _tileNext = i; }, waiting: true);
             }
 
             if (waitOn < 0)
@@ -474,7 +478,8 @@ public sealed class DuConnection : IDisposable
         }
 
         var frame = src.Latest;
-        if (frame is null || frame.Seq <= _lastSeqSent)
+        var waiting = frame is not null && frame.Seq > _lastSeqSent;
+        if (!waiting)
         {
             frame = src.WaitNewer(_lastSeqSent, waitMs);
             if (frame is null)
@@ -483,12 +488,12 @@ public sealed class DuConnection : IDisposable
             }
         }
 
-        return SendPicture(screen, MessageType.Frame, frame, 0, seq => _lastSeqSent = seq);
+        return SendPicture(screen, MessageType.Frame, frame!, 0, seq => _lastSeqSent = seq, waiting);
     }
 
     /// <summary>Sends a FRAME or TILE, but only if the screen it was chosen for is still the current one (a new layout
     /// on another thread must not be followed by a picture meant for the old one), and only if the DU can take it.</summary>
-    private bool SendPicture(Screen screen, MessageType type, Frame frame, uint arg, Action<uint> sent)
+    private bool SendPicture(Screen screen, MessageType type, Frame frame, uint arg, Action<uint> sent, bool waiting = false)
     {
         if (frame.Jpeg.Length > MaxFrame)
         {
@@ -515,6 +520,11 @@ public sealed class DuConnection : IDisposable
 
         FramesSent++;
         BytesSent += frame.Jpeg.Length;
+        Interlocked.Increment(ref _sendsAll);
+        if (waiting)
+        {
+            Interlocked.Increment(ref _sendsWaiting);          // a newer picture was there when the DU asked: the DU sets the pace
+        }
         sent(frame.Seq);
         _readyPending = false;
         return true;
@@ -584,8 +594,16 @@ public sealed class DuConnection : IDisposable
         var newDrops = s.Dropped - _histDropped.Value;
         _histDropped = s.Dropped;
         var reasons = new List<string>();
+        var (all, waiting) = (Interlocked.Exchange(ref _sendsAll, 0), Interlocked.Exchange(ref _sendsWaiting, 0));
         if (HasSource)
         {
+            // Pictures were nearly always waiting and the DU still shows fewer than 20 a second: it is the DU that is
+            // slow, not the display (a display that changes slowly leaves the DU waiting instead).
+            if (all >= 10 && waiting >= all * 0.8 && s.Fps < MinFps)
+            {
+                reasons.Add($"shows {s.Fps:0} fps: its pictures come faster than it draws them");
+            }
+
             if (s.RxMs > 15)
             {
                 reasons.Add($"transfer {s.RxMs:0.#} ms");
