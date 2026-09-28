@@ -14,4 +14,13 @@ public interface IDuTransport : IDisposable
 
     /// <summary>Sends one complete message. Safe to call from several threads.</summary>
     void Write(ReadOnlySpan<byte> data);
+
+    /// <summary>Sends one message given as header and payload, without copying them together first.</summary>
+    void Write(ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
+    {
+        var buf = new byte[header.Length + payload.Length];
+        header.CopyTo(buf);
+        payload.CopyTo(buf.AsSpan(header.Length));
+        Write(buf);
+    }
 }

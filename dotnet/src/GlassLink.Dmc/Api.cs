@@ -90,6 +90,11 @@ public static partial class Api
                     return Plain(400, "unknown display in the tiles");
                 }
 
+                if (tiles is { Count: > DuManager.MaxTiles })
+                {
+                    return Plain(400, $"a DU shows at most {DuManager.MaxTiles} displays");
+                }
+
                 dmc.Dus.SetTiles(serial, tiles);
             }
 
@@ -258,7 +263,9 @@ public static partial class Api
     }
 
     /// <summary>The displays a DU shows: its tiles in tile mode, else its one display.</summary>
-    private static IEnumerable<string> Shows(DuStatus d) => d.Tiles.Count > 0 ? d.Tiles.Select(t => t.Display) : d.Display.Length > 0 ? [d.Display] : [];
+    private static IEnumerable<string> Shows(DuStatus d) =>
+        d.Tiles.Count > 0 ? (d.Alive ? d.Layout.Select(l => l.Display) : d.Tiles.Select(t => t.Display))     // a tile left out is not shown
+        : d.Display.Length > 0 ? [d.Display] : [];
 
     private static bool InUse(DmcRuntime dmc, DisplayEntry e) => dmc.Dus.IsShown(e.Name) || e.Slot.Clients > 0;
 

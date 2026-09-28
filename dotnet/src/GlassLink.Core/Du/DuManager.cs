@@ -29,7 +29,9 @@ public sealed class DuManager : IDisposable
     private readonly Dictionary<string, double?> _brightnessSim = [];
     private readonly Dictionary<string, string> _openErrors = [];
     private readonly HashSet<string> _rotationSent = [];
-    private readonly HashSet<string> _modeSent = [];
+    /// <summary>The mode each DU was last asked for, and on which connection: the DU restarts into it, so the same
+    /// connection still reporting the old mode is only "not restarted yet", a new one is a refusal.</summary>
+    private readonly Dictionary<string, (DuConnection Conn, int Mode)> _modeSent = [];
     private readonly HashSet<string> _cards = [];
     private readonly Dictionary<string, List<(string Display, DuConnection.Tile Tile)>> _layouts = [];
     private readonly Dictionary<string, string> _layoutProblems = [];
@@ -77,6 +79,7 @@ public sealed class DuManager : IDisposable
             return;
         }
 
+        var dead = new List<DuConnection>();
         lock (_gate)
         {
             if (_disposed)
@@ -86,10 +89,11 @@ public sealed class DuManager : IDisposable
 
             foreach (var (serial, conn) in _connections.Where(kv => !kv.Value.Alive).ToList())
             {
-                conn.Dispose();                     // unplugged or failed: free the handle so it can come back
+                dead.Add(conn);                     // unplugged or failed: freed below, outside the gate (#28)
                 _connections.Remove(serial);
                 _brightnessSent.Remove(serial);
                 _rotationSent.Remove(serial);
+                _modeSent.Remove(serial);
             }
 
             foreach (var path in paths)
@@ -105,6 +109,7 @@ public sealed class DuManager : IDisposable
                     var conn = new DuConnection(_open(path), _log);
                     _connections[serial] = conn;
                     _openErrors.Remove(serial);
+                    conn.InfoReceived += c => Resync(c.Serial);      // mode and layout at once, not at the next scan (#33)
                     conn.Start();
                     if (Settings(serial).Tiles.Count == 0)
                     {
@@ -127,6 +132,11 @@ public sealed class DuManager : IDisposable
                 SyncScreen(serial, conn);
             }
         }
+
+        foreach (var conn in dead)
+        {
+            conn.Dispose();
+        }
     }
 
     /// <summary>Brings a connected DU's HDMI mode and layout in line with its settings: the mode first (the DU restarts
@@ -140,61 +150,88 @@ public sealed class DuManager : IDisposable
         }
 
         var s = Settings(serial);
-        if (s.Screen is { } screen && conn.SupportsMode && conn.Mode is { } mode)
+        var problems = new List<string>();
+        if (s.Screen is { } screen && conn.Mode is { } mode && mode != screen)
         {
-            if (mode != screen)
+            if (!conn.SupportsMode)
             {
-                if (_modeSent.Add(serial))                   // once per connection: a DU that refuses does not loop
+                problems.Add("this DU's firmware cannot change its screen mode: update it");
+            }
+            else if (_modeSent.TryGetValue(serial, out var asked) && asked.Mode == screen)
+            {
+                if (ReferenceEquals(asked.Conn, conn))
                 {
-                    _log?.Invoke($"DU {serial[..8]}: HDMI mode {screen} (has {mode}); it restarts");
-                    conn.SetMode(screen);
+                    return;                                  // asked, and it has not restarted yet: nothing else to send meanwhile
                 }
 
+                problems.Add($"the DU stayed in mode {mode} instead of {screen} (its screen may not take that mode)");     // once: no loop
+            }
+            else
+            {
+                _modeSent[serial] = (conn, screen);
+                _log?.Invoke($"DU {Short(serial)}: HDMI mode {screen} (has {mode}); it restarts");
+                conn.SetMode(screen);
                 return;
             }
+        }
 
-            _modeSent.Remove(serial);
+        if (conn.Mode is { } reached && s.Screen == reached)
+        {
+            _modeSent.Remove(serial);                        // there: a later change of mind may ask again
         }
 
         // Tiles that do not fit the screen the DU reports are left out (the DU would ignore them and the frames
-        // would be wasted); the status page says so.
+        // would be wasted); the status page says so. The size is the picture the display really publishes, rounded
+        // up to whole 16-pixel blocks (the DU's decoder works in 16 x 16 blocks) (#27).
         var layout = new List<(string Display, DuConnection.Tile Tile)>();
-        var outside = new List<string>();
         foreach (var (display, x, y) in s.Tiles)
         {
+            if (_display(display) is null)
+            {
+                problems.Add($"{display} is not a display (any more)");
+                continue;
+            }
+
+            if (layout.Count == MaxTiles)
+            {
+                problems.Add($"{display}: a DU shows at most {MaxTiles} displays");
+                continue;
+            }
+
             var (w, h) = DisplaySize(display) ?? (768, 768);
-            var tile = new DuConnection.Tile(Math.Max(0, x), Math.Max(0, y), Math.Max(8, Snap(w)), Math.Max(8, Snap(h)));
+            var tile = new DuConnection.Tile(Math.Max(0, x), Math.Max(0, y), Math.Max(16, Align16(w)), Math.Max(16, Align16(h)));
             if (tile.X + tile.Width > conn.Info.PanelWidth || tile.Y + tile.Height > conn.Info.PanelHeight)
             {
-                outside.Add($"{display} {tile.Width}x{tile.Height} at {tile.X},{tile.Y} lies outside the {conn.Info.PanelWidth}x{conn.Info.PanelHeight} screen");
+                problems.Add($"{display} {tile.Width}x{tile.Height} at {tile.X},{tile.Y} lies outside the {conn.Info.PanelWidth}x{conn.Info.PanelHeight} screen");
                 continue;
             }
 
             layout.Add((display, tile));
         }
 
-        var problem = string.Join("; ", outside);
+        if (s.Tiles.Count > 0 && !conn.SupportsTiles)
+        {
+            problems.Add("this DU's firmware cannot show several displays: update it");
+        }
+
+        var problem = string.Join("; ", problems);
         if (_layoutProblems.GetValueOrDefault(serial, "") != problem)
         {
             _layoutProblems[serial] = problem;
             if (problem.Length > 0)
             {
-                _log?.Invoke($"DU {serial[..8]}: {problem}");
+                _log?.Invoke($"DU {Short(serial)}: {problem}");
             }
         }
 
-        if (layout.Count > 0 && conn.SupportsTiles)
+        if (s.Tiles.Count > 0 && conn.SupportsTiles)
         {
+            // In tile mode even when every tile had to be left out: the single display is not the user's choice then.
             var cards = _cards.Contains(serial);
             if (!conn.Layout.SequenceEqual(layout.Select(l => l.Tile)) || conn.Cards != cards)
             {
-                if (conn.Source is not null)
-                {
-                    conn.Source = null;
-                }
-
-                conn.SetLayout(layout.Select(l => l.Tile).ToList(), cards);
-                _log?.Invoke($"DU {serial[..8]}: layout {string.Join(", ", layout.Select(l => $"{l.Display} {l.Tile.Width}x{l.Tile.Height} at {l.Tile.X},{l.Tile.Y}"))}{(cards ? " (test cards)" : "")}");
+                conn.SetLayout(layout.Select(l => l.Tile).ToList(), cards);    // replaces the single display: no NOT ASSIGNED flash
+                _log?.Invoke($"DU {Short(serial)}: layout {string.Join(", ", layout.Select(l => $"{l.Display} {l.Tile.Width}x{l.Tile.Height} at {l.Tile.X},{l.Tile.Y}"))}{(cards ? " (test cards)" : "")}");
             }
 
             var sources = layout.Select(l => _display(l.Display)).ToArray();
@@ -208,15 +245,19 @@ public sealed class DuManager : IDisposable
         else if (conn.Layout.Count > 0)
         {
             conn.SetLayout([]);                              // back to one display
-            conn.TileSources = new IFrameSource?[0];
             conn.Source = _display(s.Display);
             _layouts.Remove(serial);
         }
     }
 
-    /// <summary>Picture sizes on multiples of 8: the DU's hardware JPEG decoder refuses others ("Picture sizes not divisible
-    /// by 8 are not supported"); positions are free. The display editor rounds client_size the same way.</summary>
-    private static int Snap(int v) => Math.Max(0, (v + 4) / 8 * 8);
+    /// <summary>The most displays a DU shows at once (the firmware's tile slots).</summary>
+    public const int MaxTiles = 6;
+
+    /// <summary>Up to whole 16-pixel blocks: the DU's JPEG decoder writes 4:2:0 pictures in 16 x 16 blocks and
+    /// refuses a buffer that does not hold them (#15, #27).</summary>
+    public static int Align16(int v) => Math.Max(0, (v + 15) / 16 * 16);
+
+    private static string Short(string serial) => serial[..Math.Min(8, serial.Length)];
 
     // -- screens and layouts (the user's decisions) ------------------------------------------------------------
     /// <summary>The HDMI mode a DU is asked for (null = leave it); applied at once if it is connected.</summary>
@@ -240,6 +281,11 @@ public sealed class DuManager : IDisposable
     /// <summary>The DU's tiles: display -> position, in tile order; null or empty = a single-display DU again.</summary>
     public void SetTiles(string serial, IReadOnlyList<(string Display, int X, int Y)>? tiles)
     {
+        if (tiles is { Count: > MaxTiles })
+        {
+            throw new ArgumentException($"a DU shows at most {MaxTiles} displays");
+        }
+
         _config.Update(root =>
         {
             var entry = ConfigFile.Section(ConfigFile.Section(root, "modules"), serial);
@@ -264,13 +310,16 @@ public sealed class DuManager : IDisposable
     /// <summary>Test cards on the DU's tiles while the layout is being lined up (not stored).</summary>
     public void ShowCards(string serial, bool on)
     {
-        if (on)
+        lock (_gate)
         {
-            _cards.Add(serial);
-        }
-        else
-        {
-            _cards.Remove(serial);
+            if (on)
+            {
+                _cards.Add(serial);
+            }
+            else
+            {
+                _cards.Remove(serial);
+            }
         }
 
         Resync(serial);
@@ -280,7 +329,6 @@ public sealed class DuManager : IDisposable
     {
         lock (_gate)
         {
-            _modeSent.Remove(serial);
             if (_connections.TryGetValue(serial, out var conn))
             {
                 SyncScreen(serial, conn);
@@ -291,7 +339,12 @@ public sealed class DuManager : IDisposable
     // -- brightness: cockpit knob x the DU's trim ------------------------------------------------------
     public void BrightnessTick()
     {
-        lock (_gate)
+        if (!Monitor.TryEnter(_gate))
+        {
+            return;                                          // a scan or a slow DU holds the gate: the next tick (100 ms) comes soon (#28)
+        }
+
+        try
         {
             foreach (var (serial, conn) in _connections)
             {
@@ -316,6 +369,10 @@ public sealed class DuManager : IDisposable
                     _brightnessSent[serial] = percent;
                 }
             }
+        }
+        finally
+        {
+            Monitor.Exit(_gate);
         }
     }
 

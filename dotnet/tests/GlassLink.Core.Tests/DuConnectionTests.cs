@@ -101,6 +101,8 @@ internal sealed class FakeDu : IDuTransport
 
     public void SendStats(string json) => _toHost.Add(Wire.Pack(MessageType.Stats, Encoding.UTF8.GetBytes(json)));
 
+    public void SendInfo(string json) => _toHost.Add(Wire.Pack(MessageType.Info, Encoding.UTF8.GetBytes(json)));
+
     public List<Message> Of(MessageType type)
     {
         lock (Received)
@@ -217,8 +219,155 @@ public class DuConnectionTests
         Until(() => conn.Stats is not null);
         Assert.Empty(conn.HealthReasons);                           // 7 drops from before this session are not news
         du.SendStats("{\"fps\":20,\"decode_ms\":27,\"draw_ms\":0.1,\"rx_ms\":22,\"dropped\":9}");
+        Thread.Sleep(200);
+        Assert.Empty(conn.HealthReasons);                           // one bad report is not a warning yet (no flicker)
+        du.SendStats("{\"fps\":20,\"decode_ms\":27,\"draw_ms\":0.1,\"rx_ms\":22,\"dropped\":10}");
         Until(() => conn.HealthReasons.Count == 2);
-        Assert.Contains("2 dropped", conn.HealthReasons);
+        Assert.Contains("1 dropped", conn.HealthReasons);
+        for (var i = 0; i < 2; i++)
+        {
+            du.SendStats("{\"fps\":20,\"decode_ms\":27,\"draw_ms\":0.1,\"rx_ms\":5,\"dropped\":10}");
+        }
+
+        Thread.Sleep(200);
+        Assert.NotEmpty(conn.HealthReasons);                        // two good reports: still shown
+        du.SendStats("{\"fps\":20,\"decode_ms\":27,\"draw_ms\":0.1,\"rx_ms\":5,\"dropped\":10}");
+        Until(() => conn.HealthReasons.Count == 0);                 // the third clears it
+    }
+
+    /// <summary>A frame source that counts how often it is looked at: a busy loop shows as thousands of looks.</summary>
+    private sealed class CountingSource(string name) : IFrameSource
+    {
+        public int Looks;
+
+        public string Name { get; } = name;
+
+        public Frame? Latest
+        {
+            get
+            {
+                Interlocked.Increment(ref Looks);
+                return null;
+            }
+        }
+
+        public Frame? WaitNewer(uint afterSeq, int timeoutMs)
+        {
+            Interlocked.Increment(ref Looks);
+            Thread.Sleep(timeoutMs);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Layout_changes_while_frames_flow_never_disconnect_or_mix_frames_into_tile_mode()
+    {
+        var du = new FakeDu();
+        using var conn = new DuConnection(du);
+        conn.Start();
+        Until(() => conn.Info is not null);
+        var (a, b, single) = (new FrameSlot("a"), new FrameSlot("b"), new FrameSlot("s"));
+        using var stop = new CancellationTokenSource();
+        var publisher = new Thread(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                a.Publish(new byte[] { 1 });
+                b.Publish(new byte[] { 2 });
+                single.Publish(new byte[] { 3 });
+                Thread.Sleep(1);
+            }
+        });
+        publisher.Start();
+        var two = new[] { new DuConnection.Tile(0, 0, 16, 16), new DuConnection.Tile(16, 0, 16, 16) };
+        for (var round = 0; round < 150; round++)
+        {
+            switch (round % 3)
+            {
+                case 0:
+                    conn.SetLayout(two);
+                    conn.TileSources = [a, b];
+                    break;
+                case 1:
+                    conn.SetLayout([two[0]]);                       // shrinks while tile 2 may be in flight
+                    conn.TileSources = [a];
+                    break;
+                default:
+                    conn.SetLayout([]);
+                    conn.Source = single;
+                    break;
+            }
+
+            Thread.Sleep(2);
+        }
+
+        stop.Cancel();
+        publisher.Join();
+        Assert.True(conn.Alive, conn.Error);
+        var inTiles = false;
+        foreach (var m in du.Received.ToList())
+        {
+            if (m.Type == MessageType.SetLayout)
+            {
+                inTiles = m.Payload.Length > 0;
+            }
+
+            Assert.False(inTiles && m.Type == MessageType.Frame, "a plain FRAME after a SET_LAYOUT with tiles");
+            Assert.False(!inTiles && m.Type == MessageType.Tile, "a TILE outside tile mode");
+        }
+
+        Assert.NotEmpty(du.Of(MessageType.Tile));
+        Assert.NotEmpty(du.Of(MessageType.Frame));
+    }
+
+    [Fact]
+    public void A_tile_without_a_picture_is_waited_on_not_polled()
+    {
+        var du = new FakeDu();
+        using var conn = new DuConnection(du);
+        conn.Start();
+        Until(() => conn.Info is not null);
+        var quiet = new CountingSource("quiet");
+        conn.SetLayout([new DuConnection.Tile(0, 0, 16, 16), new DuConnection.Tile(16, 0, 16, 16)]);
+        conn.TileSources = [quiet, null];                         // the last tile in the rotation has no display
+        Thread.Sleep(500);
+        Assert.InRange(quiet.Looks, 1, 400);                        // a busy loop looks hundreds of thousands of times
+    }
+
+    [Fact]
+    public void Frames_larger_than_the_du_takes_are_skipped()
+    {
+        var du = new FakeDu();
+        using var conn = new DuConnection(du);
+        conn.Start();
+        Until(() => conn.Info is not null);
+        Assert.Equal(512 * 1024, conn.MaxFrame);                     // firmware that does not say: the old limit
+        var slot = new FrameSlot("pfd");
+        conn.Source = slot;
+        slot.Publish(new byte[600 * 1024]);
+        Until(() => conn.Oversize == 1);
+        slot.Publish(new byte[] { 9 });
+        Until(() => du.Of(MessageType.Frame).Count == 1);
+        Assert.Equal(1, du.Of(MessageType.Frame)[0].Payload.Length);
+
+        du.SendInfo("{\"fw\":\"0.6.0\",\"panel\":[1920,1080],\"mode\":4,\"max_frame\":1048576,\"caps\":[\"mode\",\"tiles\"]}");
+        Until(() => conn.MaxFrame == 1024 * 1024);
+    }
+
+    [Fact]
+    public void Odd_json_from_a_du_is_read_as_defaults()
+    {
+        var du = new FakeDu();
+        using var conn = new DuConnection(du);
+        conn.Start();
+        Until(() => conn.Info is not null);
+        du.SendInfo("{\"fw\":5,\"panel\":[\"a\",null],\"mode\":null,\"uptime_s\":\"x\",\"caps\":\"tiles\"}");
+        du.SendStats("{\"fps\":\"fast\",\"dropped\":null,\"rx_ms\":[]}");
+        Until(() => conn.Stats is not null && conn.Info?.Firmware == "");
+        Assert.True(conn.Alive, conn.Error);
+        Assert.Null(conn.Mode);
+        Assert.False(conn.SupportsTiles);
+        Assert.Equal(0, conn.Info!.PanelWidth);
     }
 
     [Fact]

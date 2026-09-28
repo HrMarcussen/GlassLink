@@ -42,22 +42,18 @@ public class DuManagerTests
         var (manager, dus, displays, config, _) = Make("""{"modules":{"SERIAL":{"label":"HDMI","screen":3,"tiles":{"pfd":{"x":0,"y":0},"nd":{"x":381,"y":0},"ecam_upper":{"x":0,"y":700}}}}}""");
         using var _m = manager;
         manager.DisplaySize = name => name == "pfd" ? (384, 384) : (384, 376);
+        List<Message> Layouts() => dus[0].Of(MessageType.SetLayout).Where(m => m.Payload.Length > 0).ToList();
         manager.ScanOnce();
-        var deadline = Environment.TickCount64 + 3000;
-        while (dus[0].Of(MessageType.SetLayout).Count == 0 && Environment.TickCount64 < deadline)
-        {
-            manager.ScanOnce();                                      // the sync pass once INFO is in: the mode fits (3), so the layout goes
-            Thread.Sleep(5);
-        }
+        Until(() => Layouts().Count == 1);                           // synced as soon as INFO arrives: the mode fits (3), so the layout goes
 
-        var conn = manager.Connection(Serial)!;
-        Assert.True(dus[0].Of(MessageType.SetLayout).Count == 1, $"received: {string.Join(",", dus[0].Received.Select(r => r.Type))}; info {conn.Info is not null}, mode {conn.Mode}, tiles {conn.SupportsTiles}, alive {conn.Alive}, settings tiles {manager.Settings(Serial).Tiles.Count}");
-        var layout = dus[0].Of(MessageType.SetLayout)[0].Payload.ToArray();
+        var layout = Layouts()[0].Payload.ToArray();
         Assert.Equal(16, layout.Length);
         Assert.Equal((0, 0, 384, 384), (BitConverter.ToUInt16(layout, 0), BitConverter.ToUInt16(layout, 2), BitConverter.ToUInt16(layout, 4), BitConverter.ToUInt16(layout, 6)));
-        Assert.Equal((381, 0, 384, 376), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // the position as given, the size a multiple of 8
-        Assert.Contains("ecam_upper", manager.Status().Single().LayoutProblem);                     // 0,700 + 376 does not fit the 768x768 fake: left out, reported
+        Assert.Equal((381, 0, 384, 384), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // the position as given, the size up to whole 16-pixel blocks
+        Assert.Contains("ecam_upper", manager.Status().Single().LayoutProblem);                     // not a display here: left out, reported
         Assert.Empty(dus[0].Of(MessageType.SetMode));
+        var afterLayout = dus[0].Received.SkipWhile(m => !(m.Type == MessageType.SetLayout && m.Payload.Length > 0)).ToList();
+        Assert.DoesNotContain(afterLayout, m => m.Type == MessageType.SetAssigned && m.Arg == 0);  // no NOT ASSIGNED flash when switching to tiles
 
         displays["nd"].Publish(new byte[] { 2 });
         Until(() => dus[0].Of(MessageType.Tile).Count == 1);
@@ -69,16 +65,18 @@ public class DuManagerTests
         Assert.True(manager.IsShown("pfd") && manager.IsShown("nd"));
 
         manager.ShowCards(Serial, true);
-        Until(() => dus[0].Of(MessageType.SetLayout).Count == 2);
-        Assert.Equal(1u, dus[0].Of(MessageType.SetLayout)[1].Arg);
+        Until(() => Layouts().Count == 2);
+        Assert.Equal(1u, Layouts()[1].Arg);
         var row = manager.Status().Single();
         Assert.True(row.Cards);
         Assert.Equal(2, row.Layout.Count);
 
+        var before = dus[0].Of(MessageType.SetLayout).Count;
         manager.SetTiles(Serial, null);                              // a single-display DU again
-        Until(() => dus[0].Of(MessageType.SetLayout).Count == 3);
-        Assert.Equal(0, dus[0].Of(MessageType.SetLayout)[2].Payload.Length);
+        Until(() => dus[0].Of(MessageType.SetLayout).Count == before + 1);
+        Assert.Equal(0, dus[0].Of(MessageType.SetLayout)[^1].Payload.Length);
         Assert.Null(((JsonObject)config.Root["modules"]![Serial]!)["tiles"]);
+        Assert.Throws<ArgumentException>(() => manager.SetTiles(Serial, [.. Enumerable.Range(0, 7).Select(i => ("pfd", i * 16, 0))]));   // at most six
     }
 
     [Fact]

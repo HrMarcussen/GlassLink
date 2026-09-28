@@ -50,6 +50,9 @@ static jpeg_decoder_handle_t s_jpeg;
 static uint8_t *s_rgb;              /* decoder output buffer (RGB888, DMA capable) */
 static size_t s_rgb_size;
 static SemaphoreHandle_t s_draw_done;   /* given by the DPI driver when a draw_bitmap copy has finished */
+static SemaphoreHandle_t s_draw_lock;   /* one draw at a time: the screen task and the protocol task both draw (#18) */
+static SemaphoreHandle_t s_fb_free;     /* given when a frame buffer we flipped away from may be written again (#23) */
+static volatile bool s_flip_wait;       /* a flip happened: wait for s_fb_free before rendering into the other buffer */
 static int s_brightness = 100;
 static uint8_t s_lut[256];          /* brightness lookup (CPU fallback), rebuilt by display_set_brightness */
 /* Hardware dimming: the PPA blends the decoded frame over black with alpha = brightness. The CPU loop over
@@ -64,6 +67,7 @@ static char s_overlay1[40], s_overlay2[40];   /* banner stamped on every frame w
 static int s_rotation = 0;
 
 static void lt_write(esp_lcd_panel_io_handle_t io, uint8_t reg, uint8_t val);
+static void stamp_overlay(uint8_t *bgr, int w, int h);
 
 static esp_err_t make_panel(int mode, int dsivar)
 {
@@ -259,43 +263,66 @@ static bool IRAM_ATTR on_draw_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_pan
     return hp == pdTRUE;
 }
 
-/* draw_bitmap is asynchronous with DMA2D: wait until the copy is done so callers may reuse/free their buffer. */
+static bool IRAM_ATTR on_fb_complete(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *ctx)
+{
+    BaseType_t hp = pdFALSE;
+    if (s_fb_free) xSemaphoreGiveFromISR(s_fb_free, &hp);
+    return hp == pdTRUE;
+}
+
+/* draw_bitmap is asynchronous with DMA2D: wait until the copy is done so callers may reuse/free their buffer.
+ * Every draw goes through here, under one lock: two tasks drawing at once made the second draw fail (#18). */
 static esp_err_t draw_sync(int x, int y, int w, int h, const uint8_t *rgb)
 {
+    if (!s_panel) return ESP_ERR_INVALID_STATE;      /* no display (headless after an init failure) */
+    xSemaphoreTake(s_draw_lock, portMAX_DELAY);
     xSemaphoreTake(s_draw_done, 0);                  /* clear a stale token */
     esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, x, y, x + w, y + h, rgb);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "draw_bitmap %dx%d at %d,%d: %s", w, h, x, y, esp_err_to_name(err));
-        return err;
-    }
-    if (xSemaphoreTake(s_draw_done, pdMS_TO_TICKS(200)) != pdTRUE) {
+    } else if (xSemaphoreTake(s_draw_done, pdMS_TO_TICKS(200)) != pdTRUE) {
         ESP_LOGW(TAG, "draw_bitmap completion timeout");
-        return ESP_ERR_TIMEOUT;
+        err = ESP_ERR_TIMEOUT;
     }
-    return ESP_OK;
+    xSemaphoreGive(s_draw_lock);
+    return err;
 }
+
+/* The decoder writes whole MCUs (16 x 16 pixels for 4:2:0, 16 x 8 for 4:2:2, 8 x 8 for 4:4:4 and grey), so its
+ * rows are the width rounded up to that block (#15). */
+static uint32_t mcu_width(const jpeg_decode_picture_info_t *pic)
+{
+    return (pic->sample_method == JPEG_DOWN_SAMPLING_YUV420 || pic->sample_method == JPEG_DOWN_SAMPLING_YUV422) ? 16 : 8;
+}
+
+static size_t align16(size_t v) { return (v + 15) & ~(size_t)15; }
 
 esp_err_t display_init(int mode, int dsivar)
 {
-    s_draw_done = xSemaphoreCreateBinary();
+    if (!s_draw_done) s_draw_done = xSemaphoreCreateBinary();
+    if (!s_draw_lock) s_draw_lock = xSemaphoreCreateMutex();
+    if (!s_fb_free) s_fb_free = xSemaphoreCreateBinary();
     ESP_RETURN_ON_ERROR(make_panel(mode, dsivar), TAG, "panel");
-    esp_lcd_dpi_panel_event_callbacks_t cbs = {.on_color_trans_done = on_draw_done};
+    esp_lcd_dpi_panel_event_callbacks_t cbs = {.on_color_trans_done = on_draw_done, .on_frame_buf_complete = on_fb_complete};
     ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_register_event_callbacks(s_panel, &cbs, NULL), TAG, "callbacks");
 
     jpeg_decode_engine_cfg_t eng = {.intr_priority = 0, .timeout_ms = 200};
     ESP_RETURN_ON_ERROR(jpeg_new_decoder_engine(&eng, &s_jpeg), TAG, "jpeg engine");
-    /* Output buffer for the largest picture we accept (the panel size). */
+    /* Output buffer for the largest picture we accept: the panel size rounded up to whole 16 x 16 MCUs, because the
+     * decoder refuses a buffer smaller than its padded output (1920 x 1080 decodes as 1920 x 1088) (#15). */
+    size_t buf_bytes = align16(s_info.width) * align16(s_info.height) * 3;
     jpeg_decode_memory_alloc_cfg_t mem = {.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER};
-    s_rgb = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &s_rgb_size);
+    s_rgb = jpeg_alloc_decoder_mem(buf_bytes, &mem, &s_rgb_size);
     ESP_RETURN_ON_FALSE(s_rgb, ESP_ERR_NO_MEM, TAG, "rgb buffer");
     /* hardware dimming resources; if any of this fails the CPU lookup table is used instead */
     size_t black_size = 0;
-    s_dim = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &s_dim_size);
-    s_black = jpeg_alloc_decoder_mem((size_t)s_info.width * s_info.height * 3, &mem, &black_size);
+    s_dim = jpeg_alloc_decoder_mem(buf_bytes, &mem, &s_dim_size);
+    s_black = jpeg_alloc_decoder_mem(buf_bytes, &mem, &black_size);
     ppa_client_config_t ppa_cfg = {.oper_type = PPA_OPERATION_BLEND};
     if (s_dim && s_black && ppa_register_client(&ppa_cfg, &s_ppa) == ESP_OK) {
         memset(s_black, 0, black_size);
-        if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &s_fb[0], &s_fb[1]) != ESP_OK) {
+        /* two frame buffers except in 1080p, which has room for one only (asking for two logs an error) */
+        if (s_info.mode == 4 || esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &s_fb[0], &s_fb[1]) != ESP_OK) {
             s_fb[0] = s_fb[1] = NULL;
         }
         ESP_LOGI(TAG, "hardware dimming (PPA blend) ready%s", s_fb[1] ? ", rendering into the back buffer" : "");
@@ -314,11 +341,22 @@ display_info_t display_get_info(void)
 
 void display_fill(uint32_t rgb)
 {
+    if (!s_rgb) return;
     uint8_t r = rgb >> 16, g = rgb >> 8, b = rgb;
     for (size_t i = 0; i + 2 < s_rgb_size; i += 3) {
         s_rgb[i] = b; s_rgb[i + 1] = g; s_rgb[i + 2] = r;   /* frame buffer byte order is B,G,R */
     }
     draw_sync(0, 0, s_info.width, s_info.height, s_rgb);
+}
+
+bool display_ready(void)
+{
+    return s_panel != NULL;
+}
+
+void display_stamp_overlay(uint8_t *bgr, int w, int h)
+{
+    stamp_overlay(bgr, w, h);
 }
 
 esp_err_t display_show_rgb(const uint8_t *rgb, int w, int h)
@@ -383,6 +421,7 @@ static void stamp_overlay(uint8_t *bgr, int w, int h)
 /* The picture goes centred into the box at_x, at_y, box_w, box_h: the whole panel for a FRAME, one tile for a TILE. */
 static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, int box_w, int box_h, bool allow_flip, uint32_t *decode_ms)
 {
+    if (!s_jpeg || !s_rgb) return ESP_ERR_INVALID_STATE;
     jpeg_decode_picture_info_t pic;
     ESP_RETURN_ON_ERROR(jpeg_decoder_get_info(jpeg, len, &pic), TAG, "jpeg info");
     if (pic.width > (uint32_t)box_w || pic.height > (uint32_t)box_h) {
@@ -397,6 +436,14 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
     int64_t t0 = esp_timer_get_time();
     uint32_t out_len = 0;
     ESP_RETURN_ON_ERROR(jpeg_decoder_process(s_jpeg, &cfg, jpeg, len, s_rgb, s_rgb_size, &out_len), TAG, "jpeg decode");
+    uint32_t stride = (pic.width + mcu_width(&pic) - 1) / mcu_width(&pic) * mcu_width(&pic);
+    if (stride != pic.width) {
+        /* rows come out padded to whole MCUs: pack them so every later step sees pic.width pixels per row (a width
+         * that is a multiple of 8 but not 16 was drawn sheared) */
+        for (uint32_t y = 1; y < pic.height; y++) {
+            memmove(s_rgb + (size_t)y * pic.width * 3, s_rgb + (size_t)y * stride * 3, (size_t)pic.width * 3);
+        }
+    }
     uint8_t *shown = s_rgb;             /* the buffer that goes to the panel */
     if (s_brightness < 100) {
         bool done = false;
@@ -419,6 +466,12 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
             bool flip = allow_flip && s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
                         && fb_bytes % 64 == 0;
             if (flip) {
+                if (s_flip_wait) {
+                    /* the buffer we are about to render into was on screen until the last flip: the DMA may still be
+                     * scanning it out, so wait until the driver says it is free (tearing, #23) */
+                    xSemaphoreTake(s_fb_free, pdMS_TO_TICKS(40));
+                    s_flip_wait = false;
+                }
                 b.out.buffer = s_fb[1 - s_front];
                 b.out.buffer_size = fb_bytes;
             }
@@ -447,6 +500,8 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
     esp_err_t err = draw_sync(x, y, pic.width, pic.height, shown);
     if (err == ESP_OK && s_fb[1] && shown == (uint8_t *)s_fb[1 - s_front]) {
         s_front = 1 - s_front;          /* the driver flipped to the buffer we rendered into */
+        xSemaphoreTake(s_fb_free, 0);   /* forget an old token: only the completion of this flip counts */
+        s_flip_wait = true;
     }
     s_last_draw_us = (uint32_t)(esp_timer_get_time() - t1);
     return err;

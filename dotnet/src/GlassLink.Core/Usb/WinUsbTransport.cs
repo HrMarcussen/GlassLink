@@ -147,10 +147,23 @@ public sealed class WinUsbTransport : IDuTransport
         return null;
     }
 
+    public void Write(ReadOnlySpan<byte> header, ReadOnlySpan<byte> payload)
+    {
+        lock (_writeLock)                                // the two parts of one message stay together
+        {
+            Write(header);
+            if (payload.Length > 0)
+            {
+                Write(payload);
+            }
+        }
+    }
+
     public void Write(ReadOnlySpan<byte> data)
     {
         lock (_writeLock)
         {
+            ObjectDisposedException.ThrowIf(_closing, this);
             var offset = 0;
             while (offset < data.Length)            // WinUSB takes the whole buffer in one call; loop only for safety
             {
@@ -173,9 +186,14 @@ public sealed class WinUsbTransport : IDuTransport
 
         _closing = true;
         Native.WinUsb_AbortPipe(_usb, _pipeIn);           // the pending read returns at once ...
-        _reader.Join(1000);                              // ... and the reader sees _closing; only then may the handles go
-        Native.WinUsb_Free(_usb);
-        _file.Dispose();
+        Native.WinUsb_AbortPipe(_usb, _pipeOut);          // ... and so does a write that is still timing out
+        _reader.Join(1000);                              // the reader sees _closing
+        lock (_writeLock)                                // and no write is running: only now may the handles go (#31)
+        {
+            Native.WinUsb_Free(_usb);
+            _file.Dispose();
+        }
+
         _chunks.Dispose();
     }
 

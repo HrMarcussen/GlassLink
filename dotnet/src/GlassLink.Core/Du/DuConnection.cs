@@ -8,6 +8,18 @@ using GlassLink.Core.Usb;
 
 namespace GlassLink.Core.Du;
 
+/// <summary>Reading a DU's JSON: a value of the wrong kind is a default, never an exception (#29).</summary>
+internal static class DuJson
+{
+    public static double Num(JsonElement j, string name, double fallback = 0) =>
+        j.ValueKind == JsonValueKind.Object && j.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) ? d : fallback;
+
+    public static string Str(JsonElement j, string name) =>
+        j.ValueKind == JsonValueKind.Object && j.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+    public static int Int(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
+}
+
 /// <summary>What a DU says about itself (INFO message).</summary>
 public sealed record DuInfo(string Firmware, string Build, string Hardware, int PanelWidth, int PanelHeight, string Slot, long UptimeSeconds)
 {
@@ -18,15 +30,13 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
             return null;
         }
 
-        string Str(string name) => j.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         var (w, h) = (0, 0);
         if (j.TryGetProperty("panel", out var p) && p.ValueKind == JsonValueKind.Array && p.GetArrayLength() == 2)
         {
-            (w, h) = (p[0].TryGetInt32(out var pw) ? pw : 0, p[1].TryGetInt32(out var ph) ? ph : 0);
+            (w, h) = (DuJson.Int(p[0]), DuJson.Int(p[1]));
         }
 
-        var up = j.TryGetProperty("uptime_s", out var u) && u.TryGetInt64(out var s) ? s : 0;
-        return new DuInfo(Str("fw"), Str("build"), Str("hw"), w, h, Str("slot"), up);
+        return new DuInfo(DuJson.Str(j, "fw"), DuJson.Str(j, "build"), DuJson.Str(j, "hw"), w, h, DuJson.Str(j, "slot"), (long)DuJson.Num(j, "uptime_s"));
     }
 }
 
@@ -40,7 +50,7 @@ public sealed record DuStats(double Fps, double DecodeMs, double DrawMs, double 
             return null;
         }
 
-        double Num(string name) => j.TryGetProperty(name, out var v) && v.TryGetDouble(out var d) ? d : 0;
+        double Num(string name) => DuJson.Num(j, name);
         return new DuStats(Num("fps"), Num("decode_ms"), Num("draw_ms"), Num("rx_ms"), (long)Num("dropped"), Num("ident") != 0);
     }
 }
@@ -67,15 +77,27 @@ public sealed class DuConnection : IDisposable
     private readonly MessageReader _reader = new();
     private readonly Thread _thread;
     private readonly CancellationTokenSource _stop = new();
-    private readonly object _sourceGate = new();
-    private IFrameSource?[] _tileSources = [];
+    /// <summary>What the DU is to show: one display, or a layout with a display per tile. Replaced as a whole under
+    /// <see cref="_screenGate"/>, never changed in place: the DU's thread works from one snapshot per READY (#25).</summary>
+    private sealed record Screen(IFrameSource? Single, Tile[] Layout, IFrameSource?[] Sources, bool Cards)
+    {
+        public static readonly Screen Empty = new(null, [], [], false);
+
+        public bool HasSource => Single is not null || Sources.Any(s => s is not null);
+    }
+
+    private readonly object _screenGate = new();     // screen changes, and the frame sends that depend on them
+    private volatile Screen _screen = Screen.Empty;
+
+    // the DU thread's own bookkeeping (no other thread touches these)
+    private Screen? _served;
     private IFrameSource?[] _tileLast = [];
     private uint[] _tileSeqSent = [];
     private int _tileNext;
-    private bool _cards;
-    private IFrameSource? _source;
     private IFrameSource? _lastSource;
     private uint _lastSeqSent;
+    private long _oversizeLogged;
+    private int _badChecks, _goodChecks;
     private bool _readyPending;
     private byte[]? _otaImage;
     private uint? _otaAcked;
@@ -133,7 +155,17 @@ public sealed class DuConnection : IDisposable
     public sealed record Tile(int X, int Y, int Width, int Height);
 
     /// <summary>The DU's layout (a screen with several displays on it); empty for a single-display DU.</summary>
-    public IReadOnlyList<Tile> Layout { get; private set; } = [];
+    public IReadOnlyList<Tile> Layout => _screen.Layout;
+
+    /// <summary>The largest JPEG this DU takes (INFO max_frame; 512 KB for firmware that does not say).</summary>
+    public int MaxFrame { get; private set; } = 512 * 1024;
+
+    /// <summary>Frames not sent because they were larger than <see cref="MaxFrame"/>.</summary>
+    public long Oversize { get; private set; }
+
+    /// <summary>Raised on the DU's thread after every INFO (a new connection, or the DU restarted): the manager brings
+    /// the DU's screen mode and layout in line at once instead of at the next scan.</summary>
+    public event Action<DuConnection>? InfoReceived;
 
     /// <summary>True when the DU's firmware knows SET_LAYOUT and TILE (INFO caps).</summary>
     public bool SupportsTiles => Has("tiles");
@@ -142,110 +174,90 @@ public sealed class DuConnection : IDisposable
     public bool SupportsMode => Has("mode");
 
     /// <summary>The HDMI mode the DU runs (INFO), null before the first INFO.</summary>
-    public int? Mode => InfoJson is { } j && j.TryGetProperty("mode", out var m) && m.TryGetInt32(out var v) ? v : null;
+    public int? Mode => InfoJson is { } j && j.ValueKind == JsonValueKind.Object && j.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.Number && m.TryGetInt32(out var v) ? v : null;
 
     /// <summary>Test cards instead of pictures on the tiles (the last SET_LAYOUT).</summary>
-    public bool Cards => _cards;
+    public bool Cards => _screen.Cards;
 
-    private bool Has(string cap) => InfoJson is { } j && j.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array
+    private bool Has(string cap) => InfoJson is { } j && j.ValueKind == JsonValueKind.Object && j.TryGetProperty("caps", out var caps) && caps.ValueKind == JsonValueKind.Array
                                     && caps.EnumerateArray().Any(c => c.ValueKind == JsonValueKind.String && c.GetString() == cap);
 
     /// <summary>Gives the DU a layout (or takes it away with an empty list) and, with <paramref name="cards"/>, shows
-    /// the tiles as test cards for lining them up with the panel's cutouts. The sources per tile follow separately
-    /// (<see cref="TileSources"/>). Sent again after every INFO, so a DU that restarts gets it back.</summary>
+    /// the tiles as test cards for lining them up with the panel's cutouts. A layout replaces the single display; the
+    /// sources per tile follow separately (<see cref="TileSources"/>), sources of tiles that stay are kept.</summary>
     public void SetLayout(IReadOnlyList<Tile> tiles, bool cards = false)
     {
-        lock (_sourceGate)
+        lock (_screenGate)
         {
-            Layout = tiles;
-            _cards = cards;
-            if (_tileSources.Length != tiles.Count)
-            {
-                _tileSources = new IFrameSource?[tiles.Count];
-                _tileSeqSent = new uint[tiles.Count];
-                _tileLast = new IFrameSource?[tiles.Count];
-            }
+            var old = _screen;
+            var sources = new IFrameSource?[tiles.Count];
+            Array.Copy(old.Sources, sources, Math.Min(old.Sources.Length, sources.Length));
+            _screen = new Screen(tiles.Count > 0 ? null : old.Single, [.. tiles], sources, cards);
+            SendLayoutLocked();
         }
-
-        SendLayout();
     }
 
     /// <summary>The display of every tile (null = nothing there yet), in layout order.</summary>
     public IFrameSource?[] TileSources
     {
-        get
-        {
-            lock (_sourceGate)
-            {
-                return (IFrameSource?[])_tileSources.Clone();
-            }
-        }
-
+        get => (IFrameSource?[])_screen.Sources.Clone();
         set
         {
-            lock (_sourceGate)
+            bool before, after;
+            lock (_screenGate)
             {
-                for (var i = 0; i < _tileSources.Length && i < value.Length; i++)
+                var old = _screen;
+                if (value.Length != old.Layout.Length)
                 {
-                    _tileSources[i] = value[i];
+                    _log?.Invoke($"DU {Short}: {value.Length} tile source(s) for a layout of {old.Layout.Length}");
                 }
+
+                var sources = new IFrameSource?[old.Layout.Length];
+                Array.Copy(value, sources, Math.Min(value.Length, sources.Length));
+                _screen = old with { Sources = sources };
+                (before, after) = (old.HasSource, _screen.HasSource);
             }
 
-            Send(MessageType.SetAssigned, arg: value.Any(v => v is not null) ? 1u : 0u);
-        }
-    }
-
-    private void SendLayout()
-    {
-        Tile[] tiles;
-        bool cards;
-        lock (_sourceGate)
-        {
-            (tiles, cards) = ([.. Layout], _cards);
-        }
-
-        var payload = new byte[tiles.Length * 8];
-        for (var i = 0; i < tiles.Length; i++)
-        {
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8), (ushort)tiles[i].X);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 2), (ushort)tiles[i].Y);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 4), (ushort)tiles[i].Width);
-            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 6), (ushort)tiles[i].Height);
-        }
-
-        Send(MessageType.SetLayout, payload, arg: cards ? 1u : 0u);
-    }
-
-    private bool HasSource
-    {
-        get
-        {
-            lock (_sourceGate)
+            if (before != after)
             {
-                return _source is not null || _tileSources.Any(s => s is not null);
+                Send(MessageType.SetAssigned, arg: after ? 1u : 0u);
             }
         }
     }
 
-    /// <summary>The display this DU shows; null = not assigned (the DU shows its own NOT ASSIGNED screen).</summary>
+    /// <summary>The layout as the DU gets it. Called under <see cref="_screenGate"/>, so no frame chosen for an older
+    /// screen can follow it.</summary>
+    private void SendLayoutLocked()
+    {
+        var screen = _screen;
+        var payload = new byte[screen.Layout.Length * 8];
+        for (var i = 0; i < screen.Layout.Length; i++)
+        {
+            var t = screen.Layout[i];
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8), (ushort)t.X);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 2), (ushort)t.Y);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 4), (ushort)t.Width);
+            BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(i * 8 + 6), (ushort)t.Height);
+        }
+
+        Send(MessageType.SetLayout, payload, arg: screen.Cards ? 1u : 0u);
+    }
+
+    private bool HasSource => _screen.HasSource;
+
+    /// <summary>The display this DU shows; null = not assigned (the DU shows its own NOT ASSIGNED screen). Ignored by
+    /// the DU's thread while a layout is set.</summary>
     public IFrameSource? Source
     {
-        get
-        {
-            lock (_sourceGate)
-            {
-                return _source;
-            }
-        }
-
+        get => _screen.Single;
         set
         {
-            lock (_sourceGate)
+            lock (_screenGate)
             {
-                _source = value;
+                _screen = _screen with { Single = value };
             }
 
-            Send(MessageType.SetAssigned, arg: value is null ? 0u : 1u);
+            Send(MessageType.SetAssigned, arg: HasSource ? 1u : 0u);
         }
     }
 
@@ -261,11 +273,17 @@ public sealed class DuConnection : IDisposable
 
         try
         {
-            _transport.Write(Wire.Pack(type, payload, seq, arg));
+            Span<byte> header = stackalloc byte[Wire.HeaderSize];
+            Wire.PackHeader(header, type, payload.Length, seq, arg);
+            _transport.Write(header, payload);            // no copy of the JPEG into a new array (#34)
         }
         catch (IOException ex)
         {
             Fail(ex.Message);
+        }
+        catch (ObjectDisposedException)
+        {
+            Fail("closed");
         }
     }
 
@@ -299,13 +317,14 @@ public sealed class DuConnection : IDisposable
 
     public void Dispose()
     {
+        Alive = false;                                   // nobody sends from here on (#31)
         _stop.Cancel();
+        _transport.Dispose();                            // aborts a write in progress and waits for it before freeing the handle
         if (_thread.IsAlive)
         {
             _thread.Join(2000);
         }
 
-        _transport.Dispose();
         _stop.Dispose();
     }
 
@@ -334,9 +353,10 @@ public sealed class DuConnection : IDisposable
 
                 // With a READY pending, wait for the next picture rather than for the DU (it has nothing to say until it
                 // gets one); still drain what the DU sent. Without one, the DU is the only thing to wait for.
-                if (_readyPending && HasSource)
+                var screen = _screen;
+                if (_readyPending && screen.HasSource)
                 {
-                    if (Layout.Count > 0 ? ServeTile(5) : Source is { } src && ServeReady(src, 5))     // short, so that a PONG or STATS is not left waiting
+                    if (Serve(screen, 5))                     // short, so that a PONG or STATS is not left waiting
                     {
                         continue;
                     }
@@ -381,21 +401,35 @@ public sealed class DuConnection : IDisposable
         }
     }
 
-    /// <summary>Tiles take turns: after a READY the first tile (from the one after the last sent) with a newer frame
-    /// goes; if none has one, one tile is waited on briefly and the loop comes round again.</summary>
-    private bool ServeTile(int waitMs)
+    /// <summary>Sends the next picture for this screen snapshot, if there is one. The per-tile bookkeeping follows the
+    /// snapshot, so a layout that shrinks while a frame is chosen can never index past its end (#25).</summary>
+    private bool Serve(Screen screen, int waitMs)
     {
-        IFrameSource?[] sources;
-        lock (_sourceGate)
+        if (!ReferenceEquals(screen, _served))
         {
-            sources = (IFrameSource?[])_tileSources.Clone();
+            if (_served is null || _served.Layout.Length != screen.Layout.Length)
+            {
+                _tileLast = new IFrameSource?[screen.Layout.Length];
+                _tileSeqSent = new uint[screen.Layout.Length];
+                _tileNext = 0;
+            }
+
+            _served = screen;
         }
 
-        var n = sources.Length;
+        return screen.Layout.Length > 0 ? ServeTile(screen, waitMs) : screen.Single is { } src && ServeReady(screen, src, waitMs);
+    }
+
+    /// <summary>Tiles take turns: after a READY the first tile (from the one after the last sent) with a newer frame
+    /// goes; if none has one, the first tile with a source is waited on briefly (never a busy loop, #26).</summary>
+    private bool ServeTile(Screen screen, int waitMs)
+    {
+        var n = screen.Layout.Length;
+        var waitOn = -1;
         for (var k = 1; k <= n; k++)
         {
             var i = (_tileNext + k) % n;
-            if (sources[i] is not { } src)
+            if (screen.Sources[i] is not { } src)
             {
                 continue;
             }
@@ -405,34 +439,29 @@ public sealed class DuConnection : IDisposable
                 (_tileLast[i], _tileSeqSent[i]) = (src, 0);  // another display on this tile: its sequence numbers are unrelated
             }
 
-            var frame = src.Latest;
-            if (frame is null || frame.Seq <= _tileSeqSent[i])
+            if (src.Latest is { } frame && frame.Seq > _tileSeqSent[i])
             {
-                if (k < n)
-                {
-                    continue;                                // look at the other tiles first
-                }
-
-                frame = src.WaitNewer(_tileSeqSent[i], waitMs);
-                if (frame is null)
-                {
-                    return false;
-                }
+                return SendPicture(screen, MessageType.Tile, frame, (uint)i, seq => { _tileSeqSent[i] = seq; _tileNext = i; });
             }
 
-            Send(MessageType.Tile, frame.Jpeg.Span, seq: frame.Seq, arg: (uint)i);
-            FramesSent++;
-            BytesSent += frame.Jpeg.Length;
-            _tileSeqSent[i] = frame.Seq;
-            _tileNext = i;
-            _readyPending = false;
-            return true;
+            if (waitOn < 0)
+            {
+                waitOn = i;
+            }
         }
 
-        return false;
+        if (waitOn < 0)
+        {
+            Thread.Sleep(waitMs);                             // a layout whose tiles have no display yet
+            return false;
+        }
+
+        var w = waitOn;
+        return screen.Sources[w]!.WaitNewer(_tileSeqSent[w], waitMs) is { } next
+               && SendPicture(screen, MessageType.Tile, next, (uint)w, seq => { _tileSeqSent[w] = seq; _tileNext = w; });
     }
 
-    private bool ServeReady(IFrameSource src, int waitMs)
+    private bool ServeReady(Screen screen, IFrameSource src, int waitMs)
     {
         if (!ReferenceEquals(src, _lastSource))
         {
@@ -450,10 +479,39 @@ public sealed class DuConnection : IDisposable
             }
         }
 
-        Send(MessageType.Frame, frame.Jpeg.Span, seq: frame.Seq);
+        return SendPicture(screen, MessageType.Frame, frame, 0, seq => _lastSeqSent = seq);
+    }
+
+    /// <summary>Sends a FRAME or TILE, but only if the screen it was chosen for is still the current one (a new layout
+    /// on another thread must not be followed by a picture meant for the old one), and only if the DU can take it.</summary>
+    private bool SendPicture(Screen screen, MessageType type, Frame frame, uint arg, Action<uint> sent)
+    {
+        if (frame.Jpeg.Length > MaxFrame)
+        {
+            sent(frame.Seq);                                 // skip it; the next frame may fit (#16)
+            Oversize++;
+            if (Environment.TickCount64 - _oversizeLogged > 30_000)
+            {
+                _oversizeLogged = Environment.TickCount64;
+                _log?.Invoke($"DU {Short}: a picture of {frame.Jpeg.Length / 1024} KB is larger than the {MaxFrame / 1024} KB this DU takes: not sent (lower the display's quality or size)");
+            }
+
+            return false;
+        }
+
+        lock (_screenGate)
+        {
+            if (!ReferenceEquals(_screen, screen))
+            {
+                return false;
+            }
+
+            Send(type, frame.Jpeg.Span, seq: frame.Seq, arg: arg);
+        }
+
         FramesSent++;
         BytesSent += frame.Jpeg.Length;
-        _lastSeqSent = frame.Seq;
+        sent(frame.Seq);
         _readyPending = false;
         return true;
     }
@@ -468,13 +526,22 @@ public sealed class DuConnection : IDisposable
             case MessageType.Info:
                 InfoJson = m.Json();
                 Info = DuInfo.From(InfoJson);
-                _log?.Invoke($"DU {Short} info: {m.Text()}");
-                if (Layout.Count > 0)
+                if (InfoJson is { } info && DuJson.Num(info, "max_frame") is var max and >= 64 * 1024)
                 {
-                    SendLayout();                            // a DU that restarted has forgotten it
+                    MaxFrame = (int)Math.Min(max, Wire.MaxPayload);
+                }
+
+                _log?.Invoke($"DU {Short} info: {m.Text()}");
+                if (SupportsTiles)
+                {
+                    lock (_screenGate)
+                    {
+                        SendLayoutLocked();                  // also when empty: ends a layout left from an earlier session (#17)
+                    }
                 }
 
                 Send(MessageType.SetAssigned, arg: HasSource ? 1u : 0u);
+                InfoReceived?.Invoke(this);
                 break;
             case MessageType.Stats:
                 StatsJson = m.Json();
@@ -513,7 +580,7 @@ public sealed class DuConnection : IDisposable
         var newDrops = s.Dropped - _histDropped.Value;
         _histDropped = s.Dropped;
         var reasons = new List<string>();
-        if (Source is not null)
+        if (HasSource)
         {
             if (s.RxMs > 15)
             {
@@ -536,12 +603,22 @@ public sealed class DuConnection : IDisposable
             }
         }
 
-        if (reasons.Count > 0 && HealthReasons.Count == 0)
+        // Two bad checks in a row before a warning, three good ones before it goes: one dropped frame must not make the
+        // status page flicker (#11).
+        (_badChecks, _goodChecks) = reasons.Count > 0 ? (_badChecks + 1, 0) : (0, _goodChecks + 1);
+        if (reasons.Count > 0 && _badChecks >= 2)
         {
-            _log?.Invoke($"DU {Short} stall: {string.Join("; ", reasons)} (sending {sentRate:0.#} fps)");
-        }
+            if (HealthReasons.Count == 0)
+            {
+                _log?.Invoke($"DU {Short} stall: {string.Join("; ", reasons)} (sending {sentRate:0.#} fps)");
+            }
 
-        HealthReasons = reasons;
+            HealthReasons = reasons;
+        }
+        else if (reasons.Count == 0 && _goodChecks >= 3)
+        {
+            HealthReasons = [];
+        }
     }
 
     // -- firmware update: stop and wait, because flash writes block the DU ---------------------------

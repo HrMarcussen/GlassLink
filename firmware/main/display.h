@@ -21,6 +21,10 @@ esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms
 esp_err_t display_show_jpeg_at(const uint8_t *jpeg, size_t len, int x, int y, int w, int h, uint32_t *decode_ms);
 /* Show an RGB888 buffer of w x h at x, y. */
 esp_err_t display_show_rgb_at(const uint8_t *rgb, int w, int h, int x, int y);
+/* False when display_init failed: the unit runs headless (USB, OTA and LOG still work). */
+bool display_ready(void);
+/* The IDENT banner, stamped on a picture the caller draws itself (test cards). */
+void display_stamp_overlay(uint8_t *bgr, int w, int h);
 
 /* Fill the panel with a colour (RGB888 as 0xRRGGBB). */
 void display_fill(uint32_t rgb);

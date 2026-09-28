@@ -134,6 +134,35 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **[DU firmware] Tiles, 1080p and robustness, from the code review of 28 Sept 2026** (issues #15-#21, #23, #24):
+  - Picture sizes are multiples of 16, not 8: the ESP32-P4's JPEG decoder writes 4:2:0 pictures in 16 x 16 blocks.
+    The DU now allocates its decode buffers in whole blocks (a full 1920x1080 frame failed every time: it decodes
+    as 1920x1088) and packs padded rows (a 440-wide picture was drawn sheared). Both DMCs round `client_size`,
+    tiles and `max_size` output to 16. Measured on DU2: 1920x1080 full frames 9 fps (decode 35 ms, copy 64 ms),
+    a real 440x440 picture decodes cleanly.
+  - A frame larger than the DU takes (512 KB, 1 MB in 1080p; INFO `max_frame`) is skipped by its length with a LOG
+    and a READY instead of a 3 s resync; the DMC does not send such frames at all. Unknown message types are skipped.
+  - Tile mode ends with a new USB session or a whole-screen FRAME, and the DMC sends the layout (also an empty one)
+    after every INFO: no old tiles over a live picture. Brightness changes redraw only while a picture is up (no
+    old cockpit picture over NOT ASSIGNED), and leaving an idle screen clears it first.
+  - All drawing under one lock (idle screens could collide with a frame); a rejected tile keeps its slot number;
+    stale tile pictures are dropped when a rectangle changes; more than 6 tiles are refused with a message.
+  - A new firmware image is confirmed only after it has shown a picture, after a restart the host asked for, or
+    after a minute without a crash; before that the bootloader rolls a crashing image back. INFO `confirmed`.
+  - USB starts before the display; a display that cannot start leaves the unit reachable (INFO `display_error`),
+    and three crashes in a row fall back to the 768x768 mode.
+  - Smaller items: READY and OTA results on every path, the OTA timeout also when unplugged, a new ident label
+    while ident is on, the ident banner on test cards, the flip waits until the old frame buffer is free (no
+    tearing), idle screens use a small band of memory, tile copies are sized to their pictures.
+  - A DU without a stored serial derives it from the chip's factory MAC (existing units keep theirs).
+- **.NET DMC, tiles** (issues #25-#28, #31, #33): what a DU shows is one immutable snapshot, so a layout change can
+  no longer throw on the DU's thread or let a whole-screen FRAME follow a SET_LAYOUT; a tile without a picture is
+  waited on instead of polled; tile sizes come from the picture really published; mode requests are tracked per
+  connection (no duplicate request, no false "stayed in mode"); switching to tiles without a NOT ASSIGNED flash;
+  health warnings for tiled DUs with hysteresis (two bad reports in a row to show, three good ones to clear); the
+  screen is synced as soon as INFO arrives; dead DUs are disposed outside the manager's lock and brightness never
+  queues behind it; a DU's transport waits for a running write before it is freed; frames go out without being
+  copied into a new array.
 - **Security, from the code review of 28 Sept 2026** (issues #1, #3, #4), both DMCs:
   - A request guard in front of the API: requests must be addressed to this PC (no DNS rebinding), cross-site
     Origins are refused, POSTs must be JSON (no cross-site request forgery from a web page), and changes come from

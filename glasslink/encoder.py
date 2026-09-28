@@ -19,7 +19,9 @@ def downscale(bgr: np.ndarray, max_size: int) -> np.ndarray:
     import cv2  # provided by windows-capture's opencv dependency
 
     scale = max_size / m
-    return cv2.resize(bgr, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+    # whole 16-pixel blocks: the DU's JPEG decoder refuses 4:2:0 pictures of other sizes
+    size = (max(16, round(w * scale / 16) * 16), max(16, round(h * scale / 16) * 16))
+    return cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
 
 
 def frames_equal(a: np.ndarray | None, b: np.ndarray) -> bool:

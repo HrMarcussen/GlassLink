@@ -16,7 +16,7 @@ public enum MessageType : byte
     Ping = 0x06,
     SetAssigned = 0x07,
     SetPanelPower = 0x08,
-    SetMode = 0x09,             // HDMI mode 0..3; the DU stores it and restarts
+    SetMode = 0x09,             // HDMI mode 0..4; the DU stores it and restarts
     SetLayout = 0x0A,           // tiles, 8 bytes each (uint16 x, y, w, h); arg bit 0 = show test cards
     Tile = 0x0B,                // a JPEG for one tile (arg = tile index); answered with READY like Frame       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
     OtaBegin = 0x10,
@@ -66,6 +66,23 @@ public static class Wire
     public const byte ProtocolVersion = 1;
     public const byte Magic0 = (byte)'X';
     public const byte Magic1 = (byte)'D';
+
+    /// <summary>Writes the 16-byte header into <paramref name="dst"/>.</summary>
+    public static void PackHeader(Span<byte> dst, MessageType type, int length, uint seq = 0, uint arg = 0)
+    {
+        if (length > MaxPayload)
+        {
+            throw new ArgumentException("payload too large", nameof(length));
+        }
+
+        dst[0] = Magic0;
+        dst[1] = Magic1;
+        dst[2] = ProtocolVersion;
+        dst[3] = (byte)type;
+        BinaryPrimitives.WriteUInt32LittleEndian(dst[4..], (uint)length);
+        BinaryPrimitives.WriteUInt32LittleEndian(dst[8..], seq);
+        BinaryPrimitives.WriteUInt32LittleEndian(dst[12..], arg);
+    }
 
     /// <summary>Header layout, little endian: 'X','D', version, type, length, seq, arg.</summary>
     public static byte[] Pack(MessageType type, ReadOnlySpan<byte> payload = default, uint seq = 0, uint arg = 0)

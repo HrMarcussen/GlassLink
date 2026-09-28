@@ -102,7 +102,7 @@ def cmd_assign(args: argparse.Namespace) -> int:
         match = {"process": target.process, "class": target.cls, "title": target.title}
     dcfg["match"] = match
     if args.size:
-        dcfg["client_size"] = [int(v) for v in args.size.lower().split("x")]
+        dcfg["client_size"] = [max(64, (int(v) + 8) // 16 * 16) for v in args.size.lower().split("x")]   # whole 16-pixel blocks (the DU decoder)
     if args.position:
         dcfg["position"] = [int(v) for v in args.position.split(",")]
     if dcfg.get("client_size"):

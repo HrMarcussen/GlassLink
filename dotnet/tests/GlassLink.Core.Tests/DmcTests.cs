@@ -138,28 +138,27 @@ public class RegistryAndFirmwareTests
     }
 
     [Fact]
-    public void Max_size_shrinks_a_picture_by_area_averaging()
+    public void Max_size_shrinks_a_picture_by_area_averaging_to_whole_16_pixel_blocks()
     {
-        const int w = 8, h = 4;
+        const int w = 64, h = 32;
         var pixels = new byte[w * h * 4];
         for (var y = 0; y < h; y++)
         {
             for (var x = 0; x < w; x++)
             {
-                pixels[(y * w + x) * 4] = (byte)(x < 4 ? 0 : 200);       // blue: left half 0, right half 200
+                pixels[(y * w + x) * 4] = (byte)(x < 32 ? 0 : 200);      // blue: left half 0, right half 200
                 pixels[(y * w + x) * 4 + 3] = 255;
             }
         }
 
-        Assert.Null(GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 8));       // fits already
-        var (small, sw, sh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 4)!.Value;
-        Assert.Equal((4, 2), (sw, sh));
+        Assert.Null(GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 64));       // fits already
+        var (small, sw, sh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 32)!.Value;
+        Assert.Equal((32, 16), (sw, sh));
         Assert.Equal(0, small[0]);                                        // left
-        Assert.Equal(200, small[3 * 4]);                                  // right
+        Assert.Equal(200, small[31 * 4]);                                 // right
         Assert.Equal(255, small[3]);                                      // alpha kept
-        var (odd, ow, oh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 3)!.Value;
-        Assert.Equal((3, 2), (ow, oh));
-        Assert.InRange(odd[1 * 4], 90, 110);                              // the middle pixel straddles both halves: about 100
+        var (_, ow, oh) = GlassLink.Capture.Downscale.Fit(pixels, w, h, w * 4, 40)!.Value;
+        Assert.Equal((0, 0), (ow % 16, oh % 16));                         // the DU's decoder works in 16 x 16 blocks
     }
 
     [Fact]
