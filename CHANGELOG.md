@@ -26,8 +26,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   again, and the DUs are then offered their new firmware as usual.
 - Releases are built, signed and published by GitHub Actions from a version tag (`.github/workflows/release.yml`,
   `docs/releasing.md`), with the shared steps of `HrMarcussen/release-tools`: the installer, the zip, the DU firmware
-  and `SHA256SUMS.txt` on the GitHub Release, the changelog section as notes. `toolsuild-release.ps1` gains
+  and `SHA256SUMS.txt` on the GitHub Release, the changelog section as notes. `tools\build-release.ps1` gains
   `-Stage publish|package` so the program can be signed before it is packed.
+
+### Changed
+- Releases include `SimConnect.dll` from the MSFS 2024 SDK (1.6.9) instead of the older one from an MSFS 2020-era SDK;
+  tested on MSFS 2024 with connection, cockpit detection, brightness L:vars, automatic pop-out and camera return (#79).
 
 ### Fixed
 - The installer's "Start the GlassLink DMC now" started it with the installer's administrator rights; now as the user.

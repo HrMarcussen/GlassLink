@@ -9,7 +9,7 @@ maker of the simulator or aircraft it works with.
 ## Included in releases, not in the source repository
 
 ### SimConnect client library (`SimConnect.dll`)
-Copyright (c) Microsoft Corporation. Part of the Microsoft Flight Simulator SDK, included unmodified so that
+Copyright (c) Microsoft Corporation. Part of the Microsoft Flight Simulator 2024 SDK, included unmodified so that
 GlassLink can talk to a legally installed copy of Microsoft Flight Simulator. Its use is governed by the Microsoft
 Flight Simulator SDK licence terms (<https://docs.flightsimulator.com/msfs2024/html/1_Introduction/SDK_EULA.htm>).
 It is not covered by GlassLink's licence. A user may replace it with the one from their own SDK installation.
