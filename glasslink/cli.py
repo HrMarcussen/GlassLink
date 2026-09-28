@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from . import windows as win
-from .config import load_config, save_config
+from .config import load_config, override, save_config
 
 log = logging.getLogger("glasslink")
 
@@ -151,8 +151,10 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     from .capture import create_backend
 
     backend = create_backend(backend_name, info.hwnd, on_frame, on_closed, 30)
-    ok = got.wait(args.wait)
-    backend.stop()
+    try:
+        ok = got.wait(args.wait)
+    finally:
+        backend.stop()                       # also on Ctrl+C: never leave a capture session of the sim behind (#53)
     if not ok or "frame" not in holder:
         print("no frame received (window static and backend event-driven? try --backend printwindow, or wiggle the window)")
         return 1
@@ -172,14 +174,15 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     cfg["_path"] = args.config
+    # options on the command line are for this run only: never written into config.json (#49)
     if args.auto_popout is not None:
-        cfg["popout"]["auto"] = args.auto_popout
+        override(cfg, "popout", "auto", args.auto_popout)
     if args.backend:
-        cfg["capture"]["backend"] = args.backend
+        override(cfg, "capture", "backend", args.backend)
     if args.port:
-        cfg["server"]["port"] = args.port
+        override(cfg, "server", "port", args.port)
     if args.fake_modules:
-        cfg["usb"]["fake_modules"] = args.fake_modules
+        override(cfg, "usb", "fake_modules", args.fake_modules)
     from .server import serve
 
     serve(cfg)

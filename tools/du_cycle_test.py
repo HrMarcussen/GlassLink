@@ -25,12 +25,12 @@ def api(port: int, path: str, body: dict | None = None):
     return json.load(urllib.request.urlopen(req, timeout=5))
 
 
-def dmc_process() -> psutil.Process:
-    for p in psutil.process_iter(["name", "cmdline"]):
-        cmd = " ".join(p.info.get("cmdline") or [])
-        if "glasslink" in cmd and "serve" in cmd and (p.info.get("name") or "").lower().startswith("python3"):
-            return p
-    raise SystemExit("DMC process not found")
+def dmc_process(port: int = 8765) -> psutil.Process:
+    """The process listening on the DMC's port: the .NET DMC (GlassLink.exe) or the Python one, however started (#53)."""
+    for c in psutil.net_connections(kind="tcp"):
+        if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
+            return psutil.Process(c.pid)
+    raise SystemExit(f"no DMC listening on port {port}")
 
 
 def main() -> None:

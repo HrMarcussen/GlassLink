@@ -22,7 +22,16 @@ def port_open(port: int) -> bool:
         return False
 
 
-def find_pid() -> int | None:
+def find_pid(port: int | None = None) -> int | None:
+    """The DMC's process: whatever listens on the port (the .NET or the Python DMC); else a Python DMC by its command line."""
+    if port:
+        try:
+            import psutil
+            for c in psutil.net_connections(kind="tcp"):
+                if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
+                    return c.pid
+        except Exception:  # noqa: BLE001
+            pass
     out = subprocess.run(["powershell", "-NoProfile", "-Command",
                           "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*glasslink*serve*' } | Select-Object -ExpandProperty ProcessId"],
                          capture_output=True, text=True).stdout.split()
@@ -56,18 +65,32 @@ def main() -> None:
                                                           headers={"Content-Type": "application/json"}), timeout=3)
         print("shutdown endpoint:", json.loads(r.read() or b"{}"))
     except Exception as exc:  # noqa: BLE001
-        pid = a.pid or find_pid()
+        pid = a.pid or find_pid(a.port)
         print(f"no /shutdown ({exc}); sending Ctrl+Break to pid {pid}")
         if not pid:
             raise SystemExit("server pid not found; pass --pid")
         ctrl_c(pid)
-    for _ in range(40):
+    # The port closes before the captures are released: wait for the process itself, so a script that starts the
+    # other DMC next cannot overlap capture sessions (#53).
+    pid = a.pid or find_pid(a.port)
+    for _ in range(60):
         time.sleep(0.5)
-        if not port_open(a.port):
+        if not port_open(a.port) and (not pid or not pid_alive(pid)):
             print("server stopped")
             return
-    print("server still running after 20 s", file=sys.stderr)
+    print("server still running after 30 s", file=sys.stderr)
     sys.exit(1)
+
+
+def pid_alive(pid: int) -> bool:
+    import ctypes
+    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return code.value == 259                                                # STILL_ACTIVE
 
 
 if __name__ == "__main__":

@@ -134,6 +134,24 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **Python reference DMC, from the code review of 28 Sept 2026** (issues #48-#54):
+  - It refuses to start while the .NET DMC runs or the port is taken, before any capture starts (it used to start
+    the captures, fail to bind the port and exit with capture sessions of the sim still open); a capture worker
+    always takes its session with it when it stops.
+  - config.json keeps everything: all sections are merged with the defaults instead of some being replaced
+    (`process`, `brightness`, `firmware` and keys it does not know used to be lost at its next save); options on
+    the command line are no longer saved; saves go through a flushed temporary file with a .bak, one at a time.
+  - It sends an empty layout to DUs that can show tiles (so a layout left by the .NET DMC ends), answers 501 for
+    screen modes and layouts, reports `engine: python` and its limitations (the status page then hides the layout
+    editor), and removing a display also removes it from DU layouts.
+  - Module and display edits run off the event loop; /status iterates over copies; a pop-out that stops early (not
+    in the cockpit, no profile) no longer resets the camera or presses the restore key; `snapshot` stops its
+    capture also on Ctrl+C; `::`/`*` listen on every interface like the .NET DMC.
+  - Tools find either DMC by the process on its port; `stop_server.py` waits until the process has ended, not only
+    the port. `tools/probe_lvars.py` (FSUIPC WebSocket) and dead code removed.
+- **Viewer** (issue #14): a hidden page (another tab, a locked phone) closes its connection, so the display drops
+  back to the preview rate; phones ask for at most 512 pixels; the picture fills the screen; a removed display says
+  so instead of reconnecting for ever; the MJPEG mode reconnects.
 - **.NET DMC robustness, from the code review of 28 Sept 2026** (issues #11, #29, #30, #32, #35-#47):
   - Shutdown from /shutdown, `--quit` or "stop with the simulator" is handed to the UI thread: with the status
     window open the DMC used to keep running (and the installer said it could not stop it).

@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,7 @@ DEFAULTS: dict[str, Any] = {
     # the last third on machines with 8 or more; a list of CPU numbers, or null for all).
     "process": {"priority": "below_normal", "affinity": "auto"},
     "popout": {"auto": True, "aircraft": "Fenix", "zoom": 30, "grace_s": 10, "retry_s": 60,
-               "camera_restore": "current", "camera_slot": 9},
+               "camera_restore": "current"},
     "usb": {"enabled": True, "scan_interval_s": 2},
     # DU brightness follows the cockpit knobs: L:vars read through SimConnect (source "simconnect", nothing else
     # needed) or FSUIPC7's WASM DLL (source "fsuipc_wasm"). Per-aircraft variable names live in the pop-out
@@ -47,16 +49,28 @@ def default_config_path() -> Path:
     return Path(os.environ.get("GLASSLINK_CONFIG", "config.json"))
 
 
+_save_lock = threading.Lock()
+
+
 def load_config(path: Path | None = None) -> dict[str, Any]:
+    """The user's file with the defaults filled in underneath. Every section is merged (not only some), and keys this
+    version does not know are kept, so saving never drops what the .NET DMC or the user put there (#49)."""
     path = path or default_config_path()
-    cfg = copy.deepcopy(DEFAULTS)
+    user: dict[str, Any] = {}
     if path.exists():
-        with path.open("r", encoding="utf-8") as fh:
-            user = json.load(fh)
-        for section in ("server", "capture", "popout", "usb"):
-            cfg[section].update(user.get(section, {}))
-        cfg["modules"] = user.get("modules", {})
-        cfg["displays"] = user.get("displays", {})
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                user = json.load(fh)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            backup = path.with_name(path.name + ".bak")          # a save cut short: the previous one is next to it
+            with backup.open("r", encoding="utf-8") as fh:
+                user = json.load(fh)
+    cfg = copy.deepcopy(DEFAULTS)
+    for key, value in user.items():
+        if isinstance(value, dict) and isinstance(cfg.get(key), dict) and key not in ("modules", "displays"):
+            cfg[key].update(value)
+        else:
+            cfg[key] = value
     for name, d in cfg["displays"].items():
         merged = copy.deepcopy(DISPLAY_DEFAULTS)
         merged.update(d)
@@ -64,18 +78,44 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     return cfg
 
 
+def override(cfg: dict[str, Any], section: str, key: str, value: Any) -> None:
+    """A command-line setting for this run only: used like any other, never written to the file (#49)."""
+    saved = cfg.setdefault("_overrides", {})
+    saved.setdefault((section, key), (key in cfg[section], cfg[section].get(key)))
+    cfg[section][key] = value
+
+
 def save_config(cfg: dict[str, Any], path: Path | None = None) -> Path:
+    """Writes to a temporary file, flushes it to disk and swaps it in, keeping the previous file as .bak; one save at
+    a time, from whichever thread (#49)."""
     path = path or default_config_path()
-    out = copy.deepcopy(cfg)
-    out.pop("_path", None)
-    # Drop None-valued defaults for a tidy file.
-    for d in out.get("displays", {}).values():
-        for k in list(d.keys()):
-            if d[k] is None:
-                del d[k]
-    with path.open("w", encoding="utf-8") as fh:
-        json.dump(out, fh, indent=2)
-        fh.write("\n")
+    with _save_lock:
+        for attempt in range(3):                                   # another thread may be changing the dicts right now
+            try:
+                out = copy.deepcopy({k: v for k, v in cfg.items() if not k.startswith("_")})
+                break
+            except RuntimeError:
+                if attempt == 2:
+                    raise
+        for (section, key), (had, value) in (cfg.get("_overrides") or {}).items():
+            if had:
+                out[section][key] = value
+            else:
+                out[section].pop(key, None)
+        # Drop None-valued defaults for a tidy file.
+        for d in out.get("displays", {}).values():
+            for k in list(d.keys()):
+                if d[k] is None:
+                    del d[k]
+        temp = path.with_name(path.name + ".tmp")
+        with temp.open("w", encoding="utf-8") as fh:
+            json.dump(out, fh, indent=2)
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        if path.exists():
+            shutil.copy2(path, path.with_name(path.name + ".bak"))
+        os.replace(temp, path)
     return path
 
 

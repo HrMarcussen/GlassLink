@@ -114,11 +114,9 @@ POPOUT_DEFAULTS: dict[str, Any] = {
     "grace_s": 10,          # seconds a display may be missing before auto pop-out kicks in
     "retry_s": 60,          # minimum seconds between auto attempts
     "max_attempts": 2,      # then the DMC stops moving the camera for that display until it is learned again
-    # Camera to return to after popping out: "current" = save the view you had into custom-camera slot
-    # `camera_slot` (Ctrl+Alt+N) before the reset and load it again (Alt+N) afterwards; an integer 0-9 =
-    # load that custom camera slot afterwards; null/"" = just reset and restore the zoom.
-    "camera_restore": "current",
-    "camera_slot": 9,       # unused since 0.4 (kept so old configs load)
+    # After popping out, the camera view and zoom from before come back, then camera_restore_key (below) is pressed
+    # if set. (The sim ignores injected custom-camera keys, so the old camera_slot save/load is gone since 0.4.)
+    "camera_restore": "current",   # kept so older configs load
     # Key combination that loads the user's own flying view (a sim custom camera) after a pop-out or Learn, exactly as
     # bound in the sim's controls, e.g. "shift+f1". None = stay in the pilot seat view.
     "camera_restore_key": None,
@@ -564,6 +562,7 @@ def ensure_popouts(
     cam = try_sim_camera() if use_camera else None
     old_zoom = None
     old_view = None
+    moved = False                        # restore (and press the user's key) only after the camera was really moved (#52)
     try:
         if cam is not None:
             if not cam.in_cockpit:
@@ -600,6 +599,7 @@ def ensure_popouts(
             groups.setdefault(camera_key(camspec), (camspec, []))[1].append(name)
 
         sw, sh = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
+        moved = cam is not None
         for ckey, (camspec, group_names) in groups.items():
             apply_camera(cam, camspec, zoom, say, sim.hwnd)
             sim = sim_main_window() or sim
@@ -634,7 +634,8 @@ def ensure_popouts(
     finally:
         if cam is not None:
             try:
-                restore_camera(cam, old_view, old_zoom, pcfg, sim.hwnd, say)
+                if moved:
+                    restore_camera(cam, old_view, old_zoom, pcfg, sim.hwnd, say)
             finally:
                 cam.close()
     return result

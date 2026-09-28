@@ -15,8 +15,7 @@
     "zoom": 30,
     "grace_s": 10,
     "retry_s": 60,
-    "camera_restore": "current",
-    "camera_slot": 9
+    "camera_restore": "current"
   },
   "displays": {
     "pfd": {

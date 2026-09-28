@@ -53,7 +53,11 @@ class DisplayWorker:
         self._thread.start()
 
     def stop(self) -> None:
+        # The supervising thread may be in the middle of attaching a new session: wait for it, then tear down. A
+        # session left behind with nothing referencing it outlives the process (GPU timeouts on the sim PC) (#48).
         self._stop.set()
+        if self._thread.is_alive() and self._thread is not threading.current_thread():
+            self._thread.join(timeout=5)
         self._teardown_backend()
         log.info("[%s] capture stopped", self.name)
 
@@ -69,6 +73,12 @@ class DisplayWorker:
         return min(self.fps, self.idle_fps)
 
     def _supervise(self) -> None:
+        try:
+            self._supervise_loop()
+        finally:
+            self._teardown_backend()             # whatever it attached last goes with it (#48)
+
+    def _supervise_loop(self) -> None:
         while not self._stop.is_set():
             want = self._wanted_rate()
             if self.backend is None or self._lost.is_set():
@@ -108,6 +118,8 @@ class DisplayWorker:
             return
         self.hwnd = info.hwnd
         self._apply_geometry(info)
+        if self._stop.is_set():
+            return
         try:
             self.backend = create_backend(self.backend_name, info.hwnd, self._on_frame, self._on_closed, rate)
             self._rate = rate

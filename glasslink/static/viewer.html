@@ -7,7 +7,8 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
   #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-  canvas, img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: auto; }
+  /* scaled to fill the screen either way (a 768 display on a larger screen too), aspect kept */
+  canvas, img { width: 100vw; height: 100dvh; object-fit: contain; image-rendering: auto; }
   #overlay { position: fixed; left: 6px; top: 6px; color: #0f0; font: 12px monospace; background: rgba(0,0,0,.5);
              padding: 2px 6px; display: none; white-space: pre; }
   #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -27,8 +28,11 @@
   const mode = q.get('mode') || 'ws';
   // A lighter stream for small screens: ?max=384 (longer side in pixels) and ?quality=70 are passed to the DMC, which
   // re-encodes just for this client. Without ?max, a screen smaller than the display (a phone) asks for its own size.
+  // The screen's own size in device pixels, capped at 512: a phone shows a cockpit display a few centimetres wide,
+  // and 512 pixels of it are sharp there at a fraction of the data. Only on a phone-sized screen (#14).
   const screenPx = Math.round(Math.min(screen.width, screen.height) * (devicePixelRatio || 1));
-  const max = parseInt(q.get('max') || '0', 10) || (screenPx < 700 ? screenPx : 0);
+  const phone = Math.min(screen.width, screen.height) < 600;
+  const max = parseInt(q.get('max') || '0', 10) || (phone ? Math.min(screenPx, 512) : 0);
   const quality = parseInt(q.get('quality') || '0', 10) || 0;
   const light = [max ? `max=${max}` : '', quality ? `quality=${quality}` : ''].filter(Boolean).join('&');
   const wrap = document.getElementById('wrap');
@@ -39,7 +43,7 @@
   function applyRotate(el) {
     if (!rotate) return;
     el.style.transform = `rotate(${rotate}deg)`;
-    if (rotate % 180 !== 0) { el.style.maxWidth = '100vh'; el.style.maxHeight = '100vw'; }
+    if (rotate % 180 !== 0) { el.style.width = '100dvh'; el.style.height = '100vw'; }
   }
   function setMsg(t) { msg.textContent = t; msg.style.display = t ? 'flex' : 'none'; }
   document.addEventListener('click', () => {
@@ -48,7 +52,9 @@
 
   if (mode === 'mjpeg') {
     const img = document.createElement('img');
-    img.src = `/stream/${name}`;
+    img.src = `/stream/${encodeURIComponent(name)}`;
+    img.onerror = () => { setMsg(`${name}: reconnecting…`); setTimeout(() => { img.src = `/stream/${encodeURIComponent(name)}?t=${Date.now()}`; }, 3000); };
+    img.onload = () => setMsg('');
     wrap.replaceChildren(img);
     applyRotate(img);
     return;
@@ -59,13 +65,21 @@
   applyRotate(canvas);
 
   let frames = 0, bytes = 0, lastStat = performance.now(), fps = 0, kbps = 0, lastSeq = 0, lag = 0;
-  let backoff = 500;
+  let backoff = 500, sock = null, failures = 0;
+
+  // A hidden page (another tab, a locked phone) closes its socket: the DMC then drops the display back to the
+  // preview rate instead of capturing at full rate for nobody (#14).
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if (sock) { sock.onclose = null; sock.close(); sock = null; } }
+    else if (!sock) connect();
+  });
 
   function connect() {
+    if (document.hidden) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws/${name}${light ? '?' + light : ''}`);
+    const ws = sock = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(name)}${light ? '?' + light : ''}`);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { setMsg(''); backoff = 500; ws.send('n'); };
+    ws.onopen = () => { setMsg(''); backoff = 500; failures = 0; ws.send('n'); };
     ws.onmessage = async (ev) => {
       if (typeof ev.data === 'string') { return; }  // hello / info json
       const buf = ev.data;
@@ -89,7 +103,16 @@
         overlay.textContent = `${name}  ${canvas.width}x${canvas.height}  ${fps.toFixed(1)} changed frames/s  ${kbps.toFixed(0)} kbit/s  seq ${seq}  skipped ${Math.max(0, lag)}`;
       }
     };
-    ws.onclose = () => { setMsg(`${name}: reconnecting…`); setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 5000); };
+    ws.onclose = () => {
+      sock = null;
+      if (++failures >= 3) {                          // is the display still there? (it may have been removed)
+        fetch('/status', { cache: 'no-store' }).then(r => r.json()).then(st => {
+          if (st.displays && !(name in st.displays)) { setMsg(`${name} is not a display of this DMC (any more)`); failures = -1000; }
+        }).catch(() => {});
+      }
+      if (failures < 0) return;
+      setMsg(`${name}: reconnecting…`); setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 5000);
+    };
     ws.onerror = () => { try { ws.close(); } catch (e) {} };
   }
   setMsg(`${name}: connecting…`);

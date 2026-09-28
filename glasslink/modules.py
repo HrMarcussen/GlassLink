@@ -41,6 +41,7 @@ T_SHOW_IDENT = 0x05
 T_PING = 0x06
 T_SET_ASSIGNED = 0x07
 T_SET_MODE = 0x09
+T_SET_LAYOUT = 0x0A
 T_OTA_BEGIN = 0x10
 T_OTA_DATA = 0x11
 T_OTA_END = 0x12
@@ -480,6 +481,9 @@ class ModuleWorker(threading.Thread):
                 # first INFO after an update: say what the DU actually came back with
                 o.update(confirmed=True, message="now running %s (%s) from %s" % (
                     self.info.get("fw", "?"), self.info.get("build", "?"), self.info.get("slot", "?")))
+            if "tiles" in (self.info.get("caps") or []):
+                # this DMC shows one display per DU: an empty layout ends one the .NET DMC left on the DU (#50)
+                self.send(T_SET_LAYOUT, payload=b"")
             self._apply_settings()
             # A module answering GET_INFO is idle and can take a frame; its initial READY may have gone to a
             # previous host session (or the module was plugged in before the server started).
@@ -784,10 +788,10 @@ class ModuleManager(threading.Thread):
 
     # -- status --------------------------------------------------------------------------------
     def status(self) -> dict[str, Any]:
-        out = {serial: w.as_dict() for serial, w in self.workers.items()}
+        out = {serial: w.as_dict() for serial, w in list(self.workers.items())}
         # Unplugged modules stay listed only while they are worth remembering (assigned or labelled);
         # an unconfigured unit simply disappears when unplugged, so the list cannot fill with ghosts.
-        for serial, entry in self.cfg["modules"].items():
+        for serial, entry in list(self.cfg["modules"].items()):
             if serial not in out and (entry.get("display") or entry.get("label")):
                 out[serial] = {"serial": serial, "display": entry.get("display"), "alive": False,
                                "label": entry.get("label", ""), "error": "not connected", "settings": dict(entry)}

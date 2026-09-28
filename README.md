@@ -122,7 +122,6 @@ New-NetFirewallRule -DisplayName "GlassLink 8765" -Direction Inbound -Protocol T
 | `tools/import_popm.py [--import NAME --as KEY] [--screen WxH]` | convert MSFS Pop Out Panel Manager profiles (dots, cameras, zoom) into GlassLink profiles |
 | `tools/test_pattern.py` | synthetic moving window with a machine-readable clock strip, for testing without the sim |
 | `tools/measure_latency.py --url ws://…/ws/pattern` | decodes the clock strip from received frames and prints fps, bandwidth and draw-to-decode latency |
-| `tools/probe_lvars.py` | reads a few Fenix L:vars through the FSUIPC WebSocket Server (untested data path for future text displays) |
 
 ## HTTP / WebSocket API
 

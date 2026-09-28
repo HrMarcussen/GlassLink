@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import re
 import logging
 import struct
@@ -60,6 +61,9 @@ async def status(request: web.Request) -> web.Response:
 def _status_body(request: web.Request, hub: "FrameHub", mm: Any) -> dict[str, Any]:
     return ({
         "version": __version__,
+        "engine": "python",
+        # the reference DMC: what it leaves to the .NET DMC, so the page does not offer it (#50)
+        "limitations": ["screen modes and layouts (several displays on one DU)", "the lighter stream for phones"],
         "build": build_id(),
         "firmware_version": firmware_version,
         "firmware_image": _firmware_summary(request.app["cfg"]),
@@ -81,6 +85,12 @@ async def modules_list(request: web.Request) -> web.Response:
     return web.json_response({"modules": mm.status(), "displays": list(request.app["hub"].displays)})
 
 
+async def _off_loop(fn, *args, **kwargs):
+    """USB writes (up to 2 s) and capture stops (up to 1 s) off the event loop, so viewers and the status page keep
+    running meanwhile (#51)."""
+    return await asyncio.get_running_loop().run_in_executor(None, functools.partial(fn, *args, **kwargs))
+
+
 async def modules_update(request: web.Request) -> web.Response:
     """POST /modules/<serial>  {"display": "pfd", "brightness": 80, "rotation": 0, "label": "...", "command": "ident"}"""
     mm = request.app.get("modules")
@@ -98,10 +108,10 @@ async def modules_update(request: web.Request) -> web.Response:
         raise web.HTTPNotImplemented(text="screen modes and layouts need the .NET DMC (start-server.bat)")
     try:
         if any(k in body for k in ("display", "brightness", "rotation", "label")):
-            mm.assign(serial, body.get("display"), brightness=body.get("brightness"),
-                      rotation=body.get("rotation"), label=body.get("label"))
+            await _off_loop(mm.assign, serial, body.get("display"), brightness=body.get("brightness"),
+                            rotation=body.get("rotation"), label=body.get("label"))
         if body.get("command"):
-            if not mm.command(serial, body["command"], int(body.get("arg", 0))):
+            if not await _off_loop(mm.command, serial, body["command"], int(body.get("arg", 0))):
                 raise web.HTTPNotFound(text="module not connected")
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc))
@@ -139,12 +149,12 @@ async def displays_edit(request: web.Request) -> web.Response:
     name = request.match_info.get("name")
     try:
         if request.method == "DELETE":
-            reg.remove(name)
+            await _off_loop(reg.remove, name)
             return web.json_response({"removed": name})
         body = await request.json()
         if name is None:
-            return web.json_response({"added": body.get("name"), "display": reg.add(body.get("name", ""), body)})
-        return web.json_response({"display": reg.update(name, body)})
+            return web.json_response({"added": body.get("name"), "display": await _off_loop(reg.add, body.get("name", ""), body)})
+        return web.json_response({"display": await _off_loop(reg.update, name, body)})
     except DisplayError as exc:
         raise web.HTTPBadRequest(text=str(exc))
     except (TypeError, ValueError) as exc:
@@ -417,6 +427,12 @@ def build_app(cfg: dict[str, Any]) -> web.Application:
                 for serial, entry in list(cfg.get("modules", {}).items()):
                     if entry.get("display") == display:
                         mm.assign(serial, "")
+                    tiles = entry.get("tiles")
+                    if isinstance(tiles, dict) and display in tiles:      # nor stay in a DU's layout (#50)
+                        del tiles[display]
+                        if not tiles:
+                            entry.pop("tiles", None)
+                        save_config(cfg, cfg.get("_path"))
 
             registry.on_removed = _unassign
             log.info("usb module manager started")
@@ -554,15 +570,35 @@ def tune_process(cfg: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _refuse_if_taken(port: int) -> None:
+    """Stops before anything starts when the .NET DMC runs or the port is taken: aiohttp starts the captures before
+    it binds the port, so a failed bind used to leave capture sessions of the sim behind (#48)."""
+    import ctypes
+    import socket
+
+    handle = ctypes.windll.kernel32.OpenMutexW(0x00100000, False, "Local\\GlassLink.DMC")   # SYNCHRONIZE
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)
+        log.error("The .NET GlassLink DMC is running (GlassLink.exe): only one DMC can use the DUs. Quit it first.")
+        raise SystemExit(2)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            log.error("Port %s is already in use: another GlassLink DMC is probably running. Quit it first.", port)
+            raise SystemExit(2)
+
+
 def serve(cfg: dict[str, Any]) -> None:
     host = cfg["server"]["host"]
     port = int(cfg["server"]["port"])
+    if host in ("0.0.0.0", "::", "*"):
+        host = None                          # every interface, IPv4 and IPv6, as the .NET DMC does (#54)
+    _refuse_if_taken(port)                   # before any capture starts (#48)
     log.info("process: %s", tune_process(cfg))
     try:
         _install_console_handler()
     except Exception:  # noqa: BLE001
         log.debug("console control handler not installed", exc_info=True)
-    log.info("GlassLink DMC %s (%s) listening on http://%s:%s/  (displays: %s)", __version__, build_id() or "no git", host, port,
+    log.info("GlassLink DMC %s (%s) listening on http://%s:%s/  (displays: %s)", __version__, build_id() or "no git", host or "*", port,
              ", ".join(cfg["displays"]) or "none")
     try:
         web.run_app(build_app(cfg), host=host, port=port, print=None, access_log=None)

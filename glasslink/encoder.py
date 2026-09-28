@@ -44,5 +44,3 @@ def encode_jpeg(bgr: np.ndarray, quality: int = 85, subsampling: str = "420") ->
     return simplejpeg.encode_jpeg(bgr, quality=int(quality), colorspace=cs, colorsubsampling=subsampling, fastdct=True)
 
 
-def decode_jpeg(data: bytes, colorspace: str = "RGB") -> np.ndarray:
-    return simplejpeg.decode_jpeg(data, colorspace=colorspace)
