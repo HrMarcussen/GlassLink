@@ -95,12 +95,39 @@ public sealed class StatusWindow : Form
             var core = _web.CoreWebView2;
             core.Settings.IsNonClientRegionSupportEnabled = true;      // app-region: drag in the page moves the window
             core.Settings.IsStatusBarEnabled = false;
+#if DEBUG
             core.Settings.AreDevToolsEnabled = true;
+#else
+            core.Settings.AreDevToolsEnabled = false;
+#endif
             core.WebMessageReceived += (_, e) => Command(e.TryGetWebMessageAsString());
-            core.NewWindowRequested += (_, e) =>                       // the viewer links: in the user's own browser
+            // The page stays on the DMC; the viewer links open in the user's browser. Nothing else is ever opened: not
+            // file://, not another site, not a protocol handler (#3).
+            core.NavigationStarting += (_, e) =>
+            {
+                if (!IsOwn(e.Uri))
+                {
+                    e.Cancel = true;
+                    _log($"status window: navigation to {e.Uri} refused");
+                }
+            };
+            core.NewWindowRequested += (_, e) =>
             {
                 e.Handled = true;
-                Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true });
+                if (!IsOwn(e.Uri) || !new Uri(e.Uri).AbsolutePath.StartsWith("/view/", StringComparison.Ordinal))
+                {
+                    _log($"status window: new window for {e.Uri} refused");
+                    return;
+                }
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo(new Uri(e.Uri).AbsoluteUri) { UseShellExecute = true });
+                }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+                {
+                    _log($"status window: could not open the viewer: {ex.Message}");
+                }
             };
             _web.ZoomFactor = ReadState()?.Zoom is > 0.2 and < 5 ? ReadState()!.Zoom : 1.0;
             _web.ZoomFactorChanged += (_, _) => Save();                // Ctrl + wheel: text size is remembered
@@ -111,6 +138,14 @@ public sealed class StatusWindow : Form
             _log($"status window: {ex.GetType().Name}: {ex.Message}");
             Close();
         }
+    }
+
+    /// <summary>True for an http address of this DMC (same host name and port as the page it opened).</summary>
+    private bool IsOwn(string? uri)
+    {
+        var own = new Uri(_url);
+        return Uri.TryCreate(uri, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttp && u.Port == own.Port
+               && (u.IsLoopback || string.Equals(u.Host, own.Host, StringComparison.OrdinalIgnoreCase));
     }
 
     private void Command(string? command)

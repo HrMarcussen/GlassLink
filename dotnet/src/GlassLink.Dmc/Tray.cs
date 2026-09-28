@@ -33,7 +33,7 @@ public sealed record Summary(Health Level, string Sim, string Displays, string D
         var displays = $"Displays {found}/{all.Count}" + (found < all.Count && popout == "running" ? " · popping out" : found < all.Count && popout == "gave_up" ? " · gave up" : "");
 
         var dus = dmc.Dus.Status().Where(d => d.Alive || d.Display.Length > 0).ToList();
-        var gone = dus.Where(d => !d.Alive).Select(d => d.Label.Length > 0 ? d.Label : d.Serial[..8]).ToList();
+        var gone = dus.Where(d => !d.Alive).Select(d => d.Label.Length > 0 ? d.Label : d.Serial[..Math.Min(8, d.Serial.Length)]).ToList();
         var outdated = dus.Count(d => d.Alive && Firmware.IsOutdated(d.Info?.Firmware, dmc.FirmwareVersion));
         var duLevel = dus.Count == 0 || gone.Count > 0 ? Health.Attention : outdated > 0 ? Health.Attention : Health.Good;
         var duText = dus.Count == 0 ? "No DUs" : $"DUs {dus.Count - gone.Count}/{dus.Count}" + (gone.Count > 0 ? $" · {string.Join(", ", gone)} disconnected" : outdated > 0 ? " · firmware update available" : "");

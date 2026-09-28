@@ -76,6 +76,8 @@ internal static class Program
         builder.WebHost.UseUrls(host is "0.0.0.0" or "::" or "*" ? $"http://*:{port}" : $"http://{host}:{port}");
         builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(5));
         var app = builder.Build();
+        app.Use(RequestGuard.Middleware(                     // who may change what (#1): see RequestGuard
+            () => dmc.Config.Read(root => root["server"]?["allow_lan_control"] is { } v && v.GetValueKind() == System.Text.Json.JsonValueKind.True), dmc.Log));
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
         Api.Map(app, dmc, () => app.Lifetime.StopApplication());
 
@@ -134,7 +136,8 @@ internal static class Program
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            http.PostAsync($"http://localhost:{port}/shutdown", null).GetAwaiter().GetResult();
+            using var body = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");     // the request guard wants JSON
+            http.PostAsync($"http://localhost:{port}/shutdown", body).GetAwaiter().GetResult();
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

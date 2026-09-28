@@ -52,7 +52,8 @@ def main() -> None:
         print("no server on port", a.port)
         return
     try:
-        r = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{a.port}/shutdown", method="POST"), timeout=3)
+        r = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{a.port}/shutdown", method="POST", data=b"{}",
+                                                          headers={"Content-Type": "application/json"}), timeout=3)
         print("shutdown endpoint:", json.loads(r.read() or b"{}"))
     except Exception as exc:  # noqa: BLE001
         pid = a.pid or find_pid()

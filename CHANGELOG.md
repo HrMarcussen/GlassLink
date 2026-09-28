@@ -134,6 +134,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **Security, from the code review of 28 Sept 2026** (issues #1, #3, #4), both DMCs:
+  - A request guard in front of the API: requests must be addressed to this PC (no DNS rebinding), cross-site
+    Origins are refused, POSTs must be JSON (no cross-site request forgery from a web page), and changes come from
+    this PC only unless `server.allow_lan_control` is true. The phone keeps reading the page, pictures and viewer.
+  - The status window opens only the DMC's own viewer links in the browser and never navigates away from the
+    DMC; developer tools only in debug builds.
+  - Input checks: DU serials must be hexadecimal and known, labels at most 32 characters, displays must exist,
+    `alt+f4` is refused as the restore key; the Python DMC checks brightness and rotation before saving them and
+    answers 501 for screen modes and layouts. A short serial no longer breaks the tray status.
 - **Status page, from the code review of 28 Sept 2026** (issues #2, #5-#10, #12, #13):
   - The Display units tab threw on the new layout rows after every change: DU2's controls stopped working and the
     header flashed "DMC not reachable" (the jitter seen on 22 Sept).

@@ -45,6 +45,7 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:.6rem; padding:.75rem; }
   .card .title { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.3rem; margin-bottom:.5rem; font-weight:600; }
   .card img { width:100%; aspect-ratio:1/1; object-fit:contain; background:#000; border-radius:.4rem; display:block; }
+  .card img:not([src]) { color:transparent; }        /* no picture yet: a black square, not a broken-image icon */
   .kv { display:grid; grid-template-columns:auto 1fr; gap:.15rem .7rem; margin-top:.5rem; font-size:.875rem; overflow-wrap:anywhere; }
   .kv span:nth-child(odd) { color:var(--dim); }
   .pill { display:inline-block; font-size:.8125rem; padding:.1rem .6rem; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }

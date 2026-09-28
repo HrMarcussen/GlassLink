@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import logging
 import struct
 import time
@@ -85,8 +86,16 @@ async def modules_update(request: web.Request) -> web.Response:
     mm = request.app.get("modules")
     if mm is None:
         raise web.HTTPServiceUnavailable(text="usb modules disabled")
-    serial = request.match_info["serial"]
+    serial = request.match_info["serial"].lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", serial):
+        raise web.HTTPBadRequest(text="a DU serial is 8 to 64 hexadecimal characters")
+    if serial not in mm.workers and serial not in request.app["cfg"].get("modules", {}):
+        raise web.HTTPNotFound(text=f"no DU with serial {serial}")
     body = await request.json()
+    if not isinstance(body, dict):
+        raise web.HTTPBadRequest(text="expected a JSON object")
+    if any(k in body for k in ("screen", "tiles", "cards")):
+        raise web.HTTPNotImplemented(text="screen modes and layouts need the .NET DMC (start-server.bat)")
     try:
         if any(k in body for k in ("display", "brightness", "rotation", "label")):
             mm.assign(serial, body.get("display"), brightness=body.get("brightness"),
@@ -179,6 +188,9 @@ async def popout_settings(request: web.Request) -> web.Response:
                 parse_combo(key)
             except ValueError as exc:
                 raise web.HTTPBadRequest(text=str(exc))
+            parts = [p.strip() for p in key.split("+")]
+            if "alt" in parts and "f4" in parts:
+                raise web.HTTPBadRequest(text="alt+f4 would close the simulator")
         pc["camera_restore_key"] = key or None
         save_config(cfg, cfg.get("_path"))
     return web.json_response({"camera_restore_key": pc.get("camera_restore_key")})
@@ -364,7 +376,9 @@ async def mjpeg(request: web.Request) -> web.StreamResponse:
 
 
 def build_app(cfg: dict[str, Any]) -> web.Application:
-    app = web.Application()
+    from .guard import middleware as request_guard
+
+    app = web.Application(middlewares=[request_guard(cfg)])      # who may change what: see guard.py
     app["cfg"] = cfg
 
     async def on_startup(app: web.Application) -> None:

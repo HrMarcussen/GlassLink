@@ -719,6 +719,21 @@ class ModuleManager(threading.Thread):
         return d if d in self.cfg["displays"] else None
 
     def assign(self, serial: str, display: str | None, **settings: Any) -> dict[str, Any]:
+        # validate everything before anything is saved: a bad value stored in config.json would break the DU's
+        # worker on every reconnect
+        if settings.get("brightness") is not None:
+            b = settings["brightness"]
+            if isinstance(b, bool) or not isinstance(b, (int, float)) or not 0 <= b <= 100:
+                raise ValueError("brightness must be a number from 0 to 100")
+            settings["brightness"] = int(b)
+        if settings.get("rotation") is not None:
+            if settings["rotation"] not in (0, 90, 180, 270):
+                raise ValueError("rotation must be 0, 90, 180 or 270")
+        if settings.get("label") is not None:
+            label = "".join(c for c in str(settings["label"]) if c.isprintable()).strip()
+            if len(label) > 32:
+                raise ValueError("a DU label is at most 32 characters")
+            settings["label"] = label
         with self._lock:
             entry = self.cfg["modules"].setdefault(serial, {})
             if display is not None:

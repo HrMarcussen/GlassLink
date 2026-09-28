@@ -18,8 +18,11 @@ namespace GlassLink.Dmc;
 /// The HTTP API, identical to the Python DMC's (glasslink/server.py), so the same status page and viewer work
 /// against either: same routes, same JSON field names.
 /// </summary>
-public static class Api
+public static partial class Api
 {
+    [System.Text.RegularExpressions.GeneratedRegex("^[0-9a-f]{8,64}$")]
+    private static partial System.Text.RegularExpressions.Regex SerialPattern();
+
     public static void Map(WebApplication app, DmcRuntime dmc, Action shutdown)
     {
         var statics = Path.Combine(AppContext.BaseDirectory, "static");
@@ -39,10 +42,37 @@ public static class Api
         app.MapGet("/modules", () => Json(new JsonObject { ["modules"] = Modules(dmc), ["displays"] = new JsonArray([.. dmc.Displays.All.Select(e => (JsonNode)e.Name)]) }));
         app.MapPost("/modules/{serial}", async (string serial, HttpRequest request) => await Guarded(async () =>
         {
+            // Only DUs that exist: connected now, or already in the configuration (#4).
+            serial = serial.ToLowerInvariant();
+            if (!SerialPattern().IsMatch(serial))
+            {
+                return Plain(400, "a DU serial is 8 to 64 hexadecimal characters");
+            }
+
+            if (dmc.Dus.Connection(serial) is null && !dmc.Config.Read(root => (root["modules"] as JsonObject)?.ContainsKey(serial) == true))
+            {
+                return Plain(404, $"no DU with serial {serial}");
+            }
+
             var body = await Body(request);
+            var label = Str(body["label"]);
+            if (label is not null)
+            {
+                label = new string([.. label.Where(c => !char.IsControl(c))]).Trim();
+                if (label.Length > 32)
+                {
+                    return Plain(400, "a DU label is at most 32 characters");
+                }
+            }
+
+            if (Str(body["display"]) is { Length: > 0 } wanted && dmc.Displays.Get(wanted) is null)
+            {
+                return Plain(400, $"unknown display '{wanted}'");
+            }
+
             if (body.ContainsKey("display") || body.ContainsKey("brightness") || body.ContainsKey("label"))
             {
-                dmc.Dus.Assign(serial, Str(body["display"]), Str(body["label"]), body["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : null);
+                dmc.Dus.Assign(serial, Str(body["display"]), label, body["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : null);
             }
 
             if (body.ContainsKey("screen"))
@@ -150,6 +180,11 @@ public static class Api
                 if (key.Length > 0)
                 {
                     Input.ParseCombo(key);
+                    var parts = key.Split('+', StringSplitOptions.TrimEntries);
+                    if (parts.Contains("alt") && parts.Contains("f4"))
+                    {
+                        return Plain(400, "alt+f4 would close the simulator");        // pressed into the sim after every pop-out (#4)
+                    }
                 }
             }
             catch (FormatException ex)
