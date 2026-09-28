@@ -157,7 +157,7 @@ public sealed class WindowCapture : IDisposable
             return;
         }
 
-        if (!WantFrame() || WindowFinder.Describe(_hwnd) is not { } window)
+        if (!WantFrame() || WindowFinder.Geometry(_hwnd) is not { } window)
         {
             return;
         }

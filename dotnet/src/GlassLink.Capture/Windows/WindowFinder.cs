@@ -16,6 +16,9 @@ public readonly record struct Rect(int Left, int Top, int Right, int Bottom)
 }
 
 /// <summary>A top-level window as the DMC sees it. All rectangles are in physical pixels.</summary>
+/// <summary>Window rectangle, client area and DWM frame, in screen pixels.</summary>
+public readonly record struct WindowGeometry(Rect Window, Rect Client, Rect Frame);
+
 public sealed record WindowInfo(nint Handle, string Title, string ClassName, string Process, bool Minimized, Rect Window, Rect Client, Rect Frame);
 
 /// <summary>Which window a display is: the "match" rule of a display in config.json. Every key that is given must hold.</summary>
@@ -78,6 +81,21 @@ public static class WindowFinder
         var frame = Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out Rect fr, Marshal.SizeOf<Rect>()) == 0 ? fr : wr;
         Native.GetWindowThreadProcessId(hwnd, out var pid);
         return new WindowInfo(hwnd, Text(hwnd, Native.GetWindowText), Text(hwnd, Native.GetClassName), ProcessName(pid), Native.IsIconic(hwnd), wr, client, frame);
+    }
+
+    /// <summary>Only the three rectangles of a window, for every captured frame: no title, class or process name, so
+    /// nothing is allocated per frame (#34). Null when the window is gone.</summary>
+    public static WindowGeometry? Geometry(nint hwnd)
+    {
+        if (!Native.GetWindowRect(hwnd, out var wr) || !Native.GetClientRect(hwnd, out var cr))
+        {
+            return null;
+        }
+
+        var origin = default(Native.Point);
+        Native.ClientToScreen(hwnd, ref origin);
+        var frame = Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out Rect fr, Marshal.SizeOf<Rect>()) == 0 ? fr : wr;
+        return new WindowGeometry(wr, new Rect(origin.X, origin.Y, origin.X + cr.Right, origin.Y + cr.Bottom), frame);
     }
 
     public static bool IsWindow(nint hwnd) => Native.IsWindow(hwnd);
@@ -225,7 +243,10 @@ public static class WindowFinder
     /// Where the client area lies inside a captured frame. A capture delivers either the DWM frame rectangle or the
     /// GetWindowRect rectangle (which includes the invisible resize borders); take the one whose size matches.
     /// </summary>
-    public static (int X, int Y, int Width, int Height) ClientCrop(WindowInfo w, int frameWidth, int frameHeight)
+    public static (int X, int Y, int Width, int Height) ClientCrop(WindowInfo w, int frameWidth, int frameHeight) =>
+        ClientCrop(new WindowGeometry(w.Window, w.Client, w.Frame), frameWidth, frameHeight);
+
+    public static (int X, int Y, int Width, int Height) ClientCrop(WindowGeometry w, int frameWidth, int frameHeight)
     {
         var origin = (frameWidth, frameHeight) == (w.Frame.Width, w.Frame.Height) ? w.Frame : w.Window;
         var x = Math.Max(0, w.Client.Left - origin.Left);
