@@ -15,6 +15,7 @@ internal sealed class FakeDu : IDuTransport
     public readonly List<Message> Received = [];
     public readonly MemoryStream Flashed = new();
     public bool AnswerInfo = true;
+    public string InfoJson = "{\"fw\":\"0.5.0\",\"build\":\"abc1234\",\"hw\":\"fake\",\"panel\":[768,768],\"mode\":3,\"caps\":[\"mode\",\"tiles\"],\"slot\":\"ota_0\",\"uptime_s\":5}";
     public int OtaFailAtChunk = -1;
     private int _otaChunks;
 
@@ -69,8 +70,7 @@ internal sealed class FakeDu : IDuTransport
             switch (m.Type)
             {
                 case MessageType.GetInfo when AnswerInfo:
-                    _toHost.Add(Wire.Pack(MessageType.Info, Encoding.UTF8.GetBytes(
-                        "{\"fw\":\"0.5.0\",\"build\":\"abc1234\",\"hw\":\"fake\",\"panel\":[768,768],\"mode\":3,\"caps\":[\"mode\",\"tiles\"],\"slot\":\"ota_0\",\"uptime_s\":5}")));
+                    _toHost.Add(Wire.Pack(MessageType.Info, Encoding.UTF8.GetBytes(InfoJson)));
                     break;
                 case MessageType.Frame:
                 case MessageType.Tile:                       // a tile is answered like a frame

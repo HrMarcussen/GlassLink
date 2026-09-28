@@ -35,6 +35,8 @@ public sealed class DuManager : IDisposable
     private readonly HashSet<string> _cards = [];
     private readonly Dictionary<string, List<(string Display, DuConnection.Tile Tile)>> _layouts = [];
     private readonly Dictionary<string, string> _layoutProblems = [];
+    /// <summary>Per DU: the band that carries its tiles, and what it was made for (tiles and displays).</summary>
+    private readonly Dictionary<string, (string Key, IFrameSource Band)> _bands = [];
     private Timer? _scanTimer;
     private Timer? _brightnessTimer;
 
@@ -44,6 +46,10 @@ public sealed class DuManager : IDisposable
 
     /// <summary>A display's picture size (its client_size), for the size of its tile; null = 768x768.</summary>
     public Func<string, (int Width, int Height)?> DisplaySize { get; set; } = _ => null;
+
+    /// <summary>Makes the picture that carries several displays to a DU as one band (name, width, height, where each
+    /// display goes); null = every tile is sent on its own. Set by the DMC (the encoder lives in the capture layer).</summary>
+    public Func<string, int, int, IReadOnlyList<BandPart>, IFrameSource>? BandFactory { get; set; }
 
     public string LastScanError { get; private set; } = "";
 
@@ -80,6 +86,7 @@ public sealed class DuManager : IDisposable
         }
 
         var dead = new List<DuConnection>();
+        var deadBands = new List<IFrameSource>();
         lock (_gate)
         {
             if (_disposed)
@@ -94,6 +101,10 @@ public sealed class DuManager : IDisposable
                 _brightnessSent.Remove(serial);
                 _rotationSent.Remove(serial);
                 _modeSent.Remove(serial);
+                if (_bands.Remove(serial, out var band))
+                {
+                    deadBands.Add(band.Band);        // nobody to send it to: stop composing (a new one comes with the DU)
+                }
             }
 
             foreach (var path in paths)
@@ -136,6 +147,11 @@ public sealed class DuManager : IDisposable
         foreach (var conn in dead)
         {
             conn.Dispose();
+        }
+
+        foreach (var band in deadBands)
+        {
+            (band as IDisposable)?.Dispose();
         }
     }
 
@@ -228,13 +244,37 @@ public sealed class DuManager : IDisposable
         {
             // In tile mode even when every tile had to be left out: the single display is not the user's choice then.
             var cards = _cards.Contains(serial);
-            if (!conn.Layout.SequenceEqual(layout.Select(l => l.Tile)) || conn.Cards != cards)
+            List<DuConnection.Tile> wire = [.. layout.Select(l => l.Tile)];
+            var sources = layout.Select(l => _display(l.Display)).ToArray();
+            // Firmware that takes a band gets all tiles as one picture as wide as its screen: decoded straight into
+            // the frame buffer instead of one decode and copy per tile. Test cards stay per tile (the DU draws them).
+            if (!cards && layout.Count > 0 && conn.SupportsBand && BandFactory is { } factory
+                && Band(conn.Info.PanelWidth, conn.Info.PanelHeight, wire) is { } band)
             {
-                conn.SetLayout(layout.Select(l => l.Tile).ToList(), cards);    // replaces the single display: no NOT ASSIGNED flash
-                _log?.Invoke($"DU {Short(serial)}: layout {string.Join(", ", layout.Select(l => $"{l.Display} {l.Tile.Width}x{l.Tile.Height} at {l.Tile.X},{l.Tile.Y}"))}{(cards ? " (test cards)" : "")}");
+                var key = $"{band}|{string.Join(";", layout.Select(l => $"{l.Display}@{l.Tile}"))}";
+                if (!_bands.TryGetValue(serial, out var made) || made.Key != key)
+                {
+                    DropBand(serial);
+                    var parts = layout.Select(l => new BandPart(_display(l.Display)!, l.Tile.X, l.Tile.Y - band.Y, l.Tile.Width, l.Tile.Height)).ToList();
+                    made = (key, factory($"band {Short(serial)}", band.Width, band.Height, parts));
+                    _bands[serial] = made;
+                }
+
+                wire = [band];
+                sources = [made.Band];
+            }
+            else
+            {
+                DropBand(serial);
             }
 
-            var sources = layout.Select(l => _display(l.Display)).ToArray();
+            if (!conn.Layout.SequenceEqual(wire) || conn.Cards != cards)
+            {
+                conn.SetLayout(wire, cards);                 // replaces the single display: no NOT ASSIGNED flash
+                _log?.Invoke($"DU {Short(serial)}: layout {string.Join(", ", layout.Select(l => $"{l.Display} {l.Tile.Width}x{l.Tile.Height} at {l.Tile.X},{l.Tile.Y}"))}" +
+                             $"{(cards ? " (test cards)" : wire.Count == 1 && _bands.ContainsKey(serial) ? $" (as one band {wire[0].Width}x{wire[0].Height} at y {wire[0].Y})" : "")}");
+            }
+
             if (!conn.TileSources.SequenceEqual(sources))
             {
                 conn.TileSources = sources;
@@ -247,6 +287,42 @@ public sealed class DuManager : IDisposable
             conn.SetLayout([]);                              // back to one display
             conn.Source = _display(s.Display);
             _layouts.Remove(serial);
+            DropBand(serial);
+        }
+    }
+
+    /// <summary>The band for these tiles on a screen of this size: full width, from the first row a tile uses to the
+    /// last, in whole 16-row blocks (the decoder writes whole blocks: a band of 1080 rows would decode as 1088 and
+    /// not fit), starting on an even row (frame buffer rows of 800 x 3 bytes reach the cache line only every other
+    /// row); null when that does not fit.</summary>
+    public static DuConnection.Tile? Band(int panelWidth, int panelHeight, IReadOnlyList<DuConnection.Tile> tiles)
+    {
+        if (tiles.Count == 0 || panelWidth % 16 != 0)
+        {
+            return null;
+        }
+
+        var top = tiles.Min(t => t.Y) & ~1;
+        var bottom = tiles.Max(t => t.Y + t.Height);
+        var height = Align16(bottom - top);
+        if (height > panelHeight)
+        {
+            return null;
+        }
+
+        if (top + height > panelHeight)
+        {
+            top = (panelHeight - height) & ~1;               // up, still covering every row (panel heights are even)
+        }
+
+        return new DuConnection.Tile(0, top, panelWidth, height);
+    }
+
+    private void DropBand(string serial)
+    {
+        if (_bands.Remove(serial, out var made))
+        {
+            (made.Band as IDisposable)?.Dispose();
         }
     }
 
@@ -512,6 +588,10 @@ public sealed class DuManager : IDisposable
             _connections.Clear();
             _layouts.Clear();
             _layoutProblems.Clear();
+            foreach (var serial in _bands.Keys.ToList())
+            {
+                DropBand(serial);
+            }
         }
     }
 

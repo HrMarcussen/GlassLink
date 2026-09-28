@@ -173,6 +173,10 @@ public sealed class DuConnection : IDisposable
     /// <summary>True when the DU's firmware knows SET_MODE.</summary>
     public bool SupportsMode => Has("mode");
 
+    /// <summary>The firmware decodes a picture as wide as its screen straight into the frame buffer (0.6.0), so several
+    /// displays are best sent as one band instead of a TILE each.</summary>
+    public bool SupportsBand => Has("band");
+
     /// <summary>The HDMI mode the DU runs (INFO), null before the first INFO.</summary>
     public int? Mode => InfoJson is { } j && j.ValueKind == JsonValueKind.Object && j.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.Number && m.TryGetInt32(out var v) ? v : null;
 

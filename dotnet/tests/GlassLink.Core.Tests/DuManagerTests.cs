@@ -21,7 +21,7 @@ public class DuManagerTests
         Assert.True(condition(), "timed out");
     }
 
-    private static (DuManager Manager, List<FakeDu> Dus, Dictionary<string, FrameSlot> Displays, ConfigFile Config, List<string> Plugged) Make(string json)
+    private static (DuManager Manager, List<FakeDu> Dus, Dictionary<string, FrameSlot> Displays, ConfigFile Config, List<string> Plugged) Make(string json, string? info = null)
     {
         var config = new ConfigFile((JsonObject)JsonNode.Parse(json.Replace("SERIAL", Serial))!);
         var displays = new Dictionary<string, FrameSlot> { ["pfd"] = new("pfd"), ["nd"] = new("nd") };
@@ -30,10 +30,70 @@ public class DuManagerTests
         var manager = new DuManager(config, name => displays.GetValueOrDefault(name), () => plugged.ToList(), _ =>
         {
             var du = new FakeDu();
+            if (info is not null)
+            {
+                du.InfoJson = info;
+            }
+
             dus.Add(du);
             return du;
         });
         return (manager, dus, displays, config, plugged);
+    }
+
+    [Fact]
+    public void A_band_covers_the_rows_of_the_tiles_in_whole_blocks_and_stays_on_the_screen()
+    {
+        static DuConnection.Tile T(int x, int y, int w, int h) => new(x, y, w, h);
+        Assert.Equal(T(0, 156, 1920, 768), DuManager.Band(1920, 1080, [T(40, 156, 768, 768), T(1100, 156, 768, 768)]));
+        Assert.Equal(T(0, 100, 1920, 784), DuManager.Band(1920, 1080, [T(0, 101, 768, 768), T(900, 200, 640, 640)]));   // odd top: one row up, still whole blocks
+        Assert.Equal(T(0, 296, 1920, 784), DuManager.Band(1920, 1080, [T(0, 300, 768, 768), T(900, 312, 768, 768)]));  // would end below the screen: moved up
+        Assert.Null(DuManager.Band(1920, 1080, [T(0, 0, 768, 768), T(900, 312, 768, 768)]));   // 1080 rows are 1088 in whole blocks
+        Assert.Null(DuManager.Band(1920, 1080, []));
+    }
+
+    [Fact]
+    public void A_du_that_takes_a_band_gets_its_tiles_as_one_picture_but_test_cards_per_tile()
+    {
+        var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"label":"MIP","screen":4,"tiles":{"pfd":{"x":40,"y":156},"nd":{"x":1100,"y":156}}}}}""",
+            """{"fw":"0.6.0","panel":[1920,1080],"mode":4,"max_frame":1048576,"caps":["mode","tiles","band"]}""");
+        using var _m = manager;
+        manager.DisplaySize = _ => (768, 768);
+        var made = new List<(string Name, int Width, int Height, IReadOnlyList<BandPart> Parts, FrameSlot Slot)>();
+        manager.BandFactory = (name, width, height, parts) =>
+        {
+            var slot = new FrameSlot(name);
+            lock (made)
+            {
+                made.Add((name, width, height, parts, slot));
+            }
+
+            return slot;
+        };
+        List<Message> Layouts() => dus[0].Of(MessageType.SetLayout).Where(m => m.Payload.Length > 0).ToList();
+        manager.ScanOnce();
+        Until(() => Layouts().Count == 1);
+
+        var layout = Layouts()[0].Payload.ToArray();
+        Assert.Equal(8, layout.Length);                              // one tile: the band
+        Assert.Equal((0, 156, 1920, 768), (BitConverter.ToUInt16(layout, 0), BitConverter.ToUInt16(layout, 2), BitConverter.ToUInt16(layout, 4), BitConverter.ToUInt16(layout, 6)));
+        var band = Assert.Single(made);
+        Assert.Equal((1920, 768), (band.Width, band.Height));
+        Assert.Equal([(40, 0, 768, 768), (1100, 0, 768, 768)], band.Parts.Select(p => (p.X, p.Y, p.Width, p.Height)));   // relative to the band
+        Assert.Equal(["pfd", "nd"], band.Parts.Select(p => p.Source.Name));
+        Assert.Equal(2, manager.Status().Single().Layout.Count);    // the status page still sees the user's two tiles
+
+        band.Slot.Publish(new byte[] { 7 });
+        Until(() => dus[0].Of(MessageType.Tile).Count == 1);
+        Assert.Equal((0u, 7), (dus[0].Of(MessageType.Tile)[0].Arg, (int)dus[0].Of(MessageType.Tile)[0].Payload.Span[0]));
+
+        manager.ShowCards(Serial, true);                             // the DU draws test cards per tile: the real tiles again
+        Until(() => Layouts().Count == 2);
+        Assert.Equal(16, Layouts()[1].Payload.Length);
+        manager.ShowCards(Serial, false);
+        Until(() => Layouts().Count == 3);
+        Assert.Equal(8, Layouts()[2].Payload.Length);
+        Assert.Equal(2, made.Count);                                 // a new band after the cards
     }
 
     [Fact]

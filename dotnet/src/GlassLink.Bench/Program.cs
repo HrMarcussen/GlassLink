@@ -106,6 +106,7 @@ if (command == "run")
     var slots = new Dictionary<string, FrameSlot>();
     var captures = new List<DisplayCapture>();
     using var manager = DuManager.ForWinUsb(config, n => slots.GetValueOrDefault(n), Console.WriteLine);
+    manager.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
     foreach (var (name, node) in config.Root["displays"] as System.Text.Json.Nodes.JsonObject ?? [])
     {
         slots[name] = new FrameSlot(name);
@@ -196,6 +197,7 @@ if (command == "manage")
     var displays = names.ToDictionary(n => n, n => new FrameSlot(n));
     var pictures = names.Select((n, i) => Pattern.Render(768, 768, 60, i, n)).ToList();
     using var manager = DuManager.ForWinUsb(config, n => displays.GetValueOrDefault(n), Console.WriteLine);
+    manager.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
     manager.Start();
     var clock = Stopwatch.StartNew();
     for (var f = 0; clock.Elapsed.TotalSeconds < Option("--seconds", 20); f++)
@@ -211,7 +213,7 @@ if (command == "manage")
             foreach (var du in manager.Status())
             {
                 Console.WriteLine($"  {du.Serial[..8]} '{du.Label}' -> {(du.Display.Length > 0 ? du.Display : "(not assigned)")}  alive {du.Alive}  " +
-                                  $"fw {du.Info?.Firmware}  shows {du.Stats?.Fps:0.0} fps  brightness {du.BrightnessSent} % (trim {du.Trim})  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
+                                  $"fw {du.Info?.Firmware}  shows {du.Stats?.Fps:0.0} fps (decode {du.Stats?.DecodeMs:0.0} draw {du.Stats?.DrawMs:0.0} transfer {du.Stats?.RxMs:0.0} ms, sent {du.FramesSent})  brightness {du.BrightnessSent} % (trim {du.Trim})  {(du.Health.Count > 0 ? string.Join("; ", du.Health) : "ok")}");
             }
         }
     }

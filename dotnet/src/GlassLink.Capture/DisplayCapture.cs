@@ -260,7 +260,7 @@ public sealed class DisplayCapture : IDisposable
             var jpeg = _encoder.Encode(pixels, pw, ph, pw * 4);
             _encodeMs = _encodeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
             _jpegBytes = jpeg.Length;
-            _slot.Publish(jpeg, pw, ph);
+            _slot.Publish(jpeg, pw, ph, _slot.WantsPixels ? pixels.AsSpan(0, pw * ph * 4) : default);     // a band on a DU uses them
             _published++;
         }
     }

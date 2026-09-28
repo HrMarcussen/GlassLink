@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace GlassLink.Core.Du;
 
 /// <summary>One encoded picture of a display. Seq increases by one for every picture that differs from the last.</summary>
@@ -18,6 +20,9 @@ public interface IFrameSource
     /// Must be a real predicate wait: a signal from a frame that was already sent must not satisfy it.</summary>
     Frame? WaitNewer(uint afterSeq, int timeoutMs);
 }
+
+/// <summary>One display's place in a band: its box, relative to the band's top left corner.</summary>
+public sealed record BandPart(IFrameSource Source, int X, int Y, int Width, int Height);
 
 /// <summary>A frame source fed by whoever produces pictures (the capture layer, a test pattern).</summary>
 public sealed class FrameSlot(string name) : IFrameSource
@@ -54,6 +59,39 @@ public sealed class FrameSlot(string name) : IFrameSource
 
     public void RemoveClient() => Interlocked.Decrement(ref _clients);
 
+    // The raw picture next to the JPEG, for a band that puts several displays into one picture (it would otherwise
+    // decode our JPEG and encode it a second time). Kept only while someone wants it, in one buffer that is reused.
+    private int _pixelUsers;
+    private byte[] _pixels = [];
+    private int _pixelWidth, _pixelHeight;
+    private uint _pixelSeq;
+
+    /// <summary>True while a band wants the raw pictures: the producer then passes them to <see cref="Publish"/>.</summary>
+    public bool WantsPixels => Volatile.Read(ref _pixelUsers) > 0;
+
+    public void AddPixelUser() => Interlocked.Increment(ref _pixelUsers);
+
+    public void RemovePixelUser() => Interlocked.Decrement(ref _pixelUsers);
+
+    /// <summary>Raised after every <see cref="Publish"/>, outside the lock (a band waits for it instead of polling).</summary>
+    public event Action? Published;
+
+    /// <summary>Hands the raw picture of frame <paramref name="seq"/> (tight BGRA) to <paramref name="use"/>, under
+    /// the slot's lock so the producer cannot overwrite it meanwhile; false if the slot has no pixels of that frame.</summary>
+    public bool ReadPixels(uint seq, ReadOnlySpanAction<byte, (int Width, int Height)> use)
+    {
+        lock (_gate)
+        {
+            if (_pixelSeq != seq || _pixelWidth == 0)
+            {
+                return false;
+            }
+
+            use(_pixels.AsSpan(0, _pixelWidth * _pixelHeight * 4), (_pixelWidth, _pixelHeight));
+            return true;
+        }
+    }
+
     /// <summary>Pictures published per second over the last two seconds: how fast the content of the display changes.</summary>
     public double Fps()
     {
@@ -69,11 +107,24 @@ public sealed class FrameSlot(string name) : IFrameSource
         }
     }
 
-    /// <summary>Publishes a new picture; returns its sequence number.</summary>
-    public uint Publish(ReadOnlyMemory<byte> jpeg, int width = 0, int height = 0)
+    /// <summary>Publishes a new picture; returns its sequence number. <paramref name="pixels"/> (tight BGRA of
+    /// width x height) is kept for <see cref="ReadPixels"/> when given.</summary>
+    public uint Publish(ReadOnlyMemory<byte> jpeg, int width = 0, int height = 0, ReadOnlySpan<byte> pixels = default)
     {
+        uint seq;
         lock (_gate)
         {
+            if (!pixels.IsEmpty && width > 0 && height > 0 && pixels.Length >= width * height * 4)
+            {
+                if (_pixels.Length < width * height * 4)
+                {
+                    _pixels = new byte[width * height * 4];
+                }
+
+                pixels[..(width * height * 4)].CopyTo(_pixels);
+                (_pixelWidth, _pixelHeight, _pixelSeq) = (width, height, (_latest?.Seq ?? 0) + 1);
+            }
+
             (Width, Height) = (width > 0 ? width : Width, height > 0 ? height : Height);
             LastPublished = DateTime.UtcNow;
             _times.Enqueue(Environment.TickCount64);
@@ -84,8 +135,11 @@ public sealed class FrameSlot(string name) : IFrameSource
 
             _latest = new Frame((_latest?.Seq ?? 0) + 1, jpeg);
             Monitor.PulseAll(_gate);
-            return _latest.Seq;
+            seq = _latest.Seq;
         }
+
+        Published?.Invoke();
+        return seq;
     }
 
     public Frame? WaitNewer(uint afterSeq, int timeoutMs)

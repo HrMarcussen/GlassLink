@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json.Nodes;
+using GlassLink.Capture;
 using GlassLink.Capture.Windows;
 using GlassLink.Core.Config;
 using GlassLink.Core.Du;
@@ -28,6 +29,7 @@ public sealed class DmcRuntime : IDisposable
         Brightness = new BrightnessLink(Config, Sim, Camera);
         Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log);
         Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
+        Dus.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
         Dus.SimBrightness = display => BrightnessEnabled ? Brightness.For(display) : null;
         // The size of the picture a display really publishes (after max_size); its configured client_size before the
         // first frame (#27).

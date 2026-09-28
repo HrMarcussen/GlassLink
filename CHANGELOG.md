@@ -133,8 +133,17 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
     second pass over the picture; the pixel accelerator and then the CPU remain as fallbacks. That also frees the two
     full-screen buffers the old blend needed, so 1080p now has two frame buffers and 12 MB of PSRAM left (#22).
   - The last frame is kept by swapping buffers instead of copying it.
+  - INFO `caps` gain `band`.
+- **Several displays on one DU go as one band** (a DU with 0.6.0 firmware): the DMC puts all tiles of the DU's
+  layout side by side on black into one picture as wide as the screen, covering the rows they use, and the DU
+  decodes it straight into its frame buffer. In 1080p a PFD and an ND of 768 x 768 behind a MIP went from 12 fps
+  each to 28 fps for both (22.7 with a screen full of text, 28 Sept 2026, through the DU manager). The displays come
+  from their raw capture, not decoded again from JPEG; a band is made when a display changed, at most 30 times a
+  second, so displays that change together go out together. Nothing changes in the layout editor or on the status
+  page, and test cards are still drawn per tile. Firmware without `band` in its INFO gets one TILE per display as
+  before.
 - Bench tool: `--busy` (gradients and a screen of text, for PFD-sized frames), `--444` and `--brightness`; its test
-  pictures are now encoded with the DMC's encoder.
+  pictures are now encoded with the DMC's encoder; `manage` shows the DU's decode, draw and transfer times.
 - **Status page, a pass with UX glasses on.** Displays carry the names a builder uses (Captain PFD, Upper ECAM, FO ND;
   the id stays beside it) and, on a wide window, sit in their cockpit positions with the lower ECAM under the upper
   one. A card says which DU shows it; window handle, backend and frame counters are behind one "technical details"
