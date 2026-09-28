@@ -23,7 +23,7 @@ Run workflow, on `main`.
 
 | What | Where | Why |
 |---|---|---|
-| Secret `BUILD_DEPS_TOKEN` | Settings, Secrets and variables, Actions | reads `SimConnect.dll` from the private `HrMarcussen/build-deps` (fine-grained token: that repository only, Contents read-only, with an expiry date) |
+| Environment secret `BUILD_DEPS_TOKEN` in `release` | Settings, Environments, release (or Secrets and variables, Actions, Manage environment secrets) | reads `SimConnect.dll` from the private `HrMarcussen/build-deps` (fine-grained token: that repository only, Contents read-only, with an expiry date) |
 | Environment `release` with a required reviewer | Settings, Environments | nothing is signed or published without an approval |
 | Environment secrets `CERTUM_USER`, `CERTUM_OTP_SECRET`; variable `SIGN_METHOD` = `certum-simplysign` | the `release` environment; Settings, Variables | code signing (Certum Open Source certificate, SimplySign cloud). Until then releases are unsigned and the run says so |
 
