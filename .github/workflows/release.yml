@@ -23,7 +23,7 @@ jobs:
   firmware:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0            # git describe for the build id
       - name: Build (ESP-IDF 5.5.5, ESP32-P4)
@@ -32,7 +32,7 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32p4
           path: firmware
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware
           path: firmware/build/glasslink_du.bin
@@ -43,7 +43,7 @@ jobs:
     runs-on: windows-latest
     environment: release            # signing secrets live here; a required reviewer approves every run
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: The tag is the version
@@ -55,10 +55,10 @@ jobs:
               throw "tag ${{ github.ref_name }} but VERSION says $v"
           }
           "version=$v" >> $env:GITHUB_OUTPUT
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: firmware
           path: firmware/build
@@ -93,7 +93,7 @@ jobs:
           method: ${{ vars.SIGN_METHOD || 'none' }}
           certum-user: ${{ secrets.CERTUM_USER }}
           certum-otp-secret: ${{ secrets.CERTUM_OTP_SECRET }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: GlassLink-${{ steps.version.outputs.version }}
           path: |
