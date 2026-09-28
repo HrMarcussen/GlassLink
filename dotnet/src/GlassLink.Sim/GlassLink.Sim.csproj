@@ -11,7 +11,8 @@
   <ItemGroup>
     <!-- The simulator's client library (MSFS SDK). Native, 64 bit; copied next to the program. -->
     <!-- SimConnect.dll is Microsoft's and not in the repository (#58): a developer's own copy in dotnet\lib (gitignored)
-         is put next to the exe; otherwise it is found at run time (SimConnectClient.SimConnectCandidates) -->
+         is put next to the exe, and tools\build-release.ps1 ships it in releases; otherwise it is found at run time
+         (SimConnectClient.SimConnectCandidates) -->
     <None Include="..\..\lib\SimConnect.dll" Link="SimConnect.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\lib\SimConnect.dll')" />
   </ItemGroup>
 

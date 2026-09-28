@@ -27,9 +27,10 @@ dotnet test GlassLink.slnx
 Only one DMC runs at a time (a named mutex). `GlassLink.exe --quit` stops the running one gracefully; starting it
 while it runs opens the status window. Its log is `logs/dmc-<date>.log` next to `config.json`.
 
-**SimConnect.dll** is Microsoft's and not in the repository. At run time it is looked for next to `GlassLink.exe`,
-in `%LOCALAPPDATA%\GlassLink\`, and in the MSFS SDK (`MSFS2024_SDK`, `MSFS_SDK`). A copy in `dotnet/lib/` (ignored
-by git) is put next to the exe when building.
+**SimConnect.dll** is Microsoft's and not in the repository; releases include it unmodified (see
+`THIRD-PARTY-NOTICES.md`). At run time it is looked for next to `GlassLink.exe`, in `%LOCALAPPDATA%\GlassLink\`, and
+in the MSFS SDK (`MSFS2024_SDK`, `MSFS_SDK`). Put a copy in `dotnet/lib/` (ignored by git): the build puts it next to
+the exe and `tools\build-release.ps1` into the release.
 
 ## Bench tool
 

@@ -58,10 +58,10 @@ what helps.
 ## Requirements
 
 - Windows 10 1903 or later, or Windows 11, and MSFS 2024 (MSFS 2020 is untested).
-- **SimConnect.dll** from the MSFS SDK. It is Microsoft's and not part of GlassLink. Install the SDK (switch on
-  Developer Mode in the sim's options, then Help > SDK Installer in the developer toolbar) or copy
-  `SimConnect SDK\lib\SimConnect.dll` from an SDK to `%LOCALAPPDATA%\GlassLink\`. Without it the DMC still streams, but pops nothing out and does not follow the
-  brightness knobs.
+- Nothing else for a release: it includes Microsoft's `SimConnect.dll` (unmodified, see
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). A checkout does not: put a copy in `dotnet\lib\` (ignored by
+  git) or `%LOCALAPPDATA%\GlassLink\`, or install the MSFS SDK. Without it the DMC still streams, but pops nothing
+  out and does not follow the brightness knobs.
 - Graphics driver: no driver-level frame generation for the sim (AMD Fluid Motion Frames / HYPR-RX, NVIDIA Smooth
   Motion). It leaves pop-out windows with about 13 frames a second. See [Troubleshooting](docs/TROUBLESHOOTING.md).
 - DUs: see [Hardware](docs/hardware.md).
@@ -135,3 +135,22 @@ Building: `start-server.bat` builds and starts the DMC from a checkout (needs th
 need Python 3.10+ and `pip install -r requirements.txt` in a venv. Every push is built and tested on GitHub
 (`.github/workflows/ci.yml`: .NET build and tests, Python compile, firmware build). Changes are listed in
 [CHANGELOG.md](CHANGELOG.md); open work is in the GitHub issues.
+
+## Licence
+
+Copyright (C) 2026 Thomas Marcussen.
+
+GlassLink is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public
+License version 3**, or (at your option) any later version ([LICENSE](LICENSE)). In short: use it, change it, build
+products with it, sell them; but whoever passes GlassLink or a modified version on must pass on its source code under
+the same licence, so improvements come back to everyone. It comes without any warranty.
+
+Additional permission under GNU GPL version 3 section 7: if you modify this program, or any covered work, by linking
+or combining it with Microsoft's SimConnect client library (`SimConnect.dll` from the Microsoft Flight Simulator
+SDK), the Microsoft Edge WebView2 Runtime or the Microsoft Visual C++ runtime (or modified versions of those
+libraries), containing parts covered by the terms of their licences, the licensors of this program grant you
+additional permission to convey the resulting work.
+
+Board designs, once published here, will be under the CERN Open Hardware Licence version 2, strongly reciprocal
+(CERN-OHL-S-2.0). Components of others and their licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+GlassLink is not affiliated with or endorsed by Microsoft, Asobo or Fenix Simulations.

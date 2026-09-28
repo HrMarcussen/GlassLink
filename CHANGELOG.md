@@ -17,6 +17,18 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-28
+
+### Added
+- **Licence: GNU GPL version 3 or later** (`LICENSE`), with an additional permission for Microsoft's SimConnect.dll,
+  the WebView2 Runtime and the Visual C++ runtime; future board designs CERN-OHL-S-2.0 (#74).
+- `THIRD-PARTY-NOTICES.md`: the components of others and their licences, shipped with releases.
+
+### Changed
+- Releases include Microsoft's `SimConnect.dll` again, unmodified, as MSFS add-ons usually do (it stays out of the
+  repository, #58): an installed GlassLink needs no MSFS SDK. `tools\build-release.ps1` takes it from `dotnet\lib` or
+  an installed SDK and puts `LICENSE` and the notices next to it.
+
 ## [0.6.0] - 2026-09-28
 
 **[DU firmware]** Update both DUs (the status page offers it). In short: several displays on one DU (layouts with

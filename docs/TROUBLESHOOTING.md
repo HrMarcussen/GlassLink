@@ -47,8 +47,8 @@ that DU, or use a lower HDMI mode if the screen allows it.
 
 ## The displays are not popped out and the brightness knobs do nothing: SimConnect not available
 
-GlassLink needs Microsoft's `SimConnect.dll`, which it does not ship. Without it the status page says "SimConnect.dll is
-missing" (System tab and the advice panel).
+GlassLink needs Microsoft's `SimConnect.dll`. Releases include it; a checkout, or a release built without it, does
+not. Without it the status page says "SimConnect.dll is missing" (System tab and the advice panel).
 Install the MSFS SDK (Developer Mode in the sim's options, then Help > SDK Installer), or copy
 `SimConnect SDK\lib\SimConnect.dll` from an SDK to `%LOCALAPPDATA%\GlassLink\`, and restart GlassLink. Streaming to
 the DUs works without it; you then pop the displays out by hand.

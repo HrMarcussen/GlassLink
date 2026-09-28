@@ -22,11 +22,17 @@ if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 dotnet publish "$root\dotnet\src\GlassLink.Dmc" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o $out -nologo -v q
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Remove-Item "$out\*.xml", "$out\*.pdb" -ErrorAction SilentlyContinue
-# Microsoft's SimConnect.dll is never shipped (#58): a local developer copy would otherwise land here. The DMC finds it
-# in the MSFS SDK or in %LOCALAPPDATA%\GlassLink (see README, "SimConnect").
-Remove-Item "$out\SimConnect.dll" -ErrorAction SilentlyContinue
+# Microsoft's SimConnect.dll goes into the release, unmodified, as most MSFS add-ons ship it; it is never in the
+# repository (#58, THIRD-PARTY-NOTICES.md). Taken from the developer's local copy (dotnet\lib, which the build already
+# put next to the exe) or from an installed MSFS SDK.
+if (-not (Test-Path "$out\SimConnect.dll")) {
+    $sdkDll = @($env:MSFS2024_SDK, $env:MSFS_SDK) | Where-Object { $_ } | ForEach-Object { Join-Path $_ "SimConnect SDK\lib\SimConnect.dll" } |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($sdkDll) { Copy-Item $sdkDll $out }
+    else { Write-Warning "no SimConnect.dll (dotnet\lib or the MSFS SDK): users of this release must install the SDK" }
+}
 Set-Content "$out\BUILD" $build -Encoding ascii
-Copy-Item "$root\CHANGELOG.md" $out
+Copy-Item "$root\CHANGELOG.md", "$root\LICENSE", "$root\THIRD-PARTY-NOTICES.md" $out
 if (Test-Path "$root\firmware\build\glasslink_du.bin") {
     New-Item -ItemType Directory -Force "$out\firmware" | Out-Null
     Copy-Item "$root\firmware\build\glasslink_du.bin" "$out\firmware\"

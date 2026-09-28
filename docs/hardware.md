@@ -51,4 +51,6 @@ only if the P4 or the bridge becomes unobtainable. A classic ESP32 or ESP32-S3 c
 decoder and too little memory bandwidth for 768x768.
 
 The next hardware steps (backlight and power line, an adapter board without loose wires, an integrated board with a
-DSI-to-LVDS bridge) are tracked as GitHub issues with the label `area: hardware`.
+DSI-to-LVDS bridge) are tracked as GitHub issues with the label `area: hardware`. Board designs published here will
+be under the CERN Open Hardware Licence version 2, strongly reciprocal (CERN-OHL-S-2.0): whoever makes and sells
+boards from a modified design must publish the modified design.
