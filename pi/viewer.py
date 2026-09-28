@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Native fullscreen viewer for one GlassLink stream (Raspberry Pi, Linux, Windows).
 
-    python viewer.py --url ws://192.168.1.10:8765/ws/pfd [--rotate 90] [--windowed] [--fps]
+    python viewer.py --url ws://sim-pc:8765/ws/pfd [--rotate 90] [--windowed] [--fps]
 
 Dependencies: websockets, simplejpeg, pygame  (pip install websockets simplejpeg pygame)
 """

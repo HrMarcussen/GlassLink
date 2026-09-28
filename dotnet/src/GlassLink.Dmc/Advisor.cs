@@ -103,6 +103,16 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
                 }
             }
 
+            if (input.PopoutDetail.Contains("SimConnect.dll not found", StringComparison.Ordinal))
+            {
+                result.Add(new Advice("simconnect_missing", "warn", "system", "SimConnect.dll is missing",
+                    "GlassLink talks to the sim through Microsoft's SimConnect.dll, which it does not ship. The DUs still get pictures, but nothing is popped out and the brightness knobs are not followed.",
+                [
+                    "Install the MSFS SDK: switch on Developer Mode in the sim's options, then Help > SDK Installer in the developer toolbar.",
+                    @"Or copy SimConnect.dll from an SDK (SimConnect SDK\lib) to %LOCALAPPDATA%\GlassLink, then restart GlassLink.",
+                ]));
+            }
+
             if (input.Strays > 0)
             {
                 result.Add(new Advice("strays", "warn", "setup", $"{input.Strays} pop-out window(s) were not made by GlassLink",

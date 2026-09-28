@@ -79,6 +79,15 @@ public class AdvisorTests
     }
 
     [Fact]
+    public void A_missing_simconnect_dll_is_said_in_words()
+    {
+        var input = new AdvisorInput([], [], 0, "waiting", GlassLink.Sim.SimConnectClient.LibraryMissing, [], false, false, null, "");
+        var advice = Assert.Single(Make().Advise(input));
+        Assert.Equal(("simconnect_missing", "system"), (advice.Id, advice.Tab));
+        Assert.Contains(advice.Steps, s => s.Contains("SDK Installer"));
+    }
+
+    [Fact]
     public void A_du_that_cannot_keep_up_gets_its_own_advice_not_the_usb_steps()
     {
         var input = new AdvisorInput([],

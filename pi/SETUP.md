@@ -1,6 +1,7 @@
-# Raspberry Pi 5 setup (next step after the PoC)
+# Showing a display on a Raspberry Pi
 
-Two ways to show a stream on a Pi with its own panel. Both only need the server running on the sim PC.
+A Pi with its own screen can show any display over the network, next to or instead of a USB DU. Two ways; both only
+need the DMC running on the sim PC (`<sim-pc>` below is its name or IP address).
 
 ## Option A – Chromium kiosk (simplest)
 
@@ -11,7 +12,7 @@ Two ways to show a stream on a Pi with its own panel. Both only need the server 
    [Desktop Entry]
    Type=Application
    Name=GlassLink
-   Exec=chromium-browser --kiosk --noerrdialogs --disable-infobars --incognito --autoplay-policy=no-user-gesture-required http://192.168.1.10:8765/view/pfd
+   Exec=chromium-browser --kiosk --noerrdialogs --disable-infobars --incognito --autoplay-policy=no-user-gesture-required http://<sim-pc>:8765/view/pfd
    ```
 
    Add `?rotate=90` to the URL if the panel is mounted rotated and you prefer to rotate in the page.
@@ -24,7 +25,7 @@ Two ways to show a stream on a Pi with its own panel. Both only need the server 
 3. Copy `viewer.py` to `/home/pi/glasslink/`, test with:
 
    ```
-   SDL_VIDEODRIVER=kmsdrm python3 viewer.py --url ws://192.168.1.10:8765/ws/pfd --fps
+   SDL_VIDEODRIVER=kmsdrm python3 viewer.py --url ws://<sim-pc>:8765/ws/pfd --fps
    ```
 
 4. Install `glasslink-viewer.service` to `/etc/systemd/system/`, edit the URL/rotation, then

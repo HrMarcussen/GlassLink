@@ -64,6 +64,13 @@ public sealed class SimConnectClient : IDisposable
         return 0;                                            // the default search, then DllNotFoundException: "SimConnect not available"
     });
 
+    /// <summary>Whether SimConnect.dll can be found at all: GlassLink does not ship it (#58), and without it the status
+    /// page must say so instead of waiting for a sim that could never be reached.</summary>
+    public static bool LibraryFound => SimConnectCandidates().Any(File.Exists) || NativeLibrary.TryLoad("SimConnect.dll", out _);
+
+    /// <summary>What the status page says when <see cref="LibraryFound"/> is false.</summary>
+    public const string LibraryMissing = @"SimConnect.dll not found: install the MSFS SDK or copy SimConnect.dll to %LOCALAPPDATA%\GlassLink";
+
     public static IEnumerable<string> SimConnectCandidates()
     {
         yield return Path.Combine(AppContext.BaseDirectory, "SimConnect.dll");

@@ -33,6 +33,26 @@ never reaches a DU.
 rate and the window in front, side by side. `tools/content_fps.py` shows how many of those frames actually differ,
 which is what a DU displays; it needs a moving aircraft.
 
+## A DU shows fewer than 20 pictures a second: "shows N fps" on the status page
+
+**What you see.** The Display units tab or the advice panel says the DU "shows 15 fps: its pictures come faster than
+it draws them". Unlike a slow source, the sim delivers enough; the DU is the limit.
+
+**Why.** A DU's work grows with the pixels it draws. In 1080p it also shares its memory with the picture it scans out
+to the monitor, so a large picture that has to be copied into place is the slowest case.
+
+**What to do.** Update the DU if the status page offers it (from 0.6.0 several displays on one DU go as one picture,
+twice as fast in 1080p). Make the display's picture smaller (its size on the Displays tab), put fewer displays on
+that DU, or use a lower HDMI mode if the screen allows it.
+
+## The displays are not popped out and the brightness knobs do nothing: SimConnect not available
+
+GlassLink needs Microsoft's `SimConnect.dll`, which it does not ship. Without it the status page says "SimConnect.dll is
+missing" (System tab and the advice panel).
+Install the MSFS SDK (Developer Mode in the sim's options, then Help > SDK Installer), or copy
+`SimConnect SDK\lib\SimConnect.dll` from an SDK to `%LOCALAPPDATA%\GlassLink\`, and restart GlassLink. Streaming to
+the DUs works without it; you then pop the displays out by hand.
+
 ## Key presses do not reach the sim after switching back to it
 
 **Why.** Windows gives the focus to the sim's most recently active window, and that used to be the last pop-out,
@@ -55,4 +75,10 @@ pop-outs do dim themselves, and GlassLink stands down ("dimmed by the aircraft" 
 GlassLink has no kernel driver (the DUs use Microsoft's WinUSB), so it cannot cause a blue screen by itself. It does
 keep the GPU driver and the memory busy, which brings out instability that is already there: memory running above
 what the CPU is rated for (XMP), automatic CPU overclocking. Check those first. Never end the DMC with Task Manager
-while the sim runs; use `tools/stop_server.py` (ending a process that holds window captures can upset the GPU driver).
+while the sim runs; use Quit in its tray menu or `GlassLink.exe --quit` (ending a process that holds window captures
+can upset the GPU driver).
+
+## Windows shows an old name for a DU
+
+Windows remembers a USB device's name. Remove the device once in Device Manager (with the DU plugged in) and plug it
+in again.

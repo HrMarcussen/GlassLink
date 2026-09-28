@@ -165,6 +165,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - `SimConnect.dll` is no longer in the repository or its history (#58), and releases do not ship it: the DMC finds
   it next to GlassLink.exe, in `%LOCALAPPDATA%\GlassLink\`, or in the MSFS SDK (`MSFS2024_SDK` / `MSFS_SDK`). A
   developer's own copy in `dotnet/lib/` (ignored by git) is still copied next to the exe when building.
+- **Documentation rewritten for users**: the README says what GlassLink does, how to install it and how to configure
+  it; the engineering log became `docs/notes.md` (findings by topic) and `docs/hardware.md` (parts, wiring, scaler
+  board facts); `docs/BACKLOG.md` became GitHub issues; the .NET and firmware READMEs describe the current state.
+- The status page says "SimConnect.dll is missing" with what to do, instead of waiting for the sim for ever.
 - Bench tool: `--busy` (gradients and a screen of text, for PFD-sized frames), `--444` and `--brightness`; its test
   pictures are now encoded with the DMC's encoder; `manage` shows the DU's decode, draw and transfer times.
 - **Status page, a pass with UX glasses on.** Displays carry the names a builder uses (Captain PFD, Upper ECAM, FO ND;

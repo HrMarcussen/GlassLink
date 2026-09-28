@@ -154,7 +154,7 @@ public sealed class AutoPopout : IDisposable
 
         if (!_camera.Ready)
         {
-            State = new("waiting", "SimConnect not available yet", missing, State.LastAttempt);
+            State = new("waiting", SimConnectClient.LibraryFound ? "SimConnect not available yet" : SimConnectClient.LibraryMissing, missing, State.LastAttempt);
             return;
         }
 
