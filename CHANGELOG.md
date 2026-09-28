@@ -134,6 +134,18 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **Status page, from the code review of 28 Sept 2026** (issues #2, #5-#10, #12, #13):
+  - The Display units tab threw on the new layout rows after every change: DU2's controls stopped working and the
+    header flashed "DMC not reachable" (the jitter seen on 22 Sept).
+  - Every value from the DMC, the sim or the user is escaped before it becomes HTML (a DU label could run script).
+  - Layout editor: tiles are visible again (an undefined colour), sized by the display's picture size even before
+    the sim runs, update while the row is open, are clamped to the screen and marked when outside it, and at most
+    six can be ticked; dragging saves only after a real move; the screen mode changes only with Apply.
+  - Displays shown as tiles count as shown everywhere ("Shown on", "Put on / Add to", checklist, advice).
+  - Arrow keys on a closed dropdown no longer apply every step; the choice applies on Enter or when leaving it.
+  - The learn result disappears after 30 s or with Dismiss.
+  - Contrast of borders raised to 3:1, keyboard focus is kept after a button press, labels name their display,
+    tabs carry aria-current, bigger touch targets on narrow screens, the checklist uses the sim's own "in cockpit".
 - The "slow source" advice is only given for windows of the simulator; a test pattern or another program's window
   may be slow without the DMC blaming the sim.
 - A DU's dropped-frame count from before the DMC connected was reported as new drops ("stall") at connect.

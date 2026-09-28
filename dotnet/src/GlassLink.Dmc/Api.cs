@@ -183,7 +183,7 @@ public static class Api
         var dus = dmc.Dus.Status();
         var advice = dmc.Advisor.Advise(new AdvisorInput(
             dmc.Displays.All.Select(e => (e.Name, e.Capture.Counters.Received, InUse(dmc, e), e.Capture.HasWindow, e.Capture.CurrentFps, dmc.Displays.IsSimDisplay(e.Name))).ToList(),
-            dus.Select(d => (d.Serial, d.Label, d.Alive, d.Display, Firmware.IsOutdated(d.Info?.Firmware, dmc.FirmwareVersion), d.Health)).ToList(),
+            dus.Select(d => (d.Serial, d.Label, d.Alive, string.Join("+", Shows(d)), Firmware.IsOutdated(d.Info?.Firmware, dmc.FirmwareVersion), d.Health)).ToList(),      // tiles count as showing something
             strays.Count, popout.Status, popout.Detail, popout.Missing, brightness.Running, brightness.Map.Count == 0, brightness.Standdown, brightness.Aircraft));
 
         return new JsonObject
@@ -222,6 +222,9 @@ public static class Api
         };
     }
 
+    /// <summary>The displays a DU shows: its tiles in tile mode, else its one display.</summary>
+    private static IEnumerable<string> Shows(DuStatus d) => d.Tiles.Count > 0 ? d.Tiles.Select(t => t.Display) : d.Display.Length > 0 ? [d.Display] : [];
+
     private static bool InUse(DmcRuntime dmc, DisplayEntry e) => dmc.Dus.IsShown(e.Name) || e.Slot.Clients > 0;
 
     private static JsonObject Displays(DmcRuntime dmc)
@@ -241,7 +244,8 @@ public static class Api
                 ["backend"] = "wgc",
                 ["error"] = window is null ? e.Capture.Error : "",
                 ["clients"] = e.Slot.Clients,
-                ["du_assigned"] = dmc.Dus.Status().Count(d => d.Alive && d.Display == e.Name),
+                ["du_assigned"] = dmc.Dus.Status().Count(d => d.Alive && Shows(d).Contains(e.Name)),
+                ["client_size"] = dmc.Dus.DisplaySize(e.Name) is { } cs ? new JsonArray(cs.Width, cs.Height) : new JsonArray(768, 768),
                 ["capture_fps"] = e.Capture.CurrentFps,
                 ["in_use"] = InUse(dmc, e),
                 ["encode_ms"] = Math.Round(c.EncodeMs, 2),
@@ -269,6 +273,7 @@ public static class Api
                 ["serial"] = d.Serial,
                 ["description"] = conn?.Description ?? "",
                 ["display"] = d.Display.Length > 0 ? d.Display : null,
+                ["shows"] = new JsonArray([.. Shows(d).Select(n => (JsonNode)n)]),
                 ["label"] = d.Label,
                 ["alive"] = d.Alive,
                 ["error"] = d.Alive ? "" : d.Error.Length > 0 ? d.Error : "not connected",

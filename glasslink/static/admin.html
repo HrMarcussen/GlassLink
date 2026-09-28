@@ -9,11 +9,11 @@
      Windows' text size settings and zoom scale the whole page), high contrast (forced-colors), reduced motion.
      State is never shown by colour alone: pills carry a symbol and text. */
   :root { color-scheme: light dark;
-          --bg:#f4f5f7; --card:#ffffff; --line:#c9ced8; --fg:#15181e; --dim:#4f586a; --input:#ffffff;
+          --bg:#f4f5f7; --card:#ffffff; --line:#8a93a3; --fg:#15181e; --dim:#4f586a; --input:#ffffff;
           --ok:#116329; --warn:#7a4d00; --bad:#b3261e; --acc:#0b5cad;
           --ok-bg:#e3f4e7; --warn-bg:#fdf0d5; --bad-bg:#fbe4e2; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0f1115; --card:#181b22; --line:#3a4150; --fg:#eceef2; --dim:#a3acbd; --input:#0f1115;
+    :root { --bg:#0f1115; --card:#181b22; --line:#6b7486; --fg:#eceef2; --dim:#a3acbd; --input:#0f1115;
             --ok:#4ade6a; --warn:#f5c04a; --bad:#ff7b7b; --acc:#6cb2ff;
             --ok-bg:#13261a; --warn-bg:#2a2412; --bad-bg:#2a1414; } }
   * { box-sizing: border-box; }
@@ -72,14 +72,16 @@
   .banner.done { border-color:var(--ok); background:var(--ok-bg); } .banner.bad { border-color:var(--bad); background:var(--bad-bg); }
   .banner b { font-size:1.0625rem; }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  /* Layout editor: the DU's screen to scale, the tiles in it; drag a tile or use its number fields (steps of 16). */
+  /* Layout editor: the DU's screen to scale, the tiles in it; drag a tile, use the arrow keys or its number fields. */
   #modules td.stats { min-width:8.5rem; font-variant-numeric:tabular-nums; } #modules td:nth-child(3) { min-width:11rem; }
+  #clock { font-variant-numeric:tabular-nums; }
   .layout { display:flex; flex-direction:column; gap:.6rem; margin-top:.5rem; align-items:flex-start; }
-  .layout .preview { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; height:14rem; max-width:100%; touch-action:none; }
-  .layout .tile { background:color-mix(in srgb, var(--accent) 45%, #000); }
+  .layout .preview { position:relative; background:#000; border:1px solid var(--line); border-radius:.3rem; width:min(100%, 30rem); overflow:hidden; touch-action:none; }
   tr.layout-row td { padding-top:0; border-top:none; } tr.layout-row details summary { font-size:.875rem; color:var(--dim); }
-  .layout .tile { position:absolute; box-sizing:border-box; border:2px solid var(--accent); background:color-mix(in srgb, var(--accent) 25%, transparent); color:var(--fg); font-size:.75rem; padding:.15rem .3rem; cursor:move; user-select:none; overflow:hidden; }
-  .layout .tile:focus { outline:2px solid var(--fg); outline-offset:-4px; }
+  .layout .tile { position:absolute; box-sizing:border-box; border:2px solid var(--acc); background:color-mix(in srgb, var(--acc) 35%, #000);
+                  color:#fff; font-size:.75rem; padding:.15rem .3rem; cursor:move; user-select:none; overflow:hidden; line-height:1.25; }
+  .layout .tile.outside { border-style:dashed; border-color:var(--bad); }
+  .layout .tile:focus-visible { outline:3px solid #fff; outline-offset:-5px; }
   .layout .tile.off { display:none; }
   .layout table.tiles { width:auto; } .layout table.tiles td { padding:.2rem .6rem; } .layout table.tiles input[type=number] { width:5.5rem; }
   .layout .hint { font-size:.8125rem; color:var(--dim); }
@@ -134,7 +136,8 @@
     td br { display:none; } td:empty { display:none; }
     header, main { padding-left:.8rem; } main { padding-right:.8rem; } header .right { padding-right:.8rem; }
   }
-  @media (forced-colors: active) { .pill, .card, tr, .banner, button, input, select { border:1px solid CanvasText; } nav a.on { border-bottom-color:Highlight; } }
+  @media (forced-colors: active) { .pill, .card, tr, .banner, button, input, select, .layout .tile { border:1px solid CanvasText; } nav a.on { border-bottom-color:Highlight; } }
+  @media (max-width: 62rem) { tr.layout-row td::before { display:none; } button, select, summary { min-height:2.75rem; } #chain a.pill { padding:.45rem .8rem; } }
   @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
@@ -178,7 +181,7 @@
   <div id="editor">
     <div id="editor-table"></div>
     <div style="margin-top:10px">
-      <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24">
+      <input type="text" class="short" id="new-name" placeholder="new display, e.g. fo_pfd" maxlength="24" aria-label="name of a new display">
       <button id="add-display">Add display</button>
       <span class="dim small" style="margin-left:.6rem">A new display gets 768 x 768 and a free parking place off-screen. Press <b>Learn</b> on it and Right-Alt + click that display once in the cockpit when the banner says so: the DMC sets the camera itself and pops it out on its own from then on.</span>
     </div>
@@ -209,11 +212,28 @@
   const $ = (s) => document.querySelector(s);
   const labelCells = (root) => root.querySelectorAll('table').forEach(t => {
     const heads = [...t.querySelectorAll('thead th')].map(h => h.textContent.trim());
-    t.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { td.dataset.label = heads[i] || ''; }));
+    t.querySelectorAll(':scope > tbody > tr:not(.layout-row)').forEach(tr => [...tr.children].forEach((td, i) => { td.dataset.label = heads[i] || ''; }));
   });
   let displaysOrder = [];
 
-  function pill(text, cls) { return `<span class="pill ${cls}">${text}</span>`; }
+  // Every value from the DMC, the sim or the user goes through esc() before it becomes HTML (#2).
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function pill(text, cls) { return `<span class="pill ${cls || ''}">${esc(text)}</span>`; }
+  // Write only what changed: rewriting identical HTML every 2 s loses focus, selection and tooltips (#11).
+  const setHTML = (el, html) => { if (el && el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; } };
+  // A closed <select> fires change on every arrow key in Chromium: keyboard changes apply on Enter or when leaving
+  // the field, mouse choices at once (#9).
+  function onChoose(sel, fn) {
+    let kbd = false, pending = false;
+    sel.addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key) || e.key.length === 1) kbd = true;
+      if (e.key === 'Enter' && pending) { pending = false; kbd = false; fn(); }
+    });
+    sel.addEventListener('change', () => { if (kbd) pending = true; else fn(); });
+    sel.addEventListener('blur', () => { if (pending) { pending = false; fn(); } kbd = false; });
+  }
+  // The displays a DU shows: its tiles, else its one display (#8).
+  const showsOf = (m) => m.shows || (m.display ? [m.display] : []);
 
   // In the DMC's own window there is no Windows title bar: this bar is it (Windows drags the window by it and maximises on a double click), and its buttons talk to the window.
   const host = window.chrome && window.chrome.webview;
@@ -226,7 +246,7 @@
   const NICE = { pfd: 'Captain PFD', nd: 'Captain ND', ecam_upper: 'Upper ECAM', ecam_lower: 'Lower ECAM', fo_nd: 'FO ND', fo_pfd: 'FO PFD' };
   const COCKPIT = ['pfd', 'nd', 'ecam_upper', 'ecam_lower', 'fo_nd', 'fo_pfd'];
   const nice = (name) => NICE[name] || name;
-  const titled = (name) => NICE[name] ? `${NICE[name]}<span class="idname">${name}</span>` : name;
+  const titled = (name) => NICE[name] ? `${NICE[name]}<span class="idname">${esc(name)}</span>` : esc(name);
   const cockpitOrder = (names) => [...names].sort((a, b) => ((COCKPIT.indexOf(a) + 1) || 99) - ((COCKPIT.indexOf(b) + 1) || 99) || a.localeCompare(b));
   let modsNow = {};                               // the DUs as of the last refresh (who shows what)
   let displaysNow = {};                           // the displays as of the last refresh (their picture sizes)
@@ -239,32 +259,45 @@
   let cardsKey = null; const lastSeq = {};
   let advised = [];                               // advice from the DMC, see glasslink/advisor.py
   let sourceFps = {};
-  const isSlow = (name) => advised.some(a => a.id === 'slow_source') && sourceFps[name] !== undefined && sourceFps[name] < 16;
+  const isSlow = (name) => advised.some(a => a.id === 'slow_source') && sourceFps[name] !== undefined && sourceFps[name] < 16
+    && (displaysNow[name] || {}).in_use;          // an idle display runs at the preview rate: not slow (#12)
   // Assigning where you look: every display card says which DU shows it and offers the DUs to put it on. The list
   // is rebuilt only when its content changes and never while it is open (a refresh would close it under the finger).
   const duName = (m, serial) => m.label || serial.slice(0, 8);
+  const tiled = (m) => !!(m.settings && m.settings.tiles);
   function renderPick(card, name) {
     const alive = Object.entries(modsNow).filter(([, m]) => m.alive).sort((a, b) => duName(a[1], a[0]).localeCompare(duName(b[1], b[0])));
-    const on = alive.filter(([, m]) => m.display === name);
-    const where = on.length ? `Shown on <b>${on.map(([s, m]) => duName(m, s)).join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
+    const on = alive.filter(([, m]) => showsOf(m).includes(name));
+    const where = on.length ? `Shown on <b>${on.map(([s, m]) => esc(duName(m, s))).join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
     const pick = card.querySelector('.pick');
-    const sig = where + '|' + alive.map(([s, m]) => `${s}:${m.label}:${m.display}`).join(',');
+    const what = (m) => tiled(m) ? `shows ${showsOf(m).map(nice).join(' + ')}` : m.display ? 'now shows ' + nice(m.display) : 'free';
+    const sig = where + '|' + alive.map(([s, m]) => `${s}:${m.label}:${showsOf(m).join('+')}`).join(',');
     if (card.dataset.pick === sig || document.activeElement === pick) return;
     card.dataset.pick = sig;
     card.querySelector('.where').innerHTML = where;
     pick.hidden = !alive.length;
     pick.setAttribute('aria-label', `Choose the DU that shows ${nice(name)}`);
     pick.innerHTML = `<option value="">${on.length ? 'Change…' : 'Put on a DU…'}</option>`
-      + alive.filter(([, m]) => m.display !== name).map(([s, m]) => `<option value="put:${s}">Put on ${duName(m, s)} (${m.display ? 'now shows ' + nice(m.display) : 'free'})</option>`).join('')
-      + on.map(([s, m]) => `<option value="clear:${s}">Take off ${duName(m, s)}</option>`).join('');
-    pick.onchange = () => {
-      const [what, serial] = pick.value.split(':'); pick.value = ''; pick.blur();
+      + alive.filter(([, m]) => !showsOf(m).includes(name)).map(([s, m]) => `<option value="put:${esc(s)}">${tiled(m) ? 'Add to' : 'Put on'} ${esc(duName(m, s))} (${esc(what(m))})</option>`).join('')
+      + on.map(([s, m]) => `<option value="clear:${esc(s)}">Take off ${esc(duName(m, s))}</option>`).join('');
+    if (pick.dataset.wired) return;
+    pick.dataset.wired = '1';
+    onChoose(pick, () => {
+      const [act, serial] = pick.value.split(':'); pick.value = '';
       if (!serial) return;
-      const send = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      send({ display: what === 'put' ? name : '' })
-        .then(r => { if (!r.ok) return r.text().then(t => alert(t)); if (what === 'put') send({ command: 'ident', arg: 3 }); })   // the DU that got it says so for 3 s
+      const m = modsNow[serial] || {};
+      const send = (body) => fetch(`/modules/${encodeURIComponent(serial)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      let body;
+      if (tiled(m)) {                                  // a DU with several displays: add or remove a tile
+        const tiles = { ...m.settings.tiles };
+        if (act === 'put') { const lay = m.layout || []; const right = Math.max(0, ...lay.map(l => l.x + l.w)); tiles[name] = { x: right, y: 0 }; }
+        else delete tiles[name];
+        body = { tiles: Object.keys(tiles).length ? tiles : null };
+      } else body = { display: act === 'put' ? name : '' };
+      send(body)
+        .then(r => { if (!r.ok) return r.text().then(t => alert(t)); if (act === 'put') send({ command: 'ident', arg: 3 }); })   // the DU that got it says so for 3 s
         .then(() => setTimeout(refresh, 300));
-    };
+    });
   }
 
   function renderDisplays(d) {
@@ -273,9 +306,9 @@
     if (key !== cardsKey) {
       cardsKey = key;
       $('#displays').classList.toggle('cockpit', COCKPIT.every(n => n in d));
-      $('#displays').innerHTML = displaysOrder.map(name => `<div class="card" data-name="${name}">
+      $('#displays').innerHTML = displaysOrder.map(name => `<div class="card" data-name="${esc(name)}">
         <div class="title"><span>${titled(name)}</span><span class="st"></span></div>
-        <a href="/view/${name}" target="_blank" title="open ${nice(name)} in the viewer"><img alt="${nice(name)}"></a>
+        <a href="/view/${encodeURIComponent(name)}" target="_blank" title="open ${esc(nice(name))} in the viewer"><img alt="${esc(nice(name))}"></a>
         <div class="shown"><span class="where"></span><select class="pick" hidden></select></div>
         <div class="kv">
           <span>window</span><span class="win"></span>
@@ -286,16 +319,16 @@
         </div></div>`).join('') || '<div class="empty">No displays configured. Add one under Setup.</div>';
     }
     for (const name of displaysOrder) {
-      const s = d[name]; const card = document.querySelector(`#displays .card[data-name="${name}"]`);
+      const s = d[name]; const card = document.querySelector(`#displays .card[data-name="${CSS.escape(name)}"]`);
       if (!card) continue;
       const found = !!s.window.hwnd; const c = s.counters || {};
-      card.querySelector('.st').innerHTML = !found ? pill(s.error || 'no window', 'bad')
+      setHTML(card.querySelector('.st'), !found ? pill(s.error || 'no window', 'bad')
         : (s.in_use && isSlow(name)) ? `<span class="pill warn" title="see the advice at the top of the page">slow source · ${sourceFps[name].toFixed(0)} frames/s</span>`
         : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
            : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
-              : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`));
+              : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`)));
       renderPick(card, name);
-      card.querySelector('.win').innerHTML = found ? `${s.window.title} <span class="dim">(${s.window.hwnd})</span>` : '<span class="dim">waiting for pop-out</span>';
+      setHTML(card.querySelector('.win'), found ? `${esc(s.window.title)} <span class="dim">(${esc(s.window.hwnd)})</span>` : '<span class="dim">waiting for pop-out</span>');
       card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
       card.querySelector('.backend').textContent = s.backend || '-';
       card.querySelector('.frames').textContent = `${c.received || 0} in / ${c.published || 0} sent / ${c.unchanged || 0} unchanged`;
@@ -304,7 +337,7 @@
       if (!found) { img.removeAttribute('src'); lastSeq[name] = null; }
       else if (lastSeq[name] !== s.seq) {              // load the new picture off-screen, then swap: no flicker, no jump
         lastSeq[name] = s.seq;
-        const pre = new Image(); pre.onload = () => { img.src = pre.src; }; pre.src = `/snapshot/${name}.jpg?seq=${s.seq}`;
+        const pre = new Image(); pre.onload = () => { img.src = pre.src; }; pre.src = `/snapshot/${encodeURIComponent(name)}.jpg?seq=${s.seq}`;
       }
     }
   }
@@ -313,7 +346,7 @@
   function showTab(name) {
     if (!document.querySelector(`section.tab[data-tab="${name}"]`)) name = 'displays';
     document.querySelectorAll('section.tab').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
-    document.querySelectorAll('#tabs a').forEach(x => x.classList.toggle('on', x.dataset.tab === name));
+    document.querySelectorAll('#tabs a').forEach(x => { x.classList.toggle('on', x.dataset.tab === name); if (x.dataset.tab === name) x.setAttribute('aria-current', 'page'); else x.removeAttribute('aria-current'); });
     try { localStorage.setItem('glasslink.tab', name); } catch (e) {}
     if (name === 'setup') { editorKey = ''; if (typeof refresh === 'function') refresh(); }
   }
@@ -323,17 +356,17 @@
   function renderSystem(s) {
     const br = s.brightness || {}; const pr = s.process || {}; const fi = s.firmware_image || {};
     const rows = [
-      ['DMC version', `${s.version}${s.build ? ' (' + s.build + ')' : ''}${s.engine ? ' · ' + s.engine : ''}`],
-      ['Simulator', (s.sim ? (s.sim.connected ? `connected${s.sim.fps ? ' · ' + s.sim.fps + ' frames a second' : ''}${s.sim.in_cockpit ? '' : ' · not in the cockpit'}` : 'not running') : (br.running ? 'connected' : 'not running'))],
-      ['Process', `priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`],
-      ['Auto pop-out', `${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`],
-      ['Brightness link', !br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`],
-      ['DU firmware', `${s.firmware_version || '-'} <span class="dim">· a DU with an older version gets an Update button</span>`],
-      ['Firmware image', fi.available ? `${fi.version} · ${Math.round(fi.size / 1024)} KB · built ${fi.modified} <span class="dim">· on this PC; nothing comes from the internet</span>` : `none (${fi.error || ''})`],
-      ['USB', (s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off'],
+      ['DMC version', esc(`${s.version}${s.build ? ' (' + s.build + ')' : ''}${s.engine ? ' · ' + s.engine : ''}`)],
+      ['Simulator', esc(s.sim ? (s.sim.connected ? `connected${s.sim.fps ? ' · ' + s.sim.fps + ' frames a second' : ''}${s.sim.in_cockpit ? '' : ' · not in the cockpit'}` : 'not running') : (br.running ? 'connected' : 'not running'))],
+      ['Process', esc(`priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`)],
+      ['Auto pop-out', esc(`${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`)],
+      ['Brightness link', esc(!br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`)],
+      ['DU firmware', `${esc(s.firmware_version || '-')} <span class="dim">· a DU with an older version gets an Update button</span>`],
+      ['Firmware image', fi.available ? `${esc(fi.version)} · ${Math.round(fi.size / 1024)} KB · built ${esc(fi.modified)} <span class="dim">· on this PC; nothing comes from the internet</span>` : esc(`none (${fi.error || ''})`)],
+      ['USB', esc((s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off')],
       ['Getting started', '<button id="show-checklist">Show the checklist again</button>'],
     ];
-    $('#system-kv').innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('');
+    setHTML($('#system-kv'), rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join(''));
   }
 
   function renderModules(m) {
@@ -343,113 +376,147 @@
       return;
     }
     const openMore = new Set([...document.querySelectorAll('#modules details.more[open]')].map(x => x.closest('tr').dataset.serial));
+    const python = !!(lastStatus && lastStatus.engine === 'python');          // the reference DMC cannot drive layouts (#50)
     const openLayout = new Set([...document.querySelectorAll('#modules tr.layout-row details[open]')].map(x => x.closest('tr').dataset.serial));
     const opts2 = (cur) => ['<option value="">— not assigned —</option>']
-      .concat(displaysOrder.map(n => `<option value="${n}" ${n === cur ? 'selected' : ''}>${nice(n)}</option>`)).join('');
+      .concat(displaysOrder.map(n => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(nice(n))}</option>`)).join('');
     const rows = serials.map(serial => {
       const x = m[serial];
       const alive = x.alive ? pill('connected', 'ok') : pill(x.error || 'not connected', 'bad');
       const info = x.info || {};
-      const facts = info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''} · serial ${serial}` : `serial ${serial}`;
-      return `<tr data-serial="${serial}">
-        <td><input type="text" class="label" value="${x.label || ''}" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${serial.slice(0, 8)}</code></span></td>
+      const facts = esc(info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''} · serial ${serial}` : `serial ${serial}`);
+      const canLayout = !python && ((info.caps || []).includes('tiles') || (info.caps || []).includes('mode'));
+      return `<tr data-serial="${esc(serial)}">
+        <td><input type="text" class="label" value="${esc(x.label || '')}" maxlength="32" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${esc(serial.slice(0, 8))}</code></span></td>
         <td>${alive}</td>
-        <td>${(x.settings && x.settings.tiles) ? `<span class="tiles-summary">${Object.keys(x.settings.tiles).map(nice).join(' + ')}</span><br><span class="dim small">${(x.layout || []).map(l => `${nice(l.display)} ${l.w}x${l.h} at ${l.x},${l.y}`).join(' · ') || 'layout not sent yet'}</span>${x.layout_problem ? '<br>' + pill(x.layout_problem, 'warn') : ''}`
-              : `<select class="display" aria-label="display shown on this unit">${opts2(x.display)}</select>`}
-            ${(info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${(x.settings && x.settings.tiles) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}</td>
+        <td>${tiled(x) ? `<span class="tiles-summary">${esc(Object.keys(x.settings.tiles).map(nice).join(' + '))}</span><br><span class="dim small">${esc((x.layout || []).map(l => `${nice(l.display)} ${l.w}x${l.h} at ${l.x},${l.y}`).join(' · ') || 'layout not sent yet')}</span>${x.layout_problem ? '<br>' + pill(x.layout_problem, 'warn') : ''}`
+              : `<select class="display" aria-label="display shown on ${esc(x.label || serial.slice(0, 8))}">${opts2(x.display)}</select>`}
+            ${canLayout && (info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${tiled(x) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}
+            ${python && tiled(x) ? '<br>' + pill('this layout needs the .NET DMC', 'warn') : ''}</td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
         <td class="stats"></td>
         <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
         <td>${x.alive ? `<button class="ident primary${x.ident_active ? ' on' : ''}" title="shows this DU's label on its own panel, so you can see which one it is">${x.ident_active ? 'Stop identify' : 'Identify'}</button>
-            ${x.fw_outdated ? `<button class="update">Update to ${fwVersion}</button>` : ''}` : ''}
+            ${x.fw_outdated ? `<button class="update">Update to ${esc((fwImage && fwImage.version) || fwVersion)}</button>` : ''}` : ''}
           <details class="more" ${openMore.has(serial) ? 'open' : ''}><summary>More</summary><div class="box">
             ${x.alive ? `<button class="ping" title="measures the round trip to the DU">Ping</button><span class="dim pingms"></span>
               ${x.fw_outdated ? '' : `<button class="update" title="installs the built firmware image again">Reinstall firmware</button>`}` : ''}
             ${!x.alive ? `<button class="forget danger" title="removes this DU's assignment and label">Forget this DU</button>` : ''}
             <span class="facts">${facts}<span class="sent"></span></span></div></details></td>
-      </tr>${(info.caps || []).includes('tiles') || (info.caps || []).includes('mode') ? `<tr class="layout-row" data-serial="${serial}"><td colspan="7" data-label=""><details class="layout-box" ${openLayout.has(serial) ? 'open' : ''}><summary>Screen and layout of ${x.label || serial.slice(0, 8)}</summary><div class="box layout"></div></details></td></tr>` : ''}`;
+      </tr>${canLayout ? `<tr class="layout-row" data-serial="${esc(serial)}"><td colspan="7"><details class="layout-box" ${openLayout.has(serial) ? 'open' : ''}><summary>Screen and layout of ${esc(x.label || serial.slice(0, 8))}</summary><div class="box layout"></div></details></td></tr>` : ''}`;
     }).join('');
     $('#modules').innerHTML = `<table><thead><tr><th>Display unit</th><th>State</th><th>Shows</th><th>Brightness</th><th>Picture</th><th>Firmware</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     labelCells($('#modules'));
-    document.querySelectorAll('#modules tr[data-serial]').forEach(tr => {
+    document.querySelectorAll('#modules tr[data-serial]:not(.layout-row)').forEach(tr => {    // not the layout rows (#5)
       const serial = tr.dataset.serial;
-      const post = (body) => fetch(`/modules/${serial}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
-      const ds = tr.querySelector('.display'); if (ds) ds.onchange = (e) => post({ display: e.target.value });
-      const lb = tr.querySelector('.layout-btn'); const box = document.querySelector(`#modules tr.layout-row[data-serial="${serial}"] details.layout-box`);
-      if (lb && box) lb.onclick = () => { box.open = true; box.scrollIntoView({ block: 'nearest' }); };
-      if (box) { renderLayout(box.querySelector('.layout'), serial, m[serial], post); box.ontoggle = () => { if (box.open) renderLayout(box.querySelector('.layout'), serial, m[serial], post); }; }
-      tr.querySelector('.label').onchange = (e) => post({ label: e.target.value });
-      tr.querySelector('.brightness').onchange = (e) => post({ brightness: parseInt(e.target.value, 10) });
+      const post = modulePost(serial);
+      const ds = tr.querySelector('.display'); if (ds) onChoose(ds, () => post({ display: ds.value }));
+      const lb = tr.querySelector('.layout-btn'); const box = document.querySelector(`#modules tr.layout-row[data-serial="${CSS.escape(serial)}"] details.layout-box`);
+      if (lb && box) lb.onclick = () => { box.open = true; box.scrollIntoView({ block: 'nearest' }); renderLayout(box.querySelector('.layout'), serial); };
+      if (box) box.ontoggle = () => { if (box.open) renderLayout(box.querySelector('.layout'), serial); };
+      const lab = tr.querySelector('.label'); if (lab) lab.onchange = (e) => post({ label: e.target.value });
+      const bri = tr.querySelector('.brightness'); if (bri) bri.onchange = (e) => post({ brightness: parseInt(e.target.value, 10) });
       const ib0 = tr.querySelector('.ident');
-      if (ib0) ib0.onclick = (e) => { e.target.blur(); post({ command: 'ident', arg: e.target.classList.contains('on') ? 0 : 600 }).then(() => setTimeout(refresh, 300)); };
+      if (ib0) ib0.onclick = (e) => { post({ command: 'ident', arg: e.target.classList.contains('on') ? 0 : 600 }).then(() => setTimeout(refresh, 300)); };
       const pb0 = tr.querySelector('.ping');
-      if (pb0) pb0.onclick = (e) => { e.target.blur(); post({ command: 'ping', arg: Date.now() & 0xffff }).then(() => setTimeout(refresh, 300)); };
-      tr.querySelectorAll('.update').forEach(ub0 => ub0.onclick = (e) => { e.target.blur();
+      if (pb0) pb0.onclick = () => { post({ command: 'ping', arg: Date.now() & 0xffff }).then(() => setTimeout(refresh, 300)); };
+      tr.querySelectorAll('.update').forEach(ub0 => ub0.onclick = () => {
         const img = fwImage || {};
         if (!img.available) { alert('No firmware image to install: ' + (img.error || 'unknown')); return; }
         if (confirm(`Install firmware ${img.version} (built ${img.modified}, ${Math.round(img.size / 1024)} KB) on DU ${serial.slice(0, 8)}…?\nThe DU restarts when it is done. Do not unplug it meanwhile.`))
           post({ command: 'update' }).then(() => setTimeout(refresh, 300)); });
       const fb0 = tr.querySelector('.forget');
-      if (fb0) fb0.onclick = (e) => { e.target.blur(); if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${serial}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
+      if (fb0) fb0.onclick = () => { if (confirm(`Forget module ${serial.slice(0, 8)}… (assignment and label)?`)) fetch(`/modules/${encodeURIComponent(serial)}`, { method: 'DELETE' }).then(r => { if (!r.ok) r.text().then(t => alert(t)); setTimeout(refresh, 300); }); };
     });
+    document.querySelectorAll('#modules tr.layout-row details[open]').forEach(d => renderLayout(d.querySelector('.layout'), d.closest('tr').dataset.serial));
   }
+  const modulePost = (serial) => (body) => fetch(`/modules/${encodeURIComponent(serial)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
 
   // ---- screen and layout of one DU ------------------------------------------------------------------------
   // The DU's screen to scale with the tiles in it. A tile is a display at a position; its size is the display's own
-  // picture size (Setup tab), so nothing is scaled on the way. Positions are free; sizes are multiples of 8.
+  // picture size (Setup tab: client_size), so nothing is scaled on the way. Positions are free; sizes are multiples
+  // of 16 (the DU's JPEG decoder works in 16 x 16 blocks). It re-renders on every refresh when something changed,
+  // except while a tile is dragged or a number field is being edited (#7).
   const SCREENS = [[0, '768x768 (GlassLink panel)'], [1, '1024x768'], [2, '800x600'], [3, '1280x720'], [4, '1920x1080 (30 Hz)']];
-  function renderLayout(el, serial, x, post) {
+  const MAX_TILES = 6;                              // what the DU firmware keeps
+  let dragging = null;
+  function renderLayout(el, serial) {
+    const x = modsNow[serial];
     if (!el || !x) return;
+    const ae = document.activeElement;
+    if (dragging === serial || (ae && el.contains(ae) && ae.matches('input[type=number], select'))) return;
     const info = x.info || {}; const st = x.settings || {};
     const tiles = st.tiles || (x.display ? { [x.display]: { x: 0, y: 0 } } : {});     // no layout yet: the single display is the first tile
     const screen = st.screen ?? '';
     const panel = info.panel || [768, 768];
-    const sizes = {}; for (const [n, d] of Object.entries(displaysNow)) sizes[n] = d.size || [768, 768];
-    const key = JSON.stringify([screen, tiles, panel, x.cards, sizes, displaysOrder]);
+    const sizes = {}; for (const n of displaysOrder) { const d = displaysNow[n] || {}; sizes[n] = d.client_size || d.size || [768, 768]; }
+    const key = JSON.stringify([screen, tiles, panel, x.cards, sizes, displaysOrder, info.caps, x.layout_problem]);
     if (el.dataset.key === key) return;
+    const hadFocus = ae && el.contains(ae) ? (ae.dataset.display ? `.tile[data-display="${CSS.escape(ae.dataset.display)}"]` : null) : null;
     el.dataset.key = key;
-    const scale = Math.min(1, 34 * 16 / panel[0]);
+    const count = Object.keys(tiles).length;
+    const outside = (n) => { const t = tiles[n]; const sz = sizes[n]; return t && (t.x + sz[0] > panel[0] || t.y + sz[1] > panel[1]); };
     const rows = displaysOrder.map(n => {
       const t = tiles[n]; const sz = sizes[n];
-      return `<tr data-display="${n}"><td><label><input type="checkbox" class="on" ${t ? 'checked' : ''}> ${nice(n)}</label></td>
+      return `<tr data-display="${esc(n)}"><td><label><input type="checkbox" class="on" ${t ? 'checked' : ''} ${!t && count >= MAX_TILES ? 'disabled title="at most 6 displays on one DU"' : ''}> ${esc(nice(n))}</label></td>
         <td class="dim small">${sz[0]}x${sz[1]}</td>
-        <td><label>x <input type="number" class="tx" min="0" step="1" value="${t ? t.x : 0}" ${t ? '' : 'disabled'} aria-label="${nice(n)} x"></label></td>
-        <td><label>y <input type="number" class="ty" min="0" step="1" value="${t ? t.y : 0}" ${t ? '' : 'disabled'} aria-label="${nice(n)} y"></label></td></tr>`;
+        <td><label>x <input type="number" class="tx" min="0" max="${panel[0]}" step="1" value="${t ? t.x : 0}" ${t ? '' : 'disabled'} aria-label="${esc(nice(n))}: x position"></label></td>
+        <td><label>y <input type="number" class="ty" min="0" max="${panel[1]}" step="1" value="${t ? t.y : 0}" ${t ? '' : 'disabled'} aria-label="${esc(nice(n))}: y position"></label></td>
+        <td class="small">${outside(n) ? pill('outside the screen', 'warn') : ''}</td></tr>`;
     }).join('');
     el.innerHTML = `
-      <div class="full">${(info.caps || []).includes('mode') ? `<label>Screen <select class="screen" aria-label="HDMI mode of this DU"><option value="">as it is (${panel.join('x')})</option>${SCREENS.map(([v, t]) => `<option value="${v}" ${String(v) === String(screen) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-        <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span>` : ''}</div>
-      <div class="preview" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen with its tiles">
-        ${displaysOrder.map(n => { const t = tiles[n]; const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'}" tabindex="${t ? 0 : -1}" data-display="${n}" style="left:${(t ? t.x : 0) / panel[0] * 100}%;top:${(t ? t.y : 0) / panel[1] * 100}%;width:${sz[0] / panel[0] * 100}%;height:${sz[1] / panel[1] * 100}%" title="drag, or arrow keys (1 px; with Shift 8 px)">${nice(n)}</div>`; }).join('')}
+      ${(info.caps || []).includes('mode') ? `<div><label>Screen <select class="screen" aria-label="HDMI mode of this DU">${SCREENS.map(([v, t]) => `<option value="${v}" ${String(v) === String(screen === '' ? (info.mode ?? '') : screen) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <button class="apply-screen" hidden>Apply</button>
+        <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span></div>` : ''}
+      <div class="preview" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen, ${panel[0]} x ${panel[1]}, with its tiles">
+        ${displaysOrder.map(n => { const t = tiles[n]; const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'} ${outside(n) ? 'outside' : ''}" role="button" tabindex="${t ? 0 : -1}" data-display="${esc(n)}"
+          aria-label="${esc(nice(n))} at ${t ? t.x : 0}, ${t ? t.y : 0}${outside(n) ? ', outside the screen' : ''}: arrow keys move it (Shift: 8 px)"
+          style="left:${(t ? t.x : 0) / panel[0] * 100}%;top:${(t ? t.y : 0) / panel[1] * 100}%;width:${sz[0] / panel[0] * 100}%;height:${sz[1] / panel[1] * 100}%">${esc(nice(n))}<br><span class="pos">${t ? t.x : 0}, ${t ? t.y : 0}</span>${outside(n) ? '<br>⚠ outside' : ''}</div>`; }).join('')}
       </div>
       <table class="tiles"><tbody>${rows}</tbody></table>
       <div><label><input type="checkbox" class="cards" ${x.cards ? 'checked' : ''}> Show test cards on the DU</label>
         <span class="hint">Each tile as a bright border with its number: stand at the panel and nudge until the border just disappears behind the cutout.</span></div>
-      <div class="hint full">Sizes come from each display's picture size on the Setup tab (multiples of 8: the DU's decoder wants that); a tile must lie inside the screen. With one display ticked the DU shows just that one, as before.</div>`;
+      <div class="hint">Sizes come from each display's picture size on the Setup tab (rounded to 16: the DU's decoder works in 16-pixel blocks); up to ${MAX_TILES} displays; a tile must lie inside the screen. With one display ticked the DU shows just that one, as before.</div>`;
+    const post = modulePost(serial);
     const read = () => { const out = {}; for (const tr of el.querySelectorAll('table.tiles tr')) { if (tr.querySelector('.on').checked) out[tr.dataset.display] = { x: +tr.querySelector('.tx').value || 0, y: +tr.querySelector('.ty').value || 0 }; } return out; };
-    const snap = (v) => Math.max(0, Math.round(v));
+    const clampX = (n, v) => Math.max(0, Math.min(Math.round(v), panel[0] - sizes[n][0]));
+    const clampY = (n, v) => Math.max(0, Math.min(Math.round(v), panel[1] - sizes[n][1]));
     const save = () => { const out = read(); el.dataset.key = '';
-      const single = Object.keys(out).length === 1 && out[x.display] && out[x.display].x === 0 && out[x.display].y === 0;   // just the one display at 0,0: no layout needed
+      const cur = modsNow[serial] || {};
+      const single = Object.keys(out).length === 1 && out[cur.display] && out[cur.display].x === 0 && out[cur.display].y === 0;   // just the one display at 0,0: no layout needed
       post({ tiles: Object.keys(out).length && !single ? out : null }).then(() => setTimeout(refresh, 300)); };
     el.querySelectorAll('table.tiles tr').forEach(tr => {
       tr.querySelector('.on').onchange = save;
-      tr.querySelectorAll('.tx, .ty').forEach(i => i.onchange = () => { i.value = snap(+i.value); save(); });
+      tr.querySelectorAll('.tx, .ty').forEach(i => i.onchange = () => { const n = tr.dataset.display; i.value = i.classList.contains('tx') ? clampX(n, +i.value) : clampY(n, +i.value); save(); });
     });
     const sc = el.querySelector('.preview');
-    const move = (n, x, y) => { const tr = el.querySelector(`table.tiles tr[data-display="${n}"]`); tr.querySelector('.tx').value = snap(x); tr.querySelector('.ty').value = snap(y);
-      const d = el.querySelector(`.tile[data-display="${n}"]`); d.style.left = `${snap(x) / panel[0] * 100}%`; d.style.top = `${snap(y) / panel[1] * 100}%`; };
-    el.querySelectorAll('.tile').forEach(d => {
+    const move = (n, px, py) => { const tr = el.querySelector(`table.tiles tr[data-display="${CSS.escape(n)}"]`); const cx = clampX(n, px), cy = clampY(n, py);
+      tr.querySelector('.tx').value = cx; tr.querySelector('.ty').value = cy;
+      const d = el.querySelector(`.tile[data-display="${CSS.escape(n)}"]`); d.style.left = `${cx / panel[0] * 100}%`; d.style.top = `${cy / panel[1] * 100}%`;
+      d.querySelector('.pos').textContent = `${cx}, ${cy}`; };
+    el.querySelectorAll('.tile:not(.off)').forEach(d => {
       const n = d.dataset.display;
-      d.onpointerdown = (e) => { d.setPointerCapture(e.pointerId); const r = sc.getBoundingClientRect(); const t = read()[n] || { x: 0, y: 0 };
+      d.onpointerdown = (e) => {
+        d.setPointerCapture(e.pointerId); d.focus(); dragging = serial;
+        const r = sc.getBoundingClientRect(); const t = read()[n] || { x: 0, y: 0 }; let moved = false;
         const ox = e.clientX - r.left - t.x / panel[0] * r.width, oy = e.clientY - r.top - t.y / panel[1] * r.height;
-        d.onpointermove = (ev) => move(n, (ev.clientX - r.left - ox) / r.width * panel[0], (ev.clientY - r.top - oy) / r.height * panel[1]);
-        d.onpointerup = () => { d.onpointermove = null; save(); }; };
+        d.onpointermove = (ev) => { moved = true; move(n, (ev.clientX - r.left - ox) / r.width * panel[0], (ev.clientY - r.top - oy) / r.height * panel[1]); };
+        const end = (commit) => { d.onpointermove = d.onpointerup = d.onpointercancel = null; dragging = null; if (commit && moved) save(); };
+        d.onpointerup = () => end(true); d.onpointercancel = () => end(false);
+      };
       d.onkeydown = (e) => { const t = read()[n]; if (!t) return; const st = e.shiftKey ? 8 : 1; const dx = e.key === 'ArrowLeft' ? -st : e.key === 'ArrowRight' ? st : 0, dy = e.key === 'ArrowUp' ? -st : e.key === 'ArrowDown' ? st : 0;
         if (dx || dy) { e.preventDefault(); move(n, t.x + dx, t.y + dy); clearTimeout(d._t); d._t = setTimeout(save, 400); } };
     });
-    const ss = el.querySelector('.screen-select, select.screen'); if (ss) ss.onchange = () => post({ screen: ss.value === '' ? null : +ss.value }).then(() => setTimeout(refresh, 300));
+    // The DU restarts into a new mode: an explicit Apply with a confirmation, never on an arrow key (#9).
+    const ss = el.querySelector('select.screen'), ap = el.querySelector('.apply-screen');
+    if (ss && ap) {
+      ss.onchange = () => { ap.hidden = String(ss.value) === String(info.mode ?? ''); };
+      ap.onclick = () => { if (confirm(`Switch ${duName(x, serial)} to ${ss.options[ss.selectedIndex].text}?\nThe DU restarts; its picture comes back after a few seconds.`))
+        post({ screen: +ss.value }).then(() => { ap.hidden = true; el.dataset.key = ''; setTimeout(refresh, 300); }); };
+    }
     el.querySelector('.cards').onchange = (e) => post({ cards: e.target.checked }).then(() => setTimeout(refresh, 300));
+    if (hadFocus) { const f = el.querySelector(hadFocus); if (f) f.focus(); }
   }
 
   // ---- display editor -------------------------------------------------------------------------------------
@@ -474,53 +541,61 @@
       const fo = d.point_view ? d.point_view === 'FO seat' : /^fo_/.test(name);        // which seat this display is clicked from
       const learnBtn = (seat, primary) => `<button class="${seat === 'fo' ? 'learnmine' : 'learn'}${primary ? '' : ' alt'}" ${busy ? 'disabled' : ''}
         title="${seat === 'fo' ? 'the DMC switches to the copilot seat view, then you Right-Alt + click the display once' : 'the DMC switches to the captain seat view, then you Right-Alt + click the display once'}">${primary ? (d.has_point ? 'Learn again' : 'Learn') : (seat === 'fo' ? 'Learn from the FO seat' : 'Learn from the captain seat')}</button>`;
-      return `<tr data-name="${name}">
-        <td><b>${nice(name)}</b><br><span class="dim small">${name}</span></td>
+      return `<tr data-name="${esc(name)}">
+        <td><b>${esc(nice(name))}</b><br><span class="dim small">${esc(name)}</span></td>
         <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('click point · ' + d.point_view, 'ok') : pill('no click point yet', 'warn')}<br>${d.has_window ? pill('window open', 'ok') : pill('no window', '')}</td>
-        <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096" aria-label="width"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096" aria-label="height"></td>
-        <td><input type="number" class="x" value="${pos[0]}" aria-label="x"> , <input type="number" class="y" value="${pos[1]}" aria-label="y"></td>
-        <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="auto" min="0.2" max="60" step="any" aria-label="capture rate"></td>
-        <td><button class="save primary">Save</button> ${d.sim_window ? learnBtn(fo ? 'fo' : 'captain', true) : ''}
+        <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096" step="16" aria-label="${esc(nice(name))}: width"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096" step="16" aria-label="${esc(nice(name))}: height"></td>
+        <td><input type="number" class="x" value="${pos[0]}" aria-label="${esc(nice(name))}: parked x"> , <input type="number" class="y" value="${pos[1]}" aria-label="${esc(nice(name))}: parked y"></td>
+        <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="auto" min="0.2" max="60" step="any" aria-label="${esc(nice(name))}: capture rate"></td>
+        <td><button class="save primary">Save</button><button class="save cancel">Cancel</button> ${d.sim_window ? learnBtn(fo ? 'fo' : 'captain', true) : ''}
           <details class="more" ${openMoreEd.has(name) ? 'open' : ''}><summary>More</summary><div class="box">
             ${d.sim_window ? learnBtn(fo ? 'captain' : 'fo', false) + ` <button class="closewin" ${d.has_window ? '' : 'disabled'} title="closes the parked pop-out window (you cannot reach it off-screen); the DMC pops it out again by itself">Close window</button>` : ''}
             <button class="remove danger">Remove display</button></div></details></td>
       </tr>`;
     }).join('');
-    $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Pop-out${data.profile ? ' · ' + data.profile : ''}</th><th>Size (px)</th><th>Parked at</th>
+    $('#editor-table').innerHTML = `<table><thead><tr><th>Display</th><th>Pop-out${data.profile ? ' · ' + esc(data.profile) : ''}</th><th>Size (px)</th><th>Parked at</th>
       <th>Capture fps</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     labelCells($('#editor-table'));
     document.querySelectorAll('#editor-table tr[data-name]').forEach(tr => {
       const name = tr.dataset.name; const v = (c) => tr.querySelector(c).value;
       tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => tr.classList.add('dirty')));   // Save appears when there is something to save
-      tr.querySelector('.save').onclick = (e) => { e.target.blur();
+      tr.querySelector('.save').onclick = () => {
         api(`/displays/${name}`, 'POST', { client_size: [v('.w'), v('.h')], position: [v('.x'), v('.y')], fps: v('.fps') || null })
           .then(() => { tr.classList.remove('dirty'); editorKey = ''; refresh(); }).catch(() => {}); };
-      tr.querySelector('.remove').onclick = (e) => { e.target.blur();
+      tr.querySelector('.cancel').onclick = () => { tr.classList.remove('dirty'); editorKey = ''; refresh(); };
+      tr.querySelector('.remove').onclick = () => {
         if (confirm(`Remove ${nice(name)}? A DU that shows it becomes unassigned. Its pop-out window stays open in the sim.`))
           api(`/displays/${name}`, 'DELETE').then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
       const lb = tr.querySelector('.learn');
-      if (lb) lb.onclick = (e) => { e.target.blur();
+      if (lb) lb.onclick = () => {
         if (confirm(`Learn where ${nice(name)} is?\n\nThe DMC switches the cockpit camera to the captain seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
           api(`/displays/${name}/learn`, 'POST', { view: 'standard' }).then(() => refresh()).catch(() => {}); };
       const cw = tr.querySelector('.closewin');
-      if (cw) cw.onclick = (e) => { e.target.blur();
+      if (cw) cw.onclick = () => {
         api(`/displays/${name}/close`, 'POST').then(r => { if (r && r.closed === false) alert(`${name} has no pop-out window right now.`); refresh(); }).catch(() => {}); };
       const lm = tr.querySelector('.learnmine');
-      if (lm) lm.onclick = (e) => { e.target.blur();
+      if (lm) lm.onclick = () => {
         if (confirm(`Learn where ${nice(name)} is, from the FO seat?\n\nThe DMC switches the sim to the copilot seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
           api(`/displays/${name}/learn`, 'POST', { view: 'copilot' }).then(() => refresh()).catch(() => {}); };
     });
   }
+  // A finished learn run stays for 30 s (or until dismissed), then the banner goes (#10).
+  const learnSeen = {}; let learnDismissed = '';
   function renderLearn(learn) {
     const el = $('#learn-banner'); const st = (learn || {}).status || 'idle';
-    if (st === 'idle') { el.hidden = true; return; }
+    const final = ['done', 'error', 'timeout', 'cancelled'].includes(st);
+    const id = `${st}|${learn && learn.display}|${learn && learn.detail}`;
+    if (final && !learnSeen[id]) learnSeen[id] = Date.now();
+    if (st === 'idle' || id === learnDismissed || (final && Date.now() - learnSeen[id] > 30000)) { el.hidden = true; return; }
     el.hidden = false;
     el.className = 'banner' + (st === 'done' ? ' done' : (st === 'error' || st === 'timeout') ? ' bad' : '');
-    const head = { preparing: 'Setting the camera…', waiting: 'Now: Right-Alt + click the display', adopting: 'Got it…',
+    const head = { preparing: 'Setting the camera…', waiting: 'Now: Right-Alt + click the display', adopting: 'Got it…', restoring: 'Bringing your view back…',
                    done: 'Learned', error: 'Could not learn', timeout: 'No pop-out seen', cancelled: 'Cancelled' }[st] || st;
-    el.innerHTML = `<b>${head}</b><span>${nice(learn.display || '')}: ${learn.detail || ''}</span>` +
-      (['preparing', 'waiting'].includes(st) ? '<button id="learn-cancel" style="margin-left:auto">Cancel</button>' : '');
+    setHTML(el, `<b>${esc(head)}</b><span>${esc(nice(learn.display || ''))}: ${esc(learn.detail || '')}</span>` +
+      (['preparing', 'waiting'].includes(st) ? '<button id="learn-cancel" style="margin-left:auto">Cancel</button>'
+        : final ? '<button id="learn-dismiss" style="margin-left:auto" aria-label="Dismiss">Dismiss</button>' : ''));
     const c = $('#learn-cancel'); if (c) c.onclick = () => api('/learn/cancel', 'POST').then(() => refresh()).catch(() => {});
+    const d = $('#learn-dismiss'); if (d) d.onclick = () => { learnDismissed = id; el.hidden = true; };
   }
   fetch('/popout/settings').then(r => r.json()).then(d => { $('#restore-key').value = d.camera_restore_key || ''; }).catch(() => {});
   // Press the combination instead of typing it: the field records modifiers + one key (a-z, 0-9, F1-F24).
@@ -535,7 +610,7 @@
     if (!k) return;                                   // a modifier on its own, or a key the DMC cannot send
     e.target.value = [e.ctrlKey && 'ctrl', e.altKey && 'alt', e.shiftKey && 'shift', k].filter(Boolean).join('+');
   });
-  $('#restore-save').onclick = (e) => { e.target.blur();
+  $('#restore-save').onclick = (e) => {
     api('/popout/settings', 'POST', { camera_restore_key: $('#restore-key').value })
       .then(d => { $('#restore-key').value = d.camera_restore_key || ''; e.target.textContent = 'Saved'; setTimeout(() => { e.target.textContent = 'Save'; }, 1500); }).catch(() => {}); };
   $('#add-display').onclick = () => { const n = $('#new-name').value.trim(); if (!n) return;
@@ -544,22 +619,23 @@
   // Advice: what the DMC noticed, with steps. Built once per set of advice ids so an opened item stays open and
   // nothing jumps; texts inside are refreshed in place.
   const TAB_NAMES = { displays: 'Displays', dus: 'Display units', setup: 'Setup', system: 'System' };
-  let adviceKey = null;
+  let adviceKey = null; const adviceSeen = new Set();      // opened once per session, not again each time it comes back
   function renderAdvice(list) {
     const box = $('#advice'); const key = list.map(a => a.id).join('|');
     if (key !== adviceKey) {
       const open = new Set([...box.querySelectorAll('details[open]')].map(d => d.dataset.id));
-      const seen = adviceKey === null ? new Set() : new Set(adviceKey.split('|'));
       adviceKey = key;
-      box.innerHTML = list.map(a => `<details class="advice ${a.level === 'info' ? 'info' : ''}" data-id="${a.id}"
-          ${open.has(a.id) || (a.level !== 'info' && !seen.has(a.id)) ? 'open' : ''}>
+      box.innerHTML = list.map(a => `<details class="advice ${a.level === 'info' ? 'info' : ''}" data-id="${esc(a.id)}"
+          ${open.has(a.id) || (a.level !== 'info' && !adviceSeen.has(a.id)) ? 'open' : ''}>
         <summary>${pill(a.level === 'info' ? 'note' : 'attention', a.level === 'info' ? '' : 'warn')} <b class="t"></b>
-          ${a.tab ? `<a class="where" href="#${a.tab}">go to ${TAB_NAMES[a.tab] || a.tab}</a>` : ''}</summary>
+          ${a.tab ? `<a class="where" href="#${esc(a.tab)}">go to ${esc(TAB_NAMES[a.tab] || a.tab)}</a>` : ''}</summary>
         <div class="body"><div class="d dim"></div><ol class="s"></ol></div></details>`).join('');
     }
     for (const a of list) {
+      adviceSeen.add(a.id);
       const el = box.querySelector(`details[data-id="${CSS.escape(a.id)}"]`); if (!el) continue;
-      el.querySelector('.t').textContent = a.title; el.querySelector('.d').textContent = a.detail || '';
+      const t = el.querySelector('.t'), dd = el.querySelector('.d');
+      if (t.textContent !== a.title) t.textContent = a.title; if (dd.textContent !== (a.detail || '')) dd.textContent = a.detail || '';
       const ol = el.querySelector('.s'); const want = JSON.stringify(a.steps || []);
       if (ol.dataset.k !== want) { ol.dataset.k = want; ol.innerHTML = ''; (a.steps || []).forEach(t => { const li = document.createElement('li'); li.textContent = t; ol.appendChild(li); }); }
     }
@@ -567,7 +643,7 @@
 
   // Top bar: the chain sim -> displays -> DUs. A break shows where to look; each pill links to its tab.
   function setPill(id, level, text, title) {
-    const el = $(id); el.textContent = text; el.className = 'pill ' + level; el.title = title || '';
+    const el = $(id); if (el.textContent !== text) el.textContent = text; const c = 'pill ' + level; if (el.className !== c) el.className = c; if (el.title !== (title || '')) el.title = title || '';
   }
   // Getting started: the five things that must be true before a DU shows a display, in the order they happen.
   // Shown until all five have been true once (remembered in this browser), or until it is hidden; the System tab
@@ -579,9 +655,9 @@
     const po = s.popout || {}, br = s.brightness || {};
     const disp = Object.entries(s.displays || {}), found = disp.filter(([, d]) => d.window && d.window.hwnd).length;
     const simUp = found > 0 || br.running || (po.status && po.status !== 'off' && !/sim not running|SimConnect not available/.test(po.detail || ''));
-    const inCockpit = simUp && !/^not in cockpit/.test(po.detail || '');
+    const inCockpit = s.sim && 'in_cockpit' in s.sim ? !!(s.sim.connected && s.sim.in_cockpit) : simUp && !/^not in cockpit/.test(po.detail || '');
     const alive = Object.values(s.modules || {}).filter(m => m.alive);
-    const missing = disp.filter(([, d]) => !(d.window && d.window.hwnd)).map(([n]) => nice(n));
+    const missing = disp.filter(([, d]) => !(d.window && d.window.hwnd)).map(([n]) => esc(nice(n)));
     const steps = [
       ['Displays are set up', disp.length > 0, 'Add the displays of your cockpit under <a href="#setup">Setup</a>.'],
       ['The simulator is running and you are in the cockpit', inCockpit, simUp ? 'Load a flight and wait until you sit in the cockpit.' : 'Start the simulator and load a flight. The DMC waits for it.'],
@@ -589,7 +665,7 @@
         po.status === 'running' ? 'The DMC is popping them out now; the view moves for a few seconds.'
         : `Missing: ${missing.join(', ')}. The DMC pops out the displays it knows a click point for. For the others press Learn under <a href="#setup">Setup</a> and pop the display out once yourself (Right Alt + click).`],
       ['A DU is connected', alive.length > 0, 'Plug a GlassLink DU into a USB port. It appears within a few seconds.'],
-      ['Every DU shows a display', alive.length > 0 && alive.every(m => m.display), 'Use "Put on a DU…" under a display below. The DU you pick shows its name for three seconds.'],
+      ['Every DU shows a display', alive.length > 0 && alive.every(m => showsOf(m).length), 'Use "Put on a DU…" under a display below. The DU you pick shows its name for three seconds.'],
     ];
     if (steps.every(x => x[1])) { store.set('glasslink.setup', 'done'); box.hidden = true; return; }
     const now = steps.findIndex(x => !x[1]);
@@ -607,7 +683,7 @@
     const po = s.popout || {}, br = s.brightness || {};
     const disp = Object.values(s.displays || {}), found = disp.filter(d => d.window && d.window.hwnd).length;
     const simUp = found > 0 || br.running || (po.status && po.status !== 'off' && !/sim not running|SimConnect not available/.test(po.detail || ''));
-    const notCockpit = /^not in cockpit/.test(po.detail || '');
+    const notCockpit = s.sim && 'in_cockpit' in s.sim ? !!(s.sim.connected && !s.sim.in_cockpit) : /^not in cockpit/.test(po.detail || '');
     const knobs = !br.enabled ? '' : br.standdown ? `brightness: dimmed by the aircraft (${br.standdown})`
       : br.running ? (Object.keys(br.map || {}).length ? 'brightness knobs linked' : `no brightness profile for ${br.aircraft || 'this aircraft'}`)
       : `brightness link: ${br.error || 'waiting'}`;
@@ -621,16 +697,16 @@
     if (!total) setPill('#st-displays', 'warn', 'No displays', 'Add displays under Setup');
     else {
       const slow = Object.keys(s.displays || {}).filter(isSlow);
-      if (found === total && slow.length) setPill('#st-displays', 'warn', `Displays ${found}/${total} · slow source`, `${slow.join(', ')}: see the advice below`);
+      if (found === total && slow.length) setPill('#st-displays', 'warn', `Displays ${found}/${total} · slow source`, `${slow.map(nice).join(', ')}: see the advice below`);
       else setPill('#st-displays', found === total ? 'ok' : (found === 0 && !busy ? 'bad' : 'warn'), `Displays ${found}/${total}${found < total ? busy : ''}`,
                    found === total ? 'every display has its pop-out window' : (po.detail || ''));
     }
 
     const mods = Object.values(s.modules || {}), usb = s.usb || {};
-    const wanted = mods.filter(m => (m.settings || {}).display || m.alive), alive = wanted.filter(m => m.alive);
+    const wanted = mods.filter(m => (m.settings || {}).display || (m.settings || {}).tiles || m.alive), alive = wanted.filter(m => m.alive);
     const name = (m) => m.label || (m.serial || '').slice(0, 8);
     const gone = wanted.filter(m => !m.alive).map(name), old = alive.filter(m => m.fw_outdated).map(name);
-    const updating = alive.filter(m => (m.ota || {}).state && !['idle', 'done', 'error'].includes(m.ota.state)).map(name);
+    const updating = alive.filter(m => (m.ota || {}).state === 'running').map(name);
     if (!usb.enabled) setPill('#st-dus', '', 'USB off', '');
     else if (usb.scan_error) setPill('#st-dus', 'bad', 'USB error', usb.scan_error);
     else if (!wanted.length) setPill('#st-dus', 'warn', 'No DUs', 'No display unit is connected');
@@ -640,10 +716,17 @@
     else setPill('#st-dus', 'ok', `DUs ${alive.length}/${wanted.length}`, 'all display units connected');
   }
 
-  let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {};
+  let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {}; let lastStatus = null;
+  let refreshing = false, again = false;
   async function refresh() {
+    if (refreshing) { again = true; return; }       // one request at a time: answers never arrive out of order (#11)
+    refreshing = true;
+    try { await refreshOnce(); } finally { refreshing = false; if (again) { again = false; refresh(); } }
+  }
+  async function refreshOnce() {
     try {
       const s = await (await fetch('/status', { cache: 'no-store' })).json();
+      lastStatus = s;
       $('#version').textContent = `v${s.version}`; $('#version').title = `build ${s.build || '?'}${s.engine ? ' · ' + s.engine : ''}`; fwVersion = s.firmware_version || s.version; fwImage = s.firmware_image || {};
       advised = s.advice || []; sourceFps = s.source_fps || {}; modsNow = s.modules || {}; displaysNow = s.displays || {};
       renderChain(s);
@@ -657,7 +740,7 @@
       const sk = strays.map(w => w.hwnd).join(',');
       if (sb.dataset.key !== sk) {
         sb.dataset.key = sk; sb.hidden = !strays.length;
-        sb.innerHTML = `<b>${strays.length} pop-out window(s) not made by GlassLink</b><span>${strays.map(w => `${w.title} ${w.size[0]}x${w.size[1]} at ${w.position[0]},${w.position[1]}`).join(' · ')} — a display that is already popped out cannot be learned or popped out again.</span><button id="close-strays" style="margin-left:auto">Close them</button>`;
+        sb.innerHTML = `<b>${strays.length} pop-out window(s) not made by GlassLink</b><span>${esc(strays.map(w => `${w.title} ${w.size[0]}x${w.size[1]} at ${w.position[0]},${w.position[1]}`).join(' · '))} — a display that is already popped out cannot be learned or popped out again.</span><button id="close-strays" style="margin-left:auto">Close them</button>`;
         const b = $('#close-strays'); if (b) b.onclick = () => api('/popouts/close-strays', 'POST').then(() => refresh()).catch(() => {});
       }
       $('#n-displays').textContent = Object.keys(s.displays || {}).length || '';
@@ -671,18 +754,19 @@
       const mods = s.modules || {};
       const key = JSON.stringify(Object.fromEntries(Object.entries(mods).map(([k, x]) => [k, {
         display: x.display, alive: x.alive, error: x.error, label: x.label, settings: x.settings, info: x.info,
-        ident: x.ident_active, outdated: x.fw_outdated, layout: x.layout, cards: x.cards, problem: x.layout_problem }]))) + '|' + Object.keys(s.displays || {}).join(',') + '|' + (s.firmware_version || '');
+        ident: x.ident_active, outdated: x.fw_outdated, layout: x.layout, cards: x.cards, problem: x.layout_problem, shows: x.shows }]))) + '|' + Object.keys(s.displays || {}).join(',') + '|' + (s.firmware_version || '') + '|' + (s.engine || '') + '|' + ((s.firmware_image || {}).version || '');
       // an input or dropdown being edited blocks a rebuild; a focused button does not
       const busy = document.activeElement && document.activeElement.closest?.('#modules') && !['BUTTON', 'SUMMARY'].includes(document.activeElement.tagName);
       if (key !== modulesHtmlKey && !busy) { modulesHtmlKey = key; renderModules(mods); }
+      else document.querySelectorAll('#modules tr.layout-row details[open]').forEach(d => renderLayout(d.querySelector('.layout'), d.closest('tr').dataset.serial));
       for (const [serial, x] of Object.entries(mods)) {
-        const tr = document.querySelector(`#modules tr[data-serial="${serial}"]`);
+        const tr = document.querySelector(`#modules tr[data-serial="${CSS.escape(serial)}"]:not(.layout-row)`);
         if (!tr) continue;
         const st = x.stats || {};
         const h = x.health || {};
-        tr.querySelector('.stats').innerHTML = !x.alive ? '<span class="dim">-</span>' : !x.display ? '<span class="dim">nothing assigned</span>'
-          : (h.bad ? pill('not keeping up', 'warn') + `<br><span class="dim small">${(h.reasons || []).join('; ')}</span>`
-             : `${st.fps > 0 ? st.fps + ' fps' : 'still picture'}<br><span class="dim small" title="time the DU needs per picture: transfer + decode + draw">${st.fps > 0 ? Math.round((st.rx_ms || 0) + (st.decode_ms || 0) + (st.draw_ms || 0)) + ' ms per picture' : ''}</span>`);
+        setHTML(tr.querySelector('.stats'), !x.alive ? '<span class="dim">-</span>' : !showsOf(x).length ? '<span class="dim">nothing assigned</span>'
+          : (h.bad ? pill('not keeping up', 'warn') + `<br><span class="dim small">${esc((h.reasons || []).join('; '))}</span>`
+             : `${st.fps > 0 ? st.fps + ' fps' : 'still picture'}<br><span class="dim small" title="time the DU needs per picture: transfer + decode + draw">${st.fps > 0 ? Math.round((st.rx_ms || 0) + (st.decode_ms || 0) + (st.draw_ms || 0)) + ' ms per picture' : ''}</span>`));
         const sent = tr.querySelector('.sent'); if (sent) sent.textContent = ` · ${x.frames_sent || 0} pictures sent`;
         const ib = tr.querySelector('.ident');
         if (ib) { ib.textContent = x.ident_active ? 'Stop identify' : 'Identify'; ib.classList.toggle('on', !!x.ident_active); }
