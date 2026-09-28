@@ -170,8 +170,16 @@ public sealed class DmcRuntime : IDisposable
         return true;
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         Log("stopping");
         Learner.CancelAndWait();                             // a Learn in progress brings the user's view back first (#39)
         Auto?.Dispose();                                     // and a running pop-out stops after its current display

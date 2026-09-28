@@ -180,9 +180,11 @@ internal static class Program
         }
 
         app.StopAsync().GetAwaiter().GetResult();
+        dmc.Dispose();                                       // captures, DUs and SimConnect closed in order ...
+        dmc.Log("stopped");
         try
         {
-            single.ReleaseMutex();
+            single.ReleaseMutex();                           // ... before the mutex goes: --quit and the installer wait for this
         }
         catch (ApplicationException)
         {

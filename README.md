@@ -82,10 +82,10 @@ camera view per panel, zoom) into an GlassLink profile. Profiles can use the sim
 n+1) instead of the camera reset; the server switches views through SimConnect while popping out.
 
 Auto pop-out is controlled by the `popout` section of `config.json` (`auto`, `aircraft` substring of the sim's
-aircraft title, `zoom`, `grace_s`, `retry_s`, `camera_restore`, `camera_slot`) or `serve --auto-popout /
---no-auto-popout`. `camera_restore: "current"` saves the view you had into custom camera `camera_slot`
-(Ctrl+Alt+9 by default) before the reset and loads it again (Alt+9) when done, so the view snaps back; set it to
-a digit to load one of your own custom cameras instead, or to `null` to just reset and restore the zoom. It only acts when the
+aircraft title, `zoom`, `grace_s`, `retry_s`, `camera_restore_key`). When done, the camera view and zoom from
+before come back, and then `camera_restore_key` (e.g. `shift+f1`, the sim's "load custom camera 1") is pressed if
+set, so you are back in your own flying view (the sim ignores injected custom-camera save keys, so the older
+`camera_slot` save/load is gone). It only acts when the
 sim is in the cockpit view with a matching aircraft and a display has been missing for `grace_s` seconds, so it
 also recovers after a flight reload. Manual alternative for any window: `python -m glasslink assign <name>
 [--title T | --hwnd H] [--size WxH] [--position X,Y]` (see `list-windows`).
@@ -251,8 +251,8 @@ are enough; PoE comes when it goes into the cockpit.
 Decisions (8 Sept 2026): modules connect over **USB only** (vendor-specific interface bound to WinUSB, no network
 adapter), with a 12 V barrel jack passed through to the scaler board and a small buck for the ESP32. Modules ship
 with blank firmware and identify themselves by a serial GUID; the cockpit display is assigned per module in the
-app. Protocol: `docs/usb-protocol.md`. The Python server stays during bring-up; the product will be a .NET tray
-application that is server, launcher and configuration UI in one.
+app. Protocol: `docs/usb-protocol.md`. Since 22 Sept 2026 the DMC is the .NET tray application (`dotnet/`), which
+is server, launcher and configuration UI in one; the Python server is kept as the reference and test tool.
 
 Notes:
 - The scaler board wants 12 V (about 5 W with the panel), so a single USB cable cannot power a display; PoE gives

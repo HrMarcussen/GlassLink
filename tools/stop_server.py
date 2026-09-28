@@ -22,7 +22,7 @@ def port_open(port: int) -> bool:
         return False
 
 
-def find_pid(port: int | None = None) -> int | None:
+def find_pid(port: int | None = None, fallback: bool = True) -> int | None:
     """The DMC's process: whatever listens on the port (the .NET or the Python DMC); else a Python DMC by its command line."""
     if port:
         try:
@@ -32,6 +32,8 @@ def find_pid(port: int | None = None) -> int | None:
                     return c.pid
         except Exception:  # noqa: BLE001
             pass
+    if not fallback:
+        return None
     out = subprocess.run(["powershell", "-NoProfile", "-Command",
                           "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*glasslink*serve*' } | Select-Object -ExpandProperty ProcessId"],
                          capture_output=True, text=True).stdout.split()
@@ -60,10 +62,11 @@ def main() -> None:
     if not port_open(a.port):
         print("no server on port", a.port)
         return
+    listener = a.pid or find_pid(a.port, fallback=False)   # while the port is still open: afterwards nothing names it
     try:
         r = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{a.port}/shutdown", method="POST", data=b"{}",
                                                           headers={"Content-Type": "application/json"}), timeout=3)
-        print("shutdown endpoint:", json.loads(r.read() or b"{}"))
+        print("shutdown endpoint:", json.loads(r.read() or b"{}"), flush=True)
     except Exception as exc:  # noqa: BLE001
         pid = a.pid or find_pid(a.port)
         print(f"no /shutdown ({exc}); sending Ctrl+Break to pid {pid}")
@@ -72,7 +75,7 @@ def main() -> None:
         ctrl_c(pid)
     # The port closes before the captures are released: wait for the process itself, so a script that starts the
     # other DMC next cannot overlap capture sessions (#53).
-    pid = a.pid or find_pid(a.port)
+    pid = listener
     for _ in range(60):
         time.sleep(0.5)
         if not port_open(a.port) and (not pid or not pid_alive(pid)):

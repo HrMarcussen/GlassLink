@@ -1,6 +1,7 @@
 # GlassLink DMC <-> DU USB protocol (draft 1, 2026-09-08)
 
-Applies to the ESP32-P4 display modules and to the server's USB output path (Python now, .NET later).
+Applies to the ESP32-P4 display modules and to the DMC's USB output path: the .NET DMC (`dotnet/`, the default
+since 22 Sept 2026) and the Python reference DMC (`glasslink/`, which does not use screen modes and tiles).
 The WebSocket path (`/ws/<name>`) is unchanged and stays available for browsers, Pis and testing.
 
 ## 1. USB device
@@ -76,7 +77,10 @@ offset  size  field
 ## 5. Host behaviour
 
 1. Enumerate all devices with the GlassLink VID/PID (hot-plug aware). Open the WinUSB interface, read the serial.
-2. Send GET_INFO; the module's panel size is compared with the display's `client_size` (they should match; if not, the host downscales or the module letterboxes).
+2. Send GET_INFO. INFO says the screen size (`panel`), the largest frame the DU takes (`max_frame`) and what it
+   can do (`caps`). The host sends no frame larger than `max_frame` and, to a DU with `tiles`, the layout (an empty
+   one for a single display). A picture smaller than the screen is centred by the DU; a larger one is refused, so
+   the display's `client_size` should not exceed the screen (the host does not scale to fit).
 3. Look up the serial in `modules`. Unassigned modules are listed in the app with a "show ident" button; assigning writes the config.
    Send SET_ASSIGNED so the module shows either the picture or its NOT ASSIGNED screen. An unplugged module stays
    listed only if it has an assignment or a label ("Forget" removes that); an unconfigured unit vanishes when unplugged.
@@ -87,13 +91,16 @@ offset  size  field
 
 1. Boot, init panel via LT8912B (768x768@60, 2 DSI lanes), show the "not assigned" screen with serial and firmware version.
 2. Start USB; on configuration, send READY.
-3. On FRAME: hardware-JPEG-decode straight into the back buffer, swap on vsync, send READY with the frame's seq.
+3. On FRAME: hardware-JPEG-decode, dim in the pixel accelerator if the brightness is below 100 %, draw (a full-size
+   picture goes into the frame buffer that is not on screen and the driver switches to it; the next one waits until
+   the old buffer is free, so nothing tears), send READY with the frame's seq.
    Decode errors are reported with LOG and answered with READY so the stream continues.
    The module keeps a copy of the last frame and redraws it when an overlay (IDENT, idle screens) ends.
    Stream resync: if a header does not validate (magic, version, known type, length), the module slides its
    16-byte header window one byte at a time over the incoming data until one does; this recovers from a host that
    was restarted in the middle of a message.
-4. If no FRAME arrives for 5 s, show a small "no signal" marker in a corner (the last frame stays on screen).
+4. If no FRAME arrives, the last frame simply stays on screen (a "no signal" marker is not implemented). SET_ROTATION
+   is stored and reported but not applied yet: the panels are mounted upright.
 5. OTA: dual app partitions; the new image is written to the inactive slot, verified, and booted with rollback protection.
 
 ## 6a. Reserved for the hardware track (protocol freeze, 18 Sept 2026)

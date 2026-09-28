@@ -5,7 +5,7 @@
 //   GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards] [--seconds 20] [--fps 30]
 //        a layout of tiles on one DU (its HDMI mode must fit: see mode), then test pictures to every tile; --cards shows
 //        the tiles as test cards instead
-//   GlassLink.Bench mode <0..3> --serial <prefix>          set a DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720); it restarts
+//   GlassLink.Bench mode <0..4> --serial <prefix>          set a DU's HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720, 4 1920x1080 at 30 Hz); it restarts
 //   GlassLink.Bench ident [--seconds 5]                   show each DU's label on its panel
 //   GlassLink.Bench manage [--seconds 20] [--config ../config.json]   the DU manager with the real assignments
 //   GlassLink.Bench run [--seconds 30] [--config ../config.json] [--sim] [--close-all]

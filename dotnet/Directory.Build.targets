@@ -1,0 +1,9 @@
+<Project>
+  <!-- The WebView2 package also brings its WPF control, which drags in a second WindowsBase (warning MSB3277). Only
+       the WinForms control is used; the package flows into the test project too, so this applies to every project. -->
+  <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+</Project>

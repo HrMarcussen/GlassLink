@@ -98,7 +98,7 @@ public sealed class DuManager : IDisposable
 
             foreach (var path in paths)
             {
-                var serial = WinUsbTransport.SerialFromPath(path);
+                var serial = DevicePaths.Serial(path);
                 if (_connections.ContainsKey(serial))
                 {
                     continue;

@@ -285,8 +285,6 @@ public sealed class StatusWindow : Form
         }
     }
 
-    private static readonly Lazy<Icon> ExeIcon = new(() => (Environment.ProcessPath is { } exe ? Icon.ExtractAssociatedIcon(exe) : null) ?? AppIcon.Value);
-
     /// <summary>The icon in the taskbar: an attitude indicator in a rounded square (sky over earth, a white horizon).</summary>
     private static readonly Lazy<Icon> AppIcon = new(() =>
     {
@@ -324,6 +322,8 @@ public sealed class StatusWindow : Form
             DestroyIcon(handle);
         }
     });
+
+    private static readonly Lazy<Icon> ExeIcon = new(() => (Environment.ProcessPath is { } exe ? Icon.ExtractAssociatedIcon(exe) : null) ?? AppIcon.Value);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint hwnd);

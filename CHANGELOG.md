@@ -134,6 +134,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **Housekeeping from the code review** (issues #56, #57, #59, part of #58): the build is free of warnings (the
+  WebView2 WPF reference is dropped for every project; a platform-neutral serial helper), and CI builds and tests the
+  .NET DMC, compiles the Python code and builds the DU firmware on every push, each only when its part changed. The
+  single-instance mutex is released only after the DMC has closed its captures and DUs, so `--quit` and the installer
+  wait for a complete stop; `tools/stop_server.py` finds the DMC before stopping it and waits for the process (it
+  could hang on a Windows management query). SimConnect.dll is also found in an installed MSFS SDK. Documentation
+  brought in line (protocol host and DU behaviour, the pop-out's camera settings, the .NET DMC as the default).
 - **Python reference DMC, from the code review of 28 Sept 2026** (issues #48-#54):
   - It refuses to start while the .NET DMC runs or the port is taken, before any capture starts (it used to start
     the captures, fail to bind the port and exit with capture sessions of the sim still open); a capture worker

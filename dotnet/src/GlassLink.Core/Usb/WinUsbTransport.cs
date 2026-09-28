@@ -64,11 +64,7 @@ public sealed class WinUsbTransport : IDuTransport
     }
 
     /// <summary>\\?\usb#vid_303a&amp;pid_4001#1501f789...#{guid} -> 1501f789...</summary>
-    public static string SerialFromPath(string devicePath)
-    {
-        var parts = devicePath.Split('#');
-        return parts.Length >= 3 ? parts[2].ToLowerInvariant() : devicePath.ToLowerInvariant();
-    }
+    public static string SerialFromPath(string devicePath) => DevicePaths.Serial(devicePath);
 
     public WinUsbTransport(string devicePath)
     {

@@ -1,0 +1,83 @@
+# Build and test on every push and pull request. Each job runs only when its part changed, and a newer push cancels
+# a running check of the same branch: the repository is private, so Actions minutes count (Windows minutes double).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dotnet: ${{ steps.filter.outputs.dotnet }}
+      python: ${{ steps.filter.outputs.python }}
+      firmware: ${{ steps.filter.outputs.firmware }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dotnet:
+              - 'dotnet/**'
+              - 'glasslink/static/**'
+              - 'VERSION'
+              - 'FIRMWARE_VERSION'
+              - 'config.example.json'
+            python:
+              - 'glasslink/**'
+              - 'tools/**'
+              - 'requirements.txt'
+            firmware:
+              - 'firmware/**'
+              - 'VERSION'
+
+  dotnet:
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # git describe for the build id
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build dotnet/GlassLink.slnx -c Release -warnaserror
+      - name: Test
+        run: dotnet test dotnet/GlassLink.slnx -c Release --no-build --logger "console;verbosity=normal"
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compile
+        run: python -m compileall -q glasslink tools firmware
+
+  firmware:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build (ESP-IDF 5.5.5, ESP32-P4)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32p4
+          path: firmware

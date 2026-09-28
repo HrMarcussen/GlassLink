@@ -44,6 +44,38 @@ public sealed class SimConnectClient : IDisposable
     private int _registered;
     private volatile bool _connected;
 
+    /// <summary>SimConnect.dll is looked for next to GlassLink.exe first (a checkout or a release that ships it), then in
+    /// an installed MSFS SDK (its setup sets MSFS2024_SDK or MSFS_SDK), so a copy does not have to be distributed (#58).</summary>
+    static SimConnectClient() => NativeLibrary.SetDllImportResolver(typeof(SimConnectClient).Assembly, (name, assembly, path) =>
+    {
+        if (!name.StartsWith("SimConnect", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        foreach (var candidate in SimConnectCandidates())
+        {
+            if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out var handle))
+            {
+                return handle;
+            }
+        }
+
+        return 0;                                            // the default search, then DllNotFoundException: "SimConnect not available"
+    });
+
+    public static IEnumerable<string> SimConnectCandidates()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "SimConnect.dll");
+        foreach (var variable in new[] { "MSFS2024_SDK", "MSFS_SDK" })
+        {
+            if (Environment.GetEnvironmentVariable(variable) is { Length: > 0 } sdk)
+            {
+                yield return Path.Combine(sdk, "SimConnect SDK", "lib", "SimConnect.dll");
+            }
+        }
+    }
+
     public SimConnectClient(string appName = "GlassLink DMC", Action<string>? log = null)
     {
         (_appName, _log) = (appName, log);
