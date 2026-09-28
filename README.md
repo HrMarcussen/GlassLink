@@ -137,7 +137,7 @@ Building: `start-server.bat` builds and starts the DMC from a checkout (needs th
 need Python 3.10+ and `pip install -r requirements.txt` in a venv. Every push is built and tested on GitHub
 (`.github/workflows/ci.yml`: .NET build and tests, Python compile, firmware build). Changes are listed in
 [CHANGELOG.md](CHANGELOG.md); open work is in the GitHub issues. How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md);
-security reports: [SECURITY.md](SECURITY.md).
+security reports: [SECURITY.md](SECURITY.md); how a release is made: [docs/releasing.md](docs/releasing.md).
 
 ## Licence
 

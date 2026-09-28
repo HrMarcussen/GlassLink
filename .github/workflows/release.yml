@@ -1,0 +1,118 @@
+# Builds, signs and publishes a release when a version tag (v0.7.0) is pushed. Run it by hand (Actions, Release, Run
+# workflow) for a dry run: the same build, kept as a workflow artifact, nothing published. docs/releasing.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub Release (only when run on a tag)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # git describe for the build id
+      - name: Build (ESP-IDF 5.5.5, ESP32-P4)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32p4
+          path: firmware
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: firmware/build/glasslink_du.bin
+          if-no-files-found: error
+
+  windows:
+    needs: firmware
+    runs-on: windows-latest
+    environment: release            # signing secrets live here; a required reviewer approves every run
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tag is the version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Get-Content VERSION -Raw).Trim()
+          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne "v$v") {
+              throw "tag ${{ github.ref_name }} but VERSION says $v"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware/build
+      - name: SimConnect.dll from build-deps
+        uses: HrMarcussen/release-tools/actions/fetch-deps@v1
+        with:
+          token: ${{ secrets.BUILD_DEPS_TOKEN }}
+          folder: GlassLink
+          destination: dotnet/lib
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build
+        shell: pwsh
+        run: ./tools/build-release.ps1 -Stage publish
+      - name: Sign GlassLink.exe
+        uses: HrMarcussen/release-tools/actions/sign@v1
+        with:
+          files: dist/GlassLink-${{ steps.version.outputs.version }}/GlassLink.exe
+          method: ${{ vars.SIGN_METHOD || 'none' }}
+          certum-user: ${{ secrets.CERTUM_USER }}
+          certum-otp-secret: ${{ secrets.CERTUM_OTP_SECRET }}
+      - name: Zip and installer
+        shell: pwsh
+        run: |
+          ./tools/build-release.ps1 -Stage package
+          Copy-Item firmware/build/glasslink_du.bin "dist/glasslink_du-${{ steps.version.outputs.version }}.bin"
+      - name: Sign the installer
+        uses: HrMarcussen/release-tools/actions/sign@v1
+        with:
+          files: dist/GlassLink-${{ steps.version.outputs.version }}-setup.exe
+          method: ${{ vars.SIGN_METHOD || 'none' }}
+          certum-user: ${{ secrets.CERTUM_USER }}
+          certum-otp-secret: ${{ secrets.CERTUM_OTP_SECRET }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlassLink-${{ steps.version.outputs.version }}
+          path: |
+            dist/GlassLink-${{ steps.version.outputs.version }}-setup.exe
+            dist/GlassLink-${{ steps.version.outputs.version }}-win-x64.zip
+            dist/glasslink_du-${{ steps.version.outputs.version }}.bin
+          if-no-files-found: error
+      - id: notes
+        if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)
+        uses: HrMarcussen/release-tools/actions/changelog-notes@v1
+        with:
+          version: ${{ steps.version.outputs.version }}
+      - if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)
+        uses: HrMarcussen/release-tools/actions/publish-release@v1
+        with:
+          tag: ${{ github.ref_name }}
+          title: GlassLink ${{ steps.version.outputs.version }}
+          notes-file: ${{ steps.notes.outputs.file }}
+          files: |
+            dist/GlassLink-${{ steps.version.outputs.version }}-setup.exe
+            dist/GlassLink-${{ steps.version.outputs.version }}-win-x64.zip
+            dist/glasslink_du-${{ steps.version.outputs.version }}.bin

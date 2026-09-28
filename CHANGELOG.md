@@ -17,6 +17,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- Releases are built, signed and published by GitHub Actions from a version tag (`.github/workflows/release.yml`,
+  `docs/releasing.md`), with the shared steps of `HrMarcussen/release-tools`: the installer, the zip, the DU firmware
+  and `SHA256SUMS.txt` on the GitHub Release, the changelog section as notes. `toolsuild-release.ps1` gains
+  `-Stage publish|package` so the program can be signed before it is packed.
+
 ### Fixed
 - **[DU firmware]** Clearing the screen (layout changes, idle screens) no longer makes a 1080p screen flicker: the
   pixel accelerator fills the frame buffer on screen in one pass, in 32-byte bursts, instead of the CPU filling a

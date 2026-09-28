@@ -2,10 +2,12 @@
 # the DU firmware image, config.example.json), the same as a zip, and - when Inno Setup 6 is installed - the
 # installer dist\GlassLink-<version>-setup.exe from installer\GlassLink.iss.
 #
-#   tools\build-release.ps1 [-NoInstaller]
+#   tools\build-release.ps1 [-NoInstaller] [-Stage all|publish|package]
 #
-# The running DMC is asked to stop first (its files are in use otherwise); start it again afterwards.
-param([switch]$NoInstaller)
+# -Stage publish builds only the folder, -Stage package makes the zip and the installer from it: the release workflow
+# signs GlassLink.exe in between (.github/workflows/release.yml, docs/releasing.md). The running DMC is asked to stop
+# first (its files are in use otherwise); start it again afterwards.
+param([switch]$NoInstaller, [ValidateSet('all', 'publish', 'package')] [string]$Stage = 'all')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $version = (Get-Content "$root\VERSION" -Raw).Trim()
@@ -13,6 +15,7 @@ $build = (git -C $root describe --always --dirty --abbrev=7 --exclude '*').Trim(
 $out = "$root\dist\GlassLink-$version"
 
 $running = "$root\dotnet\src\GlassLink.Dmc\bin\Release\net10.0-windows10.0.26100.0\GlassLink.exe"
+if ($Stage -ne 'package') {
 if (Get-Process GlassLink -ErrorAction SilentlyContinue) {
     Write-Host "stopping the running DMC"
     & $running --quit
@@ -39,11 +42,15 @@ if (Test-Path "$root\firmware\build\glasslink_du.bin") {
 } else {
     Write-Warning "firmware\build\glasslink_du.bin not found: the release cannot update DUs"
 }
+Write-Host "built $out ($build)"
+}
+if ($Stage -eq 'publish') { return }
+if (-not (Test-Path "$out\GlassLink.exe")) { throw "$out\GlassLink.exe not found: run -Stage publish first" }
 
 $zip = "$root\dist\GlassLink-$version-win-x64.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path "$out\*" -DestinationPath $zip
-Write-Host "built $out ($build) and $zip"
+Write-Host "built $zip"
 
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($NoInstaller) { return }
