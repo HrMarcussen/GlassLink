@@ -128,6 +128,8 @@ a DU or DMC that does not know these simply ignores them).
 
 ## 7. Sizes and rates
 
-768x768 JPEG at quality 85 is 30 to 60 KB. At 30 fps that is about 1.5 MB/s per module; a high-speed USB
-link carries 30 to 40 MB/s, a hub shares 480 Mbit/s between its ports, so eight modules on two hubs use about
-a third of one hub's bandwidth. Hardware JPEG decode of 768x768 on the P4 is expected to take 10 to 15 ms.
+A 768x768 JPEG at quality 85 is 30 to 60 KB for a Fenix display, up to about 140 KB for a busy picture; a 1080p band
+of two displays 100 to 300 KB. At 30 fps that is 1 to 9 MB/s per DU; a DU receives about 28 MB/s (16 KB transfers),
+and a USB 2.0 hub shares 480 Mbit/s between its ports, so several DUs share a hub comfortably. The DU's hardware
+decoder takes about 6-8 ms for a 768x768 picture and 25 ms for a 1920x768 band (measured, firmware 0.6.0); the
+largest frame a DU takes is `max_frame` in INFO (512 KB, 1 MB in 1080p).
