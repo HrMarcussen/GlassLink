@@ -1,0 +1,14 @@
+name: Idea or feature request
+description: Something GlassLink could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What do you want to do, and what stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could GlassLink help?

@@ -1,5 +1,7 @@
 # GlassLink
 
+[![CI](https://github.com/HrMarcussen/GlassLink/actions/workflows/ci.yml/badge.svg)](https://github.com/HrMarcussen/GlassLink/actions/workflows/ci.yml)
+
 GlassLink puts a flight simulator's glass-cockpit displays on real screens in a home cockpit. A service on the sim
 PC, the **DMC**, captures the aircraft's displays (PFD, ND, ECAM, ...) and streams them over USB to small
 **DU** modules, each of which drives a panel or monitor. No GPU ports, no extra PCs, one USB cable per DU. Built for
@@ -134,7 +136,8 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 Building: `start-server.bat` builds and starts the DMC from a checkout (needs the .NET 10 SDK); the Python tools
 need Python 3.10+ and `pip install -r requirements.txt` in a venv. Every push is built and tested on GitHub
 (`.github/workflows/ci.yml`: .NET build and tests, Python compile, firmware build). Changes are listed in
-[CHANGELOG.md](CHANGELOG.md); open work is in the GitHub issues.
+[CHANGELOG.md](CHANGELOG.md); open work is in the GitHub issues. How to contribute: [CONTRIBUTING.md](CONTRIBUTING.md);
+security reports: [SECURITY.md](SECURITY.md).
 
 ## Licence
 
