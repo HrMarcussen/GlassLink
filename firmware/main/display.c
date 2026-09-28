@@ -61,6 +61,7 @@ static uint8_t s_lut[256];          /* brightness lookup (CPU fallback), rebuilt
 /* Dimming, cheapest first: in the decoder's own YUV -> RGB conversion (free), else the PPA lays black over the
  * decoded picture in place (~15 ms at 768 x 768), else a CPU table (~78 ms). */
 static ppa_client_handle_t s_ppa;
+static ppa_client_handle_t s_ppa_fill;          /* clears the screen in one pass (#75) */
 static volatile int s_csc_scale = 256;          /* brightness in 1/256: the conversion matrix is multiplied by it */
 static volatile bool s_csc_dimmed;              /* set by the wrapper when it applied s_csc_scale to a decode */
 static bool s_csc_works = true;                 /* cleared if a dimmed decode came out without the wrapper having run */
@@ -389,6 +390,10 @@ esp_err_t display_init(int mode, int dsivar)
         s_fb[0] = s_fb[1] = NULL;
     }
     /* dimming needs no buffer of its own (it works in place); without the PPA the CPU lookup table is used */
+    ppa_client_config_t fill_cfg = {.oper_type = PPA_OPERATION_FILL, .data_burst_length = PPA_DATA_BURST_LENGTH_32};
+    if (ppa_register_client(&fill_cfg, &s_ppa_fill) != ESP_OK) {
+        s_ppa_fill = NULL;
+    }
     ppa_client_config_t ppa_cfg = {.oper_type = PPA_OPERATION_BLEND};
     if (ppa_register_client(&ppa_cfg, &s_ppa) != ESP_OK) {
         s_ppa = NULL;
@@ -408,6 +413,27 @@ display_info_t display_get_info(void)
 
 void display_fill(uint32_t rgb)
 {
+    /* Straight into the frame buffer on screen, with the pixel accelerator: one write pass. Filling a full-screen work
+     * buffer with the CPU and copying it over moved three times the data and starved the 1080p scan-out for a moment
+     * at every layout change ("underrun" on the console, a flicker on screen, #75). Only the buffer on screen: the
+     * other one is always written whole before it is shown (a flip only follows a full-size picture). In 32-byte bursts:
+     * at the default 128 the fill itself starved the scan-out (18 underruns in 9 layout changes in 1080p), 16 stretched
+     * it out (7 in 18); 32 gave 2 in 18, against 13 for the old way. */
+    if (s_ppa_fill && s_fb[1]) {
+        ppa_fill_oper_config_t f = {
+            .out = {.buffer = s_fb[s_front], .buffer_size = (size_t)s_info.width * s_info.height * 3,
+                    .pic_w = s_info.width, .pic_h = s_info.height, .fill_cm = PPA_FILL_COLOR_MODE_RGB888},
+            .fill_block_w = s_info.width, .fill_block_h = s_info.height,
+            .fill_argb_color = {.val = 0xFF000000u | rgb},
+            .mode = PPA_TRANS_MODE_BLOCKING,
+        };
+        xSemaphoreTake(s_draw_lock, portMAX_DELAY);
+        esp_err_t err = ppa_do_fill(s_ppa_fill, &f);
+        xSemaphoreGive(s_draw_lock);
+        if (err == ESP_OK) return;
+        ESP_LOGW(TAG, "PPA fill failed (%s): filling on the CPU from now on", esp_err_to_name(err));
+        s_ppa_fill = NULL;
+    }
     if (!s_rgb) return;
     uint8_t r = rgb >> 16, g = rgb >> 8, b = rgb;
     for (size_t i = 0; i + 2 < s_rgb_size; i += 3) {

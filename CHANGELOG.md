@@ -17,6 +17,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Fixed
+- **[DU firmware]** Clearing the screen (layout changes, idle screens) no longer makes a 1080p screen flicker: the
+  pixel accelerator fills the frame buffer on screen in one pass, in 32-byte bursts, instead of the CPU filling a
+  6 MB work buffer that was then copied over. Display underruns in 18 layout changes: 13 before, 2 now (#75).
+
 ## [0.6.2] - 2026-09-28
 
 ### Fixed
