@@ -29,8 +29,10 @@ while it runs opens the status window. Its log is `logs/dmc-<date>.log` next to 
 
 **SimConnect.dll** is Microsoft's and not in the repository; releases include it unmodified (see
 `THIRD-PARTY-NOTICES.md`). At run time it is looked for next to `GlassLink.exe`, in `%LOCALAPPDATA%\GlassLink\`, and
-in the MSFS SDK (`MSFS2024_SDK`, `MSFS_SDK`). Put a copy in `dotnet/lib/` (ignored by git): the build puts it next to
-the exe and `tools\build-release.ps1` into the release.
+in the MSFS SDK (`MSFS2024_SDK`, `MSFS_SDK`). The copy releases ship lives in the private repository
+`HrMarcussen/build-deps` (`GlassLink/SimConnect.dll`, with its origin and SHA-256). Clone it next to this checkout
+(`..\build-deps`) and `tools\build-release.ps1` finds it there; a copy in `dotnet/lib/` (ignored by git) is also put
+next to the exe when building.
 
 ## Bench tool
 

@@ -24,12 +24,12 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Remove-Item "$out\*.xml", "$out\*.pdb" -ErrorAction SilentlyContinue
 # Microsoft's SimConnect.dll goes into the release, unmodified, as most MSFS add-ons ship it; it is never in the
 # repository (#58, THIRD-PARTY-NOTICES.md). Taken from the developer's local copy (dotnet\lib, which the build already
-# put next to the exe) or from an installed MSFS SDK.
+# put next to the exe), a clone of the private build-deps repository next to this checkout, or an installed MSFS SDK.
 if (-not (Test-Path "$out\SimConnect.dll")) {
-    $sdkDll = @("$root\dotnet\lib\SimConnect.dll") + (@($env:MSFS2024_SDK, $env:MSFS_SDK) | Where-Object { $_ } | ForEach-Object { Join-Path $_ "SimConnect SDK\lib\SimConnect.dll" }) |
+    $sdkDll = @("$root\dotnet\lib\SimConnect.dll", "$root\..\build-deps\GlassLink\SimConnect.dll") + (@($env:MSFS2024_SDK, $env:MSFS_SDK) | Where-Object { $_ } | ForEach-Object { Join-Path $_ "SimConnect SDK\lib\SimConnect.dll" }) |
         Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($sdkDll) { Copy-Item $sdkDll $out }
-    else { Write-Warning "no SimConnect.dll (dotnet\lib or the MSFS SDK): users of this release must install the SDK" }
+    else { Write-Warning "no SimConnect.dll (dotnet\lib or the MSFS SDK): clone build-deps next to this checkout, or users of this release must install the SDK" }
 }
 Set-Content "$out\BUILD" $build -Encoding ascii
 Copy-Item "$root\CHANGELOG.md", "$root\LICENSE", "$root\THIRD-PARTY-NOTICES.md" $out
