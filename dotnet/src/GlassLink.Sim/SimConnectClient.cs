@@ -43,6 +43,7 @@ public sealed class SimConnectClient : IDisposable
     private nint _handle;
     private int _registered;
     private volatile bool _connected;
+    private long _lastMessage, _lastProcessCheck;
 
     /// <summary>SimConnect.dll is looked for next to GlassLink.exe first (a checkout or a release that ships it), then in
     /// an installed MSFS SDK (its setup sets MSFS2024_SDK or MSFS_SDK), so a copy does not have to be distributed (#58).</summary>
@@ -165,6 +166,7 @@ public sealed class SimConnectClient : IDisposable
                     {
                         _connected = true;
                         _registered = 0;
+                        _lastMessage = Environment.TickCount64;
                         Native.SimConnect_SubscribeToSystemEvent(_handle, 1, "Frame");     // under the lock like every call (#43)
                     }
 
@@ -173,6 +175,13 @@ public sealed class SimConnectClient : IDisposable
 
                 RegisterPending();
                 Pump();
+                if (SimGone())
+                {
+                    _log?.Invoke("SimConnect: the sim has gone without closing the connection (crashed or ended); waiting for it again");
+                    Disconnect();
+                    continue;
+                }
+
                 _signal.WaitOne(250);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)       // this thread must never take the DMC down (#43)
@@ -185,6 +194,40 @@ public sealed class SimConnectClient : IDisposable
 
         Disconnect();
     }
+
+    /// <summary>A sim that crashes or is ended sends no quit message, and reading from its connection then looks the same
+    /// as "nothing new": the values would stay as they were and no new connection would ever be made (#72). The sim
+    /// sends a frame event every frame, so after a few quiet seconds the sim's process is looked for (at most every two
+    /// seconds, as a long loading screen can be quiet too); when it is gone the connection is.</summary>
+    private bool SimGone()
+    {
+        var now = Environment.TickCount64;
+        if (!_connected || now - _lastMessage < 5000 || now - _lastProcessCheck < 2000)
+        {
+            return false;
+        }
+
+        _lastProcessCheck = now;
+        foreach (var name in SimProcesses)
+        {
+            var processes = System.Diagnostics.Process.GetProcessesByName(name);
+            var there = processes.Length > 0;
+            foreach (var p in processes)
+            {
+                p.Dispose();
+            }
+
+            if (there)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>The processes a SimConnect server runs in: MSFS 2024 and MSFS 2020 (Store and Steam alike).</summary>
+    private static readonly string[] SimProcesses = ["FlightSimulator2024", "FlightSimulator"];
 
     private void RegisterPending()
     {
@@ -203,6 +246,7 @@ public sealed class SimConnectClient : IDisposable
     {
         while (NextDispatch(out var data, out var size))
         {
+            _lastMessage = Environment.TickCount64;
             var header = (uint*)data;
             switch (header[2])
             {

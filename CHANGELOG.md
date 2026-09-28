@@ -34,6 +34,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   tested on MSFS 2024 with connection, cockpit detection, brightness L:vars, automatic pop-out and camera return (#79).
 
 ### Fixed
+- After the sim crashed or was ended, the DMC kept the old SimConnect connection with the last values (still "in
+  cockpit", brightness frozen) and never connected again: a sim that goes away that way sends no quit message. Now a
+  quiet connection without a sim process is dropped within seconds, and the DMC reconnects and pops the displays out
+  again when the sim is back (#72).
 - The installer's "Start the GlassLink DMC now" started it with the installer's administrator rights; now as the user.
 - **[DU firmware]** Clearing the screen (layout changes, idle screens) no longer makes a 1080p screen flicker: the
   pixel accelerator fills the frame buffer on screen in one pass, in 32-byte bursts, instead of the CPU filling a
