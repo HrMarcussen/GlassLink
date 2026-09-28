@@ -17,6 +17,14 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-28
+
+**[DU firmware]** Update both DUs (the status page offers it). In short: several displays on one DU (layouts with
+test cards, sent as one band), HDMI modes up to 1080p chosen from the status page, DUs three times as fast (768x768
+at 60 fps whatever the brightness, a PFD + ND pair on a 1080p monitor at 26-30 fps), firmware updates with rollback,
+the request guard and many fixes from the code review of 28 Sept 2026, and `SimConnect.dll` no longer in the
+repository (install the MSFS SDK or copy the DLL to `%LOCALAPPDATA%\GlassLink`).
+
 ### Added
 - **Two DUs on one hub, verified 21 Sept 2026** (DU2 flashed with 0.5.0 over its serial port, both on the DMC):
   each DU on its own display 29.5 and 30 fps of a 30 fps source, both on the same display 29.5 and 28, assignments
