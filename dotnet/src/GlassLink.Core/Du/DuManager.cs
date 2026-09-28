@@ -417,7 +417,7 @@ public sealed class DuManager : IDisposable
     public void DisplayRemoved(string display)
     {
         var serials = _config.Read(root => (root["modules"] as JsonObject)?
-            .Where(kv => (kv.Value as JsonObject)?["display"]?.GetValue<string>() == display).Select(kv => kv.Key).ToList() ?? []);
+            .Where(kv => (kv.Value as JsonObject)?["display"].Text() == display).Select(kv => kv.Key).ToList() ?? []);
         foreach (var serial in serials)
         {
             Assign(serial, display: "");

@@ -15,10 +15,10 @@ public enum MessageType : byte
     ShowIdent = 0x05,
     Ping = 0x06,
     SetAssigned = 0x07,
-    SetPanelPower = 0x08,
+    SetPanelPower = 0x08,       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
     SetMode = 0x09,             // HDMI mode 0..4; the DU stores it and restarts
     SetLayout = 0x0A,           // tiles, 8 bytes each (uint16 x, y, w, h); arg bit 0 = show test cards
-    Tile = 0x0B,                // a JPEG for one tile (arg = tile index); answered with READY like Frame       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
+    Tile = 0x0B,                // a JPEG for one tile (arg = tile index); answered with READY like Frame
     OtaBegin = 0x10,
     OtaData = 0x11,
     OtaEnd = 0x12,

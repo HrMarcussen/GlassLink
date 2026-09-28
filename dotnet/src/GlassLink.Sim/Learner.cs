@@ -8,7 +8,7 @@ public sealed record LearnState(string Status, string? Display, string Detail, d
 {
     public static readonly LearnState Idle = new("idle", null, "", null);
 
-    public bool Busy => Status is "preparing" or "waiting" or "adopting";
+    public bool Busy => Status is "preparing" or "waiting" or "adopting" or "restoring";
 }
 
 /// <summary>
@@ -58,12 +58,27 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
                 throw new InvalidOperationException("the simulator is not running");
             }
 
+            if (!CameraLock.TryEnter("learning a click point"))
+            {
+                throw new InvalidOperationException($"the camera is busy ({CameraLock.Owner}): try again in a moment");
+            }
+
             _cancel?.Dispose();
             _cancel = new CancellationTokenSource();
             State = new LearnState("preparing", display, "setting the camera", null);
             var token = _cancel.Token;
-            new Thread(() => Run(display, view, token)) { IsBackground = true, Name = "popout-learn" }.Start();
+            _thread = new Thread(() => Run(display, view, token)) { IsBackground = true, Name = "popout-learn" };
+            _thread.Start();
         }
+    }
+
+    private Thread? _thread;
+
+    /// <summary>Cancels a running Learn and waits (bounded) until the user's view is back: for the DMC quitting (#39).</summary>
+    public void CancelAndWait(int timeoutMs = 15_000)
+    {
+        Cancel();
+        _thread?.Join(timeoutMs);
     }
 
     public void Cancel()
@@ -84,6 +99,7 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
     {
         var procedure = new PopoutProcedure(config, camera, Say);
         ((int Type, int Index)? View, double? Zoom, nint Sim)? restore = null;
+        LearnState? result = null;                           // shown only when the user's view is back (#38)
         PauseAuto(true);
         try
         {
@@ -120,7 +136,7 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
             var (hwnd, click) = WatchForPopout(before, cancel);
             if (hwnd == 0)
             {
-                State = cancel.IsCancellationRequested
+                result = cancel.IsCancellationRequested
                     ? new LearnState("cancelled", display, "cancelled", null)
                     : new LearnState("timeout", display, "no new pop-out window appeared" + (strays > 0 ? " (a pop-out not made by GlassLink is open: close it under Setup and try again)" : ""), null);
                 return;
@@ -142,25 +158,27 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
                 target["zoom"] ??= zoom;
             });
             procedure.Adopt(hwnd, display);
-            State = new LearnState("done", display, $"learned {display} at [{point[0]}, {point[1]}] for profile '{key}'; the window is parked", point);
-            log($"learn: {State.Detail}");
+            result = new LearnState("done", display, $"learned {display} at [{point[0]}, {point[1]}] for profile '{key}'; the window is parked", point);
+            log($"learn: {result.Detail}");
         }
         catch (InvalidOperationException ex)
         {
-            State = new LearnState("error", display, ex.Message, null);
+            result = new LearnState("error", display, ex.Message, null);
         }
         catch (Exception ex)
         {
-            State = new LearnState("error", display, $"{ex.GetType().Name}: {ex.Message}", null);
-            log($"learn: {State.Detail}");
+            result = new LearnState("error", display, $"{ex.GetType().Name}: {ex.Message}", null);
+            log($"learn: {result.Detail}");
         }
         finally
         {
             if (restore is { } r)
             {
+                State = new LearnState("restoring", display, "bringing your view back", State.Point);
                 try
                 {
-                    procedure.Restore(r.View, r.Zoom, r.Sim);
+                    // restore messages go to the log only: they must not replace the result (#38)
+                    new PopoutProcedure(config, camera, m => log($"learn: {m}")).Restore(r.View, r.Zoom, r.Sim);
                 }
                 catch (Exception ex)
                 {
@@ -168,7 +186,9 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
                 }
             }
 
+            State = result ?? new LearnState("error", display, "stopped", null);
             PauseAuto(false);
+            CameraLock.Exit();                               // only now may the next Learn or pop-out move the camera
         }
     }
 

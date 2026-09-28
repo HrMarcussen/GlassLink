@@ -40,7 +40,7 @@ public sealed record WindowMatch(string? Process, string? ClassName, string? Tit
 /// <summary>Finding, sizing and parking the windows that are captured. Port of glasslink/windows.py.</summary>
 public static class WindowFinder
 {
-    private static readonly Dictionary<uint, string> ProcessNames = [];
+    private static readonly Dictionary<uint, (string Name, long At)> ProcessNames = [];   // looked up again after 30 s: process ids are reused (#34)
 
     /// <summary>Physical pixels everywhere: call once at start, before any window function.</summary>
     public static void SetDpiAware() => Native.SetProcessDpiAwarenessContext(-4);      // per monitor v2
@@ -239,8 +239,9 @@ public static class WindowFinder
     {
         lock (ProcessNames)
         {
-            if (!ProcessNames.TryGetValue(pid, out var name))
+            if (!ProcessNames.TryGetValue(pid, out var cached) || Environment.TickCount64 - cached.At > 30_000)
             {
+                string name;
                 try
                 {
                     using var p = System.Diagnostics.Process.GetProcessById((int)pid);
@@ -251,10 +252,10 @@ public static class WindowFinder
                     name = "";
                 }
 
-                ProcessNames[pid] = name;
+                ProcessNames[pid] = cached = (name, Environment.TickCount64);
             }
 
-            return name;
+            return cached.Name;
         }
     }
 

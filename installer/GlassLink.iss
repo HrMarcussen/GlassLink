@@ -50,14 +50,26 @@ Name: "{group}\Uninstall GlassLink DMC"; Filename: "{uninstallexe}"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "GlassLink DMC"; ValueData: """{app}\GlassLink.exe"""; Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
+; delete first, then add: an upgrade must not pile up copies of the rule (#46)
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLink DMC"""; Flags: runhidden; Tasks: firewall
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""GlassLink DMC"" dir=in action=allow program=""{app}\GlassLink.exe"" enable=yes profile=private"; Flags: runhidden; Tasks: firewall
 Filename: "{app}\GlassLink.exe"; Description: "Start the GlassLink DMC now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{app}\GlassLink.exe"; Parameters: "--quit"; Flags: runhidden; RunOnceId: "quit"
+; "Start and stop with the simulator" may have been switched on from the tray: take the entry out of the sim's
+; exe.xml, or the sim tries to start a deleted program at every start (#46)
+Filename: "{app}\GlassLink.exe"; Parameters: "--remove-sim-entry"; Flags: runhidden; RunOnceId: "simentry"
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLink DMC"""; Flags: runhidden; RunOnceId: "firewall"
 
 [Code]
+// "Start with Windows" may have been switched on from the tray, not by the installer's task: remove it either way (#46).
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'GlassLink DMC');
+end;
+
 // A DMC that is running keeps GlassLink.exe and its files open: ask it to stop and wait (--quit returns when it has).
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var

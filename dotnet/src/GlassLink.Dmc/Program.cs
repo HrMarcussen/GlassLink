@@ -30,6 +30,23 @@ internal static class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         string? Option(string name) => Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 
+        if (args.Contains("--remove-sim-entry"))            // the uninstaller: take GlassLink out of the sim's exe.xml (#46)
+        {
+            try
+            {
+                if (SimLaunch.Files.Count > 0)
+                {
+                    SimLaunch.Set(false, "config.json");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Xml.XmlException or UnauthorizedAccessException)
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+
         if (Option("--render-menu") is { } folder)            // development aid: the tray menu as pictures, light and dark
         {
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
@@ -38,11 +55,34 @@ internal static class Program
             return 0;
         }
 
-        var configPath = Option("--config") ?? FindUpwards("config.json") ?? DefaultConfig();
-        using var single = new Mutex(true, @"Local\GlassLink.DMC", out var first);
+        // A tray program has no console: an exception nobody catches is written to the log folder and shown (#44).
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => Crash(e.Exception, fatal: false);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Crash(e.ExceptionObject as Exception, fatal: true);
+
+        var configPath = Option("--config") ?? FindUpwards("config.json") ?? DefaultConfigPath();
+        // Owned = no DMC runs. A mutex left by a DMC that ended without releasing it (or by a status window of an
+        // earlier second start) is abandoned, not owned: that also means nobody runs (#36).
+        using var single = new Mutex(false, @"Local\GlassLink.DMC");
+        bool first;
+        try
+        {
+            first = single.WaitOne(0);
+        }
+        catch (AbandonedMutexException)
+        {
+            first = true;
+        }
+
         if (args.Contains("--quit"))
         {
-            return first ? 0 : QuitRunning(RunningPort(configPath, Option("--port")), single);
+            if (first)
+            {
+                single.ReleaseMutex();
+                return 0;
+            }
+
+            return QuitRunning(RunningPort(configPath, Option("--port")), single);
         }
 
         if (!first)
@@ -56,7 +96,9 @@ internal static class Program
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
             if (StatusWindow.Available)
             {
-                StatusWindow.RunAlone($"http://localhost:{RunningPort(configPath, Option("--port"))}/");
+                var runningUrl = $"http://localhost:{RunningPort(configPath, Option("--port"))}/";
+                single.Dispose();                            // this window must not keep the DMC's mutex alive (#36)
+                StatusWindow.RunAlone(runningUrl);
                 return 0;
             }
 
@@ -64,9 +106,27 @@ internal static class Program
             return 2;
         }
 
-        using var dmc = new DmcRuntime(configPath);
+        EnsureDefaultConfig(configPath);                     // after the mutex: two first starts at sign-in do not race (#44)
+        DmcRuntime dmcCreated;
+        try
+        {
+            dmcCreated = new DmcRuntime(configPath);
+        }
+        catch (InvalidDataException ex)
+        {
+            MessageBox.Show($"The GlassLink DMC cannot read its configuration:\n\n{ex.Message}", "GlassLink DMC", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
+        }
+
+        using var dmc = dmcCreated;
+        _log = dmc.Log;
+        if (dmc.Config.LoadedFromBackup)
+        {
+            dmc.Log($"{configPath} was empty or broken: the last good save (config.json.bak) is used");
+        }
+
         var server = dmc.Config.Read(root => root["server"]?.DeepClone() as JsonObject);
-        var host = server?["host"]?.GetValue<string>() ?? "0.0.0.0";
+        var host = server?["host"].Text() ?? "0.0.0.0";
         var port = int.TryParse(Option("--port"), out var p) ? p : (int)(server?["port"]?.AsDouble() ?? 8765);
 
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory });
@@ -88,6 +148,12 @@ internal static class Program
         catch (IOException ex)
         {
             dmc.Log($"cannot listen on {host}:{port}: {ex.Message} (is the Python DMC running?)");
+            if (!args.Contains("--no-tray"))
+            {
+                MessageBox.Show($"The GlassLink DMC cannot use port {port}: {ex.Message}\n\nIs the Python DMC (or another program) using it?",
+                    "GlassLink DMC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
             return 1;
         }
 
@@ -105,28 +171,68 @@ internal static class Program
             Application.EnableVisualStyles();
             using var tray = new Tray(dmc, url, Application.Exit);
             using var simWatch = args.Contains(SimLaunch.WithSimFlag) ? new SimWatch(dmc.Log, () => app.Lifetime.StopApplication()) : null;
-            app.Lifetime.ApplicationStopping.Register(Application.Exit);         // POST /shutdown ends the message loop too
+            // POST /shutdown, --quit and "stop with the simulator" stop the host on another thread; the message loop
+            // (and the status window with it) must be ended on this one, or closing the WebView throws and the DMC
+            // keeps running (#35).
+            var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            app.Lifetime.ApplicationStopping.Register(() => ui.Post(_ => Application.Exit(), null));
             Application.Run();
         }
 
         app.StopAsync().GetAwaiter().GetResult();
+        try
+        {
+            single.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // not owned any more: nothing to release
+        }
+
         return 0;                                            // leaving the using blocks closes captures, DUs and SimConnect in order
     }
 
-    /// <summary>An installed copy keeps its configuration (and logs) in the user's profile, where it may write; the first
-    /// start copies config.example.json from next to GlassLink.exe, so the six Airbus displays are there from the start.</summary>
-    private static string DefaultConfig()
+    private static Action<string>? _log;
+
+    private static void Crash(Exception? ex, bool fatal)
     {
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassLink");
-        var path = Path.Combine(folder, "config.json");
-        var example = Path.Combine(AppContext.BaseDirectory, "config.example.json");
-        if (!File.Exists(path) && File.Exists(example))
+        var text = $"{(fatal ? "fatal" : "unhandled")} {ex?.GetType().Name}: {ex?.Message}\n{ex?.StackTrace}";
+        try
         {
-            Directory.CreateDirectory(folder);
-            File.Copy(example, path);
+            if (_log is { } log)
+            {
+                log(text);
+            }
+            else
+            {
+                var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassLink");
+                Directory.CreateDirectory(folder);
+                File.AppendAllText(Path.Combine(folder, "crash.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}");
+            }
+        }
+        catch (IOException)
+        {
+            // nowhere to write: the message box still tells
         }
 
-        return path;
+        MessageBox.Show($"The GlassLink DMC hit an error{(fatal ? " and has to stop" : "")}:\n\n{ex?.Message}\n\nDetails are in the DMC log.",
+            "GlassLink DMC", MessageBoxButtons.OK, fatal ? MessageBoxIcon.Error : MessageBoxIcon.Warning);
+    }
+
+    /// <summary>An installed copy keeps its configuration (and logs) in the user's profile, where it may write.</summary>
+    private static string DefaultConfigPath() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GlassLink", "config.json");
+
+    /// <summary>The first start of an installed copy copies config.example.json from next to GlassLink.exe, so the six
+    /// Airbus displays are there from the start.</summary>
+    private static void EnsureDefaultConfig(string path)
+    {
+        var example = Path.Combine(AppContext.BaseDirectory, "config.example.json");
+        if (path == DefaultConfigPath() && !File.Exists(path) && File.Exists(example))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.Copy(example, path);
+        }
     }
 
     /// <summary>Asks the running DMC to stop (POST /shutdown, the same as the tray's Quit: captures and DUs are closed in

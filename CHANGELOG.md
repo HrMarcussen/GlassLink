@@ -134,6 +134,32 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   corners, the system's menu font and text size, and the three status lines with a symbol and a colour each.
 
 ### Fixed
+- **.NET DMC robustness, from the code review of 28 Sept 2026** (issues #11, #29, #30, #32, #35-#47):
+  - Shutdown from /shutdown, `--quit` or "stop with the simulator" is handed to the UI thread: with the status
+    window open the DMC used to keep running (and the installer said it could not stop it).
+  - The single-instance check treats a mutex left by an ended DMC or by a status window as free: a new start is a
+    DMC again, not one more status window.
+  - One camera lock for the automatic pop-out and Learn, held until the user's view is back: they can no longer
+    move the camera together (which could store the pop-out's own click as the user's). Learn shows its result after
+    the view is restored, and the restore messages no longer replace it.
+  - Right-Alt, mouse button and restore keys are always released, also after an error; quitting cancels Learn and
+    lets a running pop-out stop after its current display with the view restored. Clicks land on the right spot
+    when the sim runs on a monitor other than the primary one.
+  - config.json is saved through a temporary file flushed to disk, with the previous one kept as config.json.bak;
+    an empty or broken config.json (a blue screen during a save) falls back to it; a failed save takes the change
+    back. Text values of the wrong type in a hand-edited file are read as defaults, not as a crash every 100 ms.
+  - After a graphics driver reset every capture notices the lost device and starts again with a new one, instead of
+    freezing until the DMC is restarted.
+  - exe.xml files in Windows-1252 (as FSUIPC writes them) are read and saved in their own encoding; the entry goes
+    into every installed sim's exe.xml; duplicate entries are removed; a file without our entry is not touched.
+  - Concurrent edits of one display cannot leave a second capture running; SimConnect's last call outside its lock
+    moved in and its thread survives any error; unhandled errors are logged and shown; a taken port is shown; the
+    first start of an installed copy creates its configuration after taking the single-instance mutex.
+  - Uninstall removes the "Start with Windows" entry also when it was set from the tray, and GlassLink's entry in
+    the sim's exe.xml (`GlassLink.exe --remove-sim-entry`); the firewall rule is not duplicated on upgrades.
+  - A maximised status window leaves an auto-hide taskbar reachable; tray menu font and window icon are made once.
+  - The slow-source advice stays 8 s after the rate is back, so it does not flicker; DU messages are read with a
+    DU-to-host filter (at most 64 KB, DU types only); process names are looked up again after 30 s.
 - **[DU firmware] Tiles, 1080p and robustness, from the code review of 28 Sept 2026** (issues #15-#21, #23, #24):
   - Picture sizes are multiples of 16, not 8: the ESP32-P4's JPEG decoder writes 4:2:0 pictures in 16 x 16 blocks.
     The DU now allocates its decode buffers in whole blocks (a full 1920x1080 frame failed every time: it decodes

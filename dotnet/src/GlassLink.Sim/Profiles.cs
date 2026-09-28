@@ -127,10 +127,10 @@ public static class Profiles
             }
         }
 
-        var brightness = (o["brightness"] as JsonObject ?? []).Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>());
+        var brightness = (o["brightness"] as JsonObject ?? []).Where(kv => kv.Value.Text() is not null).ToDictionary(kv => kv.Key, kv => kv.Value.Text()!);
         var dim = o["popout_dimming"] as JsonObject;
         return new AircraftProfile(key, o["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : defaultZoom, points, brightness,
-            dim?["file"]?.GetValue<string>(), dim?["xml_tag"]?.GetValue<string>(), dim?["on_value"]?.GetValue<string>(), dim?["name"]?.GetValue<string>(),
+            dim?["file"].Text(), dim?["xml_tag"].Text(), dim?["on_value"].Text(), dim?["name"].Text(),
             o["detect"] is { } detect && detect.GetValueKind() == JsonValueKind.String ? detect.GetValue<string>() : null);
     }
 }

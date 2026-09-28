@@ -130,6 +130,8 @@ public sealed class TrayMenuRenderer(Palette palette) : ToolStripProfessionalRen
 
 public static class TrayMenuStyle
 {
+    private static readonly Font MenuFont = SystemFonts.MenuFont ?? Control.DefaultFont;
+
     /// <summary>Applies palette, spacing and Windows 11 rounded corners to a menu; call again whenever it opens.</summary>
     public static void Apply(ContextMenuStrip menu, Palette palette)
     {
@@ -140,7 +142,7 @@ public static class TrayMenuStyle
         menu.ShowCheckMargin = true;
         menu.DropShadowEnabled = true;
         menu.Padding = new Padding(2, 6, 2, 6);
-        menu.Font = SystemFonts.MenuFont ?? menu.Font;
+        menu.Font = MenuFont;                                // one font for every opening; SystemFonts.MenuFont makes a new one per call (#47)
         foreach (ToolStripItem item in menu.Items)
         {
             if (item is ToolStripMenuItem entry)

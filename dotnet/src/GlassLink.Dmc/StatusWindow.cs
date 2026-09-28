@@ -32,7 +32,7 @@ public sealed class StatusWindow : Form
         (_url, _log) = (url, log);
         var palette = Palette.Current;
         Text = "GlassLink DMC";
-        Icon = (Environment.ProcessPath is { } exe ? Icon.ExtractAssociatedIcon(exe) : null) ?? AppIcon.Value;      // the icon of GlassLink.exe (glasslink.ico)
+        Icon = ExeIcon.Value;                               // the icon of GlassLink.exe (glasslink.ico), made once (#47)
         BackColor = palette.Background;                      // what shows until the page has loaded: no white flash
         MinimumSize = new Size(480, 360);
         StartPosition = FormStartPosition.Manual;
@@ -178,6 +178,10 @@ public sealed class StatusWindow : Form
             {
                 var dpi = GetDpiForWindow(Handle);
                 top += GetSystemMetricsForDpi(33, dpi) + GetSystemMetricsForDpi(92, dpi);      // SM_CYSIZEFRAME + SM_CXPADDEDBORDER
+                Marshal.WriteInt32(m.LParam, 4, top);
+                LeaveRoomForAutoHideTaskbar(m.LParam);
+                m.Result = 0;
+                return;
             }
 
             Marshal.WriteInt32(m.LParam, 4, top);
@@ -187,6 +191,41 @@ public sealed class StatusWindow : Form
 
         base.WndProc(ref m);
     }
+
+    /// <summary>A maximised window that covers the whole monitor looks full-screen to the shell, and an auto-hide
+    /// taskbar then cannot be brought up with the mouse. Leave 2 px free on the edge where it hides (#45).</summary>
+    private void LeaveRoomForAutoHideTaskbar(nint rects)
+    {
+        var monitor = Screen.FromHandle(Handle).Bounds;
+        foreach (var (edge, index) in new[] { (0u, 0), (1u, 4), (2u, 8), (3u, 12) })      // ABE_LEFT, TOP, RIGHT, BOTTOM -> left, top, right, bottom
+        {
+            var data = new APPBARDATA { cbSize = (uint)Marshal.SizeOf<APPBARDATA>(), uEdge = edge, rc = new RECT { Left = monitor.Left, Top = monitor.Top, Right = monitor.Right, Bottom = monitor.Bottom } };
+            if (SHAppBarMessage(0x0000000b, ref data) != 0)                                   // ABM_GETAUTOHIDEBAREX: a bar hides on this edge
+            {
+                var v = Marshal.ReadInt32(rects, index);
+                Marshal.WriteInt32(rects, index, edge is 0 or 1 ? v + 2 : v - 2);
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left, Top, Right, Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct APPBARDATA
+    {
+        public uint cbSize;
+        public nint hWnd;
+        public uint uCallbackMessage, uEdge;
+        public RECT rc;
+        public nint lParam;
+    }
+
+    [DllImport("shell32.dll")]
+    private static extern nuint SHAppBarMessage(uint message, ref APPBARDATA data);
 
     // -- where the window was, and how large its text -----------------------------------------------------------
     private sealed record State(int X, int Y, int Width, int Height, bool Maximized, double Zoom);
@@ -245,6 +284,8 @@ public sealed class StatusWindow : Form
             _log($"status window: could not remember its place: {ex.Message}");
         }
     }
+
+    private static readonly Lazy<Icon> ExeIcon = new(() => (Environment.ProcessPath is { } exe ? Icon.ExtractAssociatedIcon(exe) : null) ?? AppIcon.Value);
 
     /// <summary>The icon in the taskbar: an attitude indicator in a rounded square (sky over earth, a white horizon).</summary>
     private static readonly Lazy<Icon> AppIcon = new(() =>

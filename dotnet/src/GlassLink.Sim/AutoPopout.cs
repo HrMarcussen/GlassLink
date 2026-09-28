@@ -53,7 +53,28 @@ public sealed class AutoPopout : IDisposable
         }
     }
 
-    public void Dispose() => _timer.Dispose();
+    private volatile bool _stopping;
+
+    /// <summary>Stops the timer and, if a pop-out is running, lets it stop after the current display and bring the
+    /// user's view back before the DMC goes (#39). Waits at most 20 s.</summary>
+    public void Dispose()
+    {
+        _stopping = true;
+        _timer.Dispose();
+        var deadline = Environment.TickCount64 + 20_000;
+        while (Environment.TickCount64 < deadline)
+        {
+            lock (_gate)
+            {
+                if (!_busy)
+                {
+                    return;
+                }
+            }
+
+            Thread.Sleep(100);
+        }
+    }
 
     private void Tick()
     {
@@ -176,7 +197,22 @@ public sealed class AutoPopout : IDisposable
         _lastAttempt = now;
         State = new("running", $"popping out {string.Join(", ", todo)} ('{_camera.Title}', profile '{profile.Key}')", todo, DateTime.Now);
         _log($"auto pop-out: {string.Join(", ", todo)} missing, aircraft '{_camera.Title}' in cockpit -> popping out with profile '{profile.Key}'");
-        var done = new PopoutProcedure(_config, _camera, m => _log($"pop-out: {m}")).Run(todo, profile);
+        if (!CameraLock.TryEnter("the automatic pop-out"))
+        {
+            State = new("waiting", $"the camera is busy ({CameraLock.Owner}); popping out afterwards", todo, State.LastAttempt);
+            return;
+        }
+
+        IReadOnlyList<string> done;
+        try
+        {
+            done = new PopoutProcedure(_config, _camera, m => _log($"pop-out: {m}")) { Stop = () => _stopping }.Run(todo, profile);
+        }
+        finally
+        {
+            CameraLock.Exit();
+        }
+
         var still = todo.Except(done).ToList();
         lock (_gate)
         {

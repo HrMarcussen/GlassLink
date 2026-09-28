@@ -41,6 +41,9 @@ public sealed class WindowCapture : IDisposable
     private static readonly object DeviceGate = new();
     private static ID3D11Device? _device;
     private static IDirect3DDevice? _winrtDevice;
+    private static int _generation;                          // bumped when the device is lost and made again
+    private readonly int _deviceGeneration;
+    private volatile bool _failed;
 
     private readonly nint _hwnd;
     private readonly PixelsHandler _onPixels;
@@ -60,11 +63,19 @@ public sealed class WindowCapture : IDisposable
 
     public long FramesArrived { get; private set; }
 
+    /// <summary>True when this capture cannot deliver any more: the GPU device was lost (a driver reset, the AMD
+    /// timeouts on this PC) or copying failed. The owner disposes it and starts a new one, which gets a new device (#32).</summary>
+    public bool Stale => _failed || _deviceGeneration != Volatile.Read(ref _generation);
+
+    /// <summary>Why <see cref="Stale"/> is true, for the log.</summary>
+    public string FailReason { get; private set; } = "";
+
     public WindowCapture(nint hwnd, PixelsHandler onPixels, double maxFps)
     {
         _hwnd = hwnd;
         _onPixels = onPixels;
         EnsureDevice();
+        _deviceGeneration = Volatile.Read(ref _generation);
         var interop = GraphicsCaptureItem.As<IGraphicsCaptureItemInterop>();
         var pointer = interop.CreateForWindow(hwnd, CaptureItemIid);
         try
@@ -125,7 +136,7 @@ public sealed class WindowCapture : IDisposable
     private unsafe void OnFrameArrived(Direct3D11CaptureFramePool pool, object? args)
     {
         using var frame = pool.TryGetNextFrame();
-        if (frame is null || _disposed)
+        if (frame is null || _disposed || Stale)             // stale: its owner replaces it on the next check (#32)
         {
             return;
         }
@@ -135,7 +146,14 @@ public sealed class WindowCapture : IDisposable
         if (size.Width != _poolSize.Width || size.Height != _poolSize.Height)
         {
             _poolSize = size;                                // the window was resized: next frames come in the new size
-            pool.Recreate(_winrtDevice!, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, size);
+            lock (DeviceGate)
+            {
+                if (_winrtDevice is { } device)
+                {
+                    pool.Recreate(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, size);
+                }
+            }
+
             return;
         }
 
@@ -151,10 +169,13 @@ public sealed class WindowCapture : IDisposable
         Action? afterwards;
         lock (DeviceGate)                                    // one immediate context for all captures
         {
-            if (_disposed)
+            if (_disposed || Stale)
             {
                 return;
             }
+
+            try
+            {
 
             if (_staging is null || _stagingSize != (w, h))
             {
@@ -179,9 +200,37 @@ public sealed class WindowCapture : IDisposable
             {
                 context.Unmap(_staging, 0);
             }
+            }
+            catch (SharpGen.Runtime.SharpGenException ex)
+            {
+                // an exception here would vanish inside the WinRT callback and the display would simply freeze
+                FailReason = _device?.DeviceRemovedReason.Failure == true ? $"the graphics device was lost ({_device.DeviceRemovedReason})" : $"copy failed: {ex.Message}";
+                _failed = true;
+                if (_device?.DeviceRemovedReason.Failure == true)
+                {
+                    DeviceLostLocked();
+                }
+
+                return;
+            }
         }
 
         afterwards?.Invoke();
+    }
+
+    /// <summary>Drops the lost device (under <see cref="DeviceGate"/>): every capture made with it is now stale, and the
+    /// next one creates a fresh device.</summary>
+    private static void DeviceLostLocked()
+    {
+        if (_device is null)
+        {
+            return;
+        }
+
+        _winrtDevice = null;
+        _device.Dispose();
+        _device = null;
+        Interlocked.Increment(ref _generation);
     }
 
     private static void EnsureDevice()

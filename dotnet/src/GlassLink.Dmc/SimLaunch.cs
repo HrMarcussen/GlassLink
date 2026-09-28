@@ -14,16 +14,22 @@ public static class SimLaunch
     public const string AddonName = "GlassLink DMC";
     public const string WithSimFlag = "--with-sim";
 
-    /// <summary>The exe.xml of the sim installed on this PC: MSFS 2024 Store, MSFS 2024 Steam, then the 2020 editions;
-    /// null if none is found (the sim writes it on first start).</summary>
-    public static string? File_ => new[]
-        {
-            @"%LOCALAPPDATA%\Packages\Microsoft.Limitless_8wekyb3d8bbwe\LocalCache\exe.xml",
-            @"%APPDATA%\Microsoft Flight Simulator 2024\exe.xml",
-            @"%LOCALAPPDATA%\Packages\Microsoft.FlightSimulator_8wekyb3d8bbwe\LocalCache\exe.xml",
-            @"%APPDATA%\Microsoft Flight Simulator\exe.xml",
-        }
-        .Select(Environment.ExpandEnvironmentVariables).FirstOrDefault(File.Exists);
+    private static readonly string[] Candidates =
+    [
+        @"%LOCALAPPDATA%\Packages\Microsoft.Limitless_8wekyb3d8bbwe\LocalCache\exe.xml",
+        @"%APPDATA%\Microsoft Flight Simulator 2024\exe.xml",
+        @"%LOCALAPPDATA%\Packages\Microsoft.FlightSimulator_8wekyb3d8bbwe\LocalCache\exe.xml",
+        @"%APPDATA%\Microsoft Flight Simulator\exe.xml",
+    ];
+
+    static SimLaunch() => System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);   // Windows-1252 files (#41)
+
+    /// <summary>Every exe.xml of a sim installed on this PC (MSFS 2024 Store and Steam, the 2020 editions). The entry
+    /// goes into all of them: with a Store and a Steam copy both present, writing only one could miss the sim used (#41).</summary>
+    public static IReadOnlyList<string> Files => [.. Candidates.Select(Environment.ExpandEnvironmentVariables).Where(File.Exists)];
+
+    /// <summary>The first of them (for messages); null if none is found (the sim writes it on first start).</summary>
+    public static string? File_ => Files.FirstOrDefault();
 
     public static bool Enabled
     {
@@ -31,24 +37,46 @@ public static class SimLaunch
         {
             try
             {
-                return File_ is { } file && Entry(XDocument.Load(file)) is { } e && !string.Equals(Value(e, "Disabled"), "true", StringComparison.OrdinalIgnoreCase);
+                return Files.Any(IsEnabledIn);
             }
-            catch (Exception ex) when (ex is IOException or System.Xml.XmlException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or System.Xml.XmlException or UnauthorizedAccessException or ArgumentException)
             {
                 return false;
             }
         }
     }
 
-    /// <summary>Adds or removes the entry. Throws with a plain message when the file cannot be changed.</summary>
-    public static void Set(bool on, string configPath) => Set(on, configPath, File_ ?? throw new InvalidOperationException("the simulator's exe.xml was not found (has the simulator been started once on this PC?)"), Environment.ProcessPath ?? "GlassLink.exe");
+    /// <summary>Adds or removes the entry in every exe.xml. Throws with a plain message when a file cannot be changed.</summary>
+    public static void Set(bool on, string configPath)
+    {
+        var files = Files;
+        if (files.Count == 0)
+        {
+            throw new InvalidOperationException("the simulator's exe.xml was not found (has the simulator been started once on this PC?)");
+        }
+
+        foreach (var file in files)
+        {
+            Set(on, configPath, file, Environment.ProcessPath ?? "GlassLink.exe");
+        }
+    }
 
     /// <summary>The same on any exe.xml (tests).</summary>
     public static void Set(bool on, string configPath, string file, string exe)
     {
         var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
         var root = doc.Root ?? throw new InvalidOperationException($"{file} has no content");
-        Entry(doc)?.Remove();
+        var existing = Entries(doc).ToList();
+        if (!on && existing.Count == 0)
+        {
+            return;                                          // nothing of ours in it: the file is not touched
+        }
+
+        foreach (var old in existing)
+        {
+            old.Remove();                                    // every GlassLink entry, also duplicates (#41)
+        }
+
         if (on)
         {
             root.Add(new XElement("Launch.Addon",
@@ -65,14 +93,19 @@ public static class SimLaunch
         }
 
         var temp = file + ".glasslink-tmp";
-        doc.Save(temp);
+        var encoding = doc.Declaration?.Encoding is { Length: > 0 } name ? System.Text.Encoding.GetEncoding(name) : new System.Text.UTF8Encoding(false);
+        using (var writer = new StreamWriter(temp, false, encoding))
+        {
+            doc.Save(writer);                                // in the encoding the file declares
+        }
+
         File.Move(temp, file, overwrite: true);
     }
 
-    public static bool IsEnabledIn(string file) => Entry(XDocument.Load(file)) is { } e && !string.Equals(Value(e, "Disabled"), "true", StringComparison.OrdinalIgnoreCase);
+    public static bool IsEnabledIn(string file) => Entries(XDocument.Load(file)).Any(e => !string.Equals(Value(e, "Disabled"), "true", StringComparison.OrdinalIgnoreCase));
 
-    private static XElement? Entry(XDocument doc) =>
-        doc.Root?.Elements("Launch.Addon").FirstOrDefault(e => string.Equals(Value(e, "Name"), AddonName, StringComparison.OrdinalIgnoreCase));
+    private static IEnumerable<XElement> Entries(XDocument doc) =>
+        doc.Root?.Elements("Launch.Addon").Where(e => string.Equals(Value(e, "Name"), AddonName, StringComparison.OrdinalIgnoreCase)) ?? [];
 
     private static string? Value(XElement e, string name) => e.Element(name)?.Value.Trim();
 }

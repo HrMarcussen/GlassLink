@@ -81,6 +81,9 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     }
 
     /// <summary>Pops out the named displays. Returns the ones that got a window.</summary>
+    /// <summary>Asked before every camera move and click: true = stop, restore the camera, return (the DMC is quitting).</summary>
+    public Func<bool> Stop { get; init; } = () => false;
+
     public IReadOnlyList<string> Run(IReadOnlyList<string> names, AircraftProfile profile)
     {
         var done = new List<string>();
@@ -96,6 +99,11 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         {
             foreach (var group in names.Where(profile.Points.ContainsKey).GroupBy(n => profile.Points[n].Camera.Key))
             {
+                if (Stop())
+                {
+                    break;
+                }
+
                 ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
                 if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && !ViewMatches(sim, pfd))
@@ -107,6 +115,11 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
 
                 foreach (var name in group)
                 {
+                    if (Stop())
+                    {
+                        break;
+                    }
+
                     if (Click(name, profile.Points[name], sim))
                     {
                         done.Add(name);

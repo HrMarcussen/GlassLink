@@ -96,6 +96,11 @@ public sealed class DisplayCapture : IDisposable
 
             try
             {
+                if (_capture is { Stale: true } stale)
+                {
+                    Stop($"capture of '{Name}' restarts: {(stale.FailReason.Length > 0 ? stale.FailReason : "the graphics device was reset")}");   // #32
+                }
+
                 if (_capture is not null && (Window is null || !WindowFinder.IsAlive(Window.Handle)
                     || WindowFinder.Describe(Window.Handle) is not { } now || !WindowMatch.From(_display["match"] as JsonObject).Matches(now)))
                 {

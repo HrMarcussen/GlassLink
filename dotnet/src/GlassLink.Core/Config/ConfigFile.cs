@@ -22,26 +22,79 @@ public sealed class ConfigFile
         _path = path;
     }
 
+    /// <summary>True when config.json was empty or broken and the copy of the last good save was used instead.</summary>
+    public bool LoadedFromBackup { get; private init; }
+
     public static ConfigFile Load(string path)
     {
-        var root = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject : null;
-        return new ConfigFile(root ?? [], path);
+        if (!File.Exists(path))
+        {
+            return new ConfigFile([], path);
+        }
+
+        try
+        {
+            return new ConfigFile(Parse(path), path);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            // A save cut short by a crash leaves an empty or half file: the previous save is kept next to it (#30).
+            var backup = path + ".bak";
+            if (File.Exists(backup))
+            {
+                return new ConfigFile(Parse(backup), path) { LoadedFromBackup = true };
+            }
+
+            throw new InvalidDataException($"{path} cannot be read ({ex.Message}) and there is no {Path.GetFileName(backup)} to fall back to", ex);
+        }
     }
 
-    /// <summary>Runs an edit under the lock and writes the file (to a temporary file first, then swapped in).</summary>
+    private static JsonObject Parse(string file) =>
+        JsonNode.Parse(File.ReadAllText(file)) as JsonObject ?? throw new InvalidDataException($"{file} does not hold a JSON object");
+
+    /// <summary>Runs an edit under the lock and saves: to a temporary file flushed to disk, then swapped in with the
+    /// previous file kept as config.json.bak, so a crash or a blue screen at any moment leaves a readable file. If
+    /// the save fails, the edit is taken back, so memory and file do not disagree (#30).</summary>
     public void Update(Action<JsonObject> edit)
     {
         lock (_gate)
         {
+            var before = _path is null ? null : (JsonObject)Root.DeepClone();
             edit(Root);
             if (_path is null)
             {
                 return;
             }
 
-            var temp = _path + ".tmp";
-            File.WriteAllText(temp, Root.ToJsonString(WriteOptions));
-            File.Move(temp, _path, overwrite: true);
+            try
+            {
+                var temp = _path + ".tmp";
+                using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                {
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(Root.ToJsonString(WriteOptions));
+                    fs.Write(bytes);
+                    fs.Flush(flushToDisk: true);
+                }
+
+                if (File.Exists(_path))
+                {
+                    File.Replace(temp, _path, _path + ".bak", ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(temp, _path);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Root.Clear();
+                foreach (var (key, value) in before!)
+                {
+                    Root[key] = value?.DeepClone();
+                }
+
+                throw new IOException($"the configuration could not be saved: {ex.Message}", ex);
+            }
         }
     }
 
@@ -83,8 +136,8 @@ public sealed class ConfigFile
 public sealed record DuSettings(string Display, string Label, int Brightness, int? Rotation, int? Screen, IReadOnlyList<(string Display, int X, int Y)> Tiles)
 {
     public static DuSettings From(JsonObject? o) => new(
-        o?["display"]?.GetValue<string>() ?? "",
-        o?["label"]?.GetValue<string>() ?? "",
+        o?["display"].Text() ?? "",
+        o?["label"].Text() ?? "",
         Math.Clamp(o?["brightness"] is { } b && b.GetValueKind() == JsonValueKind.Number ? (int)b.AsDouble() : 100, 0, 100),
         o?["rotation"] is { } r && r.GetValueKind() == JsonValueKind.Number ? (int)r.AsDouble() : null,
         o?["screen"] is { } sc && sc.GetValueKind() == JsonValueKind.Number ? (int)sc.AsDouble() : null,

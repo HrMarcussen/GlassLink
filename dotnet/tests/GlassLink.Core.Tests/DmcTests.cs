@@ -39,7 +39,8 @@ public class AdvisorTests
         Assert.StartsWith("AMD Fluid Motion Frames is switched ON", found[0].Steps[0]);        // the proven cause comes first
         Assert.Contains(found[0].Steps, s => s.Contains("Glass cockpit refresh rate is Medium."));
         Assert.DoesNotContain(found[0].Steps, s => s.Contains("NVIDIA"));
-        Assert.Empty(Run(advisor, 30, 4, r => Input(r), ref received));                        // and it goes away when the rate is back
+        Assert.NotEmpty(Run(advisor, 30, 4, r => Input(r), ref received));                     // back to 30: stays a little, no flicker
+        Assert.Empty(Run(advisor, 30, 6, r => Input(r), ref received));                        // and goes away once it has stayed back 8 s
     }
 
     [Fact]

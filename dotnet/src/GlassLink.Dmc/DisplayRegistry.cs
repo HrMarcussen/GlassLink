@@ -78,7 +78,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
     public bool IsSimDisplay(string name) =>
         config.Read(root => ((root["displays"] as JsonObject)?[name] as JsonObject)?["match"] is JsonObject m
             && m["process"] is { } p && p.GetValueKind() == JsonValueKind.String
-            && string.Equals(p.GetValue<string>(), PopoutProcedure.SimProcess, StringComparison.OrdinalIgnoreCase));
+            && string.Equals(p.Text(), PopoutProcedure.SimProcess, StringComparison.OrdinalIgnoreCase));
 
     public JsonObject Add(string? rawName, JsonObject? fields)
     {
@@ -118,7 +118,17 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
         return (JsonObject)created!.DeepClone();
     }
 
+    private readonly object _edit = new();                  // one add / update / remove at a time (#40)
+
     public JsonObject Update(string name, JsonObject? fields)
+    {
+        lock (_edit)
+        {
+            return UpdateLocked(name, fields);
+        }
+    }
+
+    private JsonObject UpdateLocked(string name, JsonObject? fields)
     {
         JsonObject? result = null;
         var changed = false;
@@ -155,6 +165,14 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
     }
 
     public void Remove(string name)
+    {
+        lock (_edit)
+        {
+            RemoveLocked(name);
+        }
+    }
+
+    private void RemoveLocked(string name)
     {
         config.Update(root =>
         {
@@ -227,6 +245,11 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
             if (!_slots.TryGetValue(name, out var slot))
             {
                 _slots[name] = slot = new FrameSlot(name);
+            }
+
+            if (_entries.Remove(name, out var old))
+            {
+                old.Capture.Dispose();                       // never two captures of one display: a leftover one would outlive the DMC
             }
 
             _entries[name] = new DisplayEntry(name, slot, new DisplayCapture(name, display, capture, slot, () => shownOnDu(name) || slot.Clients > 0, log));

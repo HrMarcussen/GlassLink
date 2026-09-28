@@ -8,6 +8,11 @@ namespace GlassLink.Core.Protocol;
 public sealed class MessageReader
 {
     private byte[] _buf = new byte[64 * 1024];
+    private readonly bool _fromDu;
+
+    /// <param name="fromDu">Reading what a DU sends: only DU-to-host types (0x80 and up) and at most 64 KB count as a
+    /// header, so a stale host message or a fake header in old bytes cannot swallow READYs (#34).</param>
+    public MessageReader(bool fromDu = false) => _fromDu = fromDu;
     private int _len;
 
     /// <summary>How many times garbage had to be skipped.</summary>
@@ -81,8 +86,9 @@ public sealed class MessageReader
     /// <summary>A header with a known message type, so payload bytes cannot fake one.</summary>
     private bool ValidAt(int i) =>
         _len - i >= Wire.HeaderSize
-        && Wire.TryParseHeader(_buf.AsSpan(i, Wire.HeaderSize), out var type, out _, out _, out _)
-        && Enum.IsDefined(type);
+        && Wire.TryParseHeader(_buf.AsSpan(i, Wire.HeaderSize), out var type, out var length, out _, out _)
+        && Enum.IsDefined(type)
+        && (!_fromDu || ((byte)type >= 0x80 && length <= 64 * 1024));
 
     private int IndexOfMagic(int from)
     {

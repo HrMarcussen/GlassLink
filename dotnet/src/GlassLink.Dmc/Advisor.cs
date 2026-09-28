@@ -31,6 +31,8 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
     private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
     private readonly Dictionary<string, (long Received, long At)> _previous = [];
     private readonly Dictionary<string, long> _slowSince = [];
+    private readonly Dictionary<string, long> _fastSince = [];      // reported as slow: stays reported until fast for 8 s (#11)
+    private readonly HashSet<string> _reportedSlow = [];
     private (GpuFacts Gpu, SimFacts Sim)? _facts;
     private long _factsAt = long.MinValue / 2;
 
@@ -187,14 +189,28 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
             if (watched && Rates.TryGetValue(d.Name, out var rate) && rate < SlowFps)
             {
                 _slowSince.TryAdd(d.Name, now);
+                _fastSince.Remove(d.Name);
                 if (now - _slowSince[d.Name] >= SlowForSeconds * 1000)
                 {
                     slow.Add(d.Name);
+                    _reportedSlow.Add(d.Name);
                 }
             }
             else
             {
                 _slowSince.Remove(d.Name);
+                if (watched && _reportedSlow.Contains(d.Name))
+                {
+                    _fastSince.TryAdd(d.Name, now);
+                    if (now - _fastSince[d.Name] < SlowForSeconds * 1000)
+                    {
+                        slow.Add(d.Name);                    // not fast long enough yet: the advice stays, no flicker
+                        continue;
+                    }
+                }
+
+                _reportedSlow.Remove(d.Name);
+                _fastSince.Remove(d.Name);
             }
         }
 

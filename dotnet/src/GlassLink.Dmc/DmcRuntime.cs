@@ -75,7 +75,7 @@ public sealed class DmcRuntime : IDisposable
 
     /// <summary>The DU firmware image to install: named in the configuration, else the one built in this checkout,
     /// else the one shipped next to GlassLink.exe (an installed copy).</summary>
-    public string FirmwareImagePath => Config.Read(root => (root["firmware"] as JsonObject)?["image"]?.GetValue<string>())
+    public string FirmwareImagePath => Config.Read(root => (root["firmware"] as JsonObject)?["image"].Text())
                                        ?? new[] { Path.Combine(Root, "firmware", "build", "glasslink_du.bin"), Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin") }
                                            .FirstOrDefault(File.Exists) ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
 
@@ -173,7 +173,8 @@ public sealed class DmcRuntime : IDisposable
     public void Dispose()
     {
         Log("stopping");
-        Auto?.Dispose();
+        Learner.CancelAndWait();                             // a Learn in progress brings the user's view back first (#39)
+        Auto?.Dispose();                                     // and a running pop-out stops after its current display
         Dus.Dispose();                                       // the panels fall back to NOT ASSIGNED
         Displays.Dispose();                                  // capture sessions are closed one by one, never killed
         Sim.Dispose();
@@ -216,7 +217,7 @@ public sealed class DmcRuntime : IDisposable
     private (string, int[]) TuneProcess()
     {
         var section = Config.Read(root => root["process"]?.DeepClone() as JsonObject);
-        var priority = section?["priority"]?.GetValue<string>() ?? "below_normal";
+        var priority = section?["priority"].Text() ?? "below_normal";
         var me = System.Diagnostics.Process.GetCurrentProcess();
         me.PriorityClass = priority switch
         {

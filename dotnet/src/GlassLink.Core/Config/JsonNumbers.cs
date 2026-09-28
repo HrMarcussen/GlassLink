@@ -5,6 +5,10 @@ namespace GlassLink.Core.Config;
 
 public static class JsonNumbers
 {
+    /// <summary>A JSON string's text; null for anything else (a hand-edited 5 or true must not throw, #29).</summary>
+    public static string? Text(this JsonNode? node) =>
+        node is JsonValue v && v.GetValueKind() == System.Text.Json.JsonValueKind.String ? v.GetValue<string>() : null;
+
     /// <summary>
     /// A JSON number as a double, wherever it came from. GetValue&lt;double&gt;() only works for numbers that were parsed
     /// from text; a number this program put into the tree itself (an int position, a brightness) makes it throw.

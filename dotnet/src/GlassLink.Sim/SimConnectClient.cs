@@ -124,9 +124,9 @@ public sealed class SimConnectClient : IDisposable
                     {
                         _connected = true;
                         _registered = 0;
+                        Native.SimConnect_SubscribeToSystemEvent(_handle, 1, "Frame");     // under the lock like every call (#43)
                     }
 
-                    Native.SimConnect_SubscribeToSystemEvent(_handle, 1, "Frame");
                     _log?.Invoke("SimConnect: connected");
                 }
 
@@ -134,7 +134,7 @@ public sealed class SimConnectClient : IDisposable
                 Pump();
                 _signal.WaitOne(250);
             }
-            catch (Exception ex) when (ex is SEHException or DllNotFoundException or ObjectDisposedException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)       // this thread must never take the DMC down (#43)
             {
                 _log?.Invoke($"SimConnect: {ex.GetType().Name}: {ex.Message}");
                 Disconnect();

@@ -74,7 +74,7 @@ public sealed class DuConnection : IDisposable
 {
     private readonly IDuTransport _transport;
     private readonly Action<string>? _log;
-    private readonly MessageReader _reader = new();
+    private readonly MessageReader _reader = new(fromDu: true);
     private readonly Thread _thread;
     private readonly CancellationTokenSource _stop = new();
     /// <summary>What the DU is to show: one display, or a layout with a display per tile. Replaced as a whole under

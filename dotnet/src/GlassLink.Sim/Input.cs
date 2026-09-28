@@ -44,13 +44,32 @@ public static class Input
         }
 
         Thread.Sleep(400);
-        Key(Native.VK_RMENU, down: true, extended: true);
-        Thread.Sleep(300);
-        Mouse(Native.MOUSEEVENTF_LEFTDOWN);
-        Thread.Sleep(120);
-        Mouse(Native.MOUSEEVENTF_LEFTUP);
-        Thread.Sleep(200);
-        Key(Native.VK_RMENU, down: false, extended: true);
+        var (altDown, buttonDown) = (false, false);
+        try
+        {
+            Key(Native.VK_RMENU, down: true, extended: true);
+            altDown = true;
+            Thread.Sleep(300);
+            Mouse(Native.MOUSEEVENTF_LEFTDOWN);
+            buttonDown = true;
+            Thread.Sleep(120);
+        }
+        finally
+        {
+            // always released, also after an exception or a thread abort mid-way: a Right-Alt left down in the sim
+            // turns every later click into a pop-out (#39)
+            if (buttonDown)
+            {
+                Mouse(Native.MOUSEEVENTF_LEFTUP);
+                Thread.Sleep(200);
+            }
+
+            if (altDown)
+            {
+                Key(Native.VK_RMENU, down: false, extended: true);
+            }
+        }
+
         return true;
     }
 
@@ -63,17 +82,25 @@ public static class Input
             return false;
         }
 
-        foreach (var vk in keys)
+        var pressed = new Stack<ushort>();
+        try
         {
-            Key(vk, down: true);
-            Thread.Sleep(60);
-        }
+            foreach (var vk in keys)
+            {
+                Key(vk, down: true);
+                pressed.Push(vk);
+                Thread.Sleep(60);
+            }
 
-        Thread.Sleep(100);
-        foreach (var vk in keys.Reverse())
+            Thread.Sleep(100);
+        }
+        finally
         {
-            Key(vk, down: false);
-            Thread.Sleep(60);
+            while (pressed.TryPop(out var vk))                // every key that went down comes up again (#39)
+            {
+                Key(vk, down: false);
+                Thread.Sleep(60);
+            }
         }
 
         return true;
@@ -109,14 +136,17 @@ public static class Input
 
     public static bool IsDown(ushort virtualKey) => (Native.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
+    /// <summary>Absolute moves are scaled over the whole virtual desktop, so a sim on a second monitor is clicked where
+    /// it is, not where the same numbers fall on the primary monitor (#42).</summary>
     private static void MoveTo(int x, int y)
     {
-        var (w, h) = (Native.GetSystemMetrics(0), Native.GetSystemMetrics(1));
+        var (vx, vy) = (Native.GetSystemMetrics(76), Native.GetSystemMetrics(77));           // SM_X/YVIRTUALSCREEN
+        var (w, h) = (Native.GetSystemMetrics(78), Native.GetSystemMetrics(79));             // SM_CX/CYVIRTUALSCREEN
         var input = new Native.INPUT { type = 0 };
         input.u.mi = new Native.MOUSEINPUT
         {
-            dx = (int)Math.Round(x * 65535.0 / Math.Max(1, w - 1)), dy = (int)Math.Round(y * 65535.0 / Math.Max(1, h - 1)),
-            dwFlags = Native.MOUSEEVENTF_MOVE | Native.MOUSEEVENTF_ABSOLUTE,
+            dx = (int)Math.Round((x - vx) * 65535.0 / Math.Max(1, w - 1)), dy = (int)Math.Round((y - vy) * 65535.0 / Math.Max(1, h - 1)),
+            dwFlags = Native.MOUSEEVENTF_MOVE | Native.MOUSEEVENTF_ABSOLUTE | Native.MOUSEEVENTF_VIRTUALDESK,
         };
         Native.SendInput(1, [input], Marshal.SizeOf<Native.INPUT>());
     }
@@ -142,7 +172,7 @@ public static class Input
     private static class Native
     {
         public const ushort VK_MENU = 0x12, VK_RMENU = 0xA5;
-        public const uint MOUSEEVENTF_MOVE = 1, MOUSEEVENTF_LEFTDOWN = 2, MOUSEEVENTF_LEFTUP = 4, MOUSEEVENTF_ABSOLUTE = 0x8000;
+        public const uint MOUSEEVENTF_MOVE = 1, MOUSEEVENTF_LEFTDOWN = 2, MOUSEEVENTF_LEFTUP = 4, MOUSEEVENTF_VIRTUALDESK = 0x4000, MOUSEEVENTF_ABSOLUTE = 0x8000;
         public const uint KEYEVENTF_EXTENDEDKEY = 1, KEYEVENTF_KEYUP = 2;
 
         [StructLayout(LayoutKind.Sequential)]
