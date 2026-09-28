@@ -14,7 +14,10 @@ The shared steps come from [release-tools](https://github.com/HrMarcussen/releas
    - `GlassLink-x.y.z-win-x64.zip`, the same without an installer
    - `glasslink_du-x.y.z.bin`, the DU firmware (the installer contains it too)
    - `SHA256SUMS.txt`, and the changelog section as the notes
-5. Update the DUs from the status page of an updated DMC.
+5. Installed DMCs see the release within six hours (or at once with Check now on the System tab) and offer
+   **Install update**. They look at the latest *published* release: drafts and pre-releases are not offered. An
+   update needs the `-setup.exe` and `SHA256SUMS.txt` assets, which the workflow always publishes.
+6. Update the DUs from the status page of an updated DMC.
 
 A **dry run** (same build, nothing published, the files kept as a workflow artifact for a week): Actions, Release,
 Run workflow, on `main`.

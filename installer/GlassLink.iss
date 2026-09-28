@@ -53,7 +53,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; delete first, then add: an upgrade must not pile up copies of the rule (#46)
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLink DMC"""; Flags: runhidden; Tasks: firewall
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""GlassLink DMC"" dir=in action=allow program=""{app}\GlassLink.exe"" enable=yes profile=private"; Flags: runhidden; Tasks: firewall
-Filename: "{app}\GlassLink.exe"; Description: "Start the GlassLink DMC now"; Flags: nowait postinstall skipifsilent
+; as the user who runs the setup, not with the setup's administrator rights
+Filename: "{app}\GlassLink.exe"; Description: "Start the GlassLink DMC now"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; an update started from the DMC's status page (/update=1) is silent: start the new DMC again when it is done (#76)
+Filename: "{app}\GlassLink.exe"; Flags: nowait runasoriginaluser; Check: IsUpdate
 
 [UninstallRun]
 Filename: "{app}\GlassLink.exe"; Parameters: "--quit"; Flags: runhidden; RunOnceId: "quit"
@@ -63,6 +66,11 @@ Filename: "{app}\GlassLink.exe"; Parameters: "--remove-sim-entry"; Flags: runhid
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLink DMC"""; Flags: runhidden; RunOnceId: "firewall"
 
 [Code]
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:update|0}') = '1';
+end;
+
 // "Start with Windows" may have been switched on from the tray, not by the installer's task: remove it either way (#46).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin

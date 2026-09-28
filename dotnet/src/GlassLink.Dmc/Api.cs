@@ -176,6 +176,27 @@ public static partial class Api
             strays.ForEach(w => WindowFinder.Close(w.Handle));
             return Json(new JsonObject { ["closed"] = strays.Count });
         });
+        // Updates of the DMC from GitHub Releases (#76): check now, install (the user's click), switch the check on or off.
+        app.MapPost("/update/check", async () =>
+        {
+            await dmc.Updater.CheckAsync();
+            return Json(dmc.Updater.ToJson());
+        });
+        app.MapPost("/update/install", () => dmc.Updater.BeginInstall()
+            ? Results.Json(dmc.Updater.ToJson(), statusCode: 202)
+            : Plain(409, dmc.Updater.Error));
+        app.MapPost("/update/settings", async (HttpRequest request) => await Guarded(async () =>
+        {
+            var body = await Body(request);
+            if (body["check"] is not { } check || check.GetValueKind() is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+            {
+                return Plain(400, "check must be true or false");
+            }
+
+            dmc.Updater.SetEnabled(check.GetValue<bool>());
+            dmc.Log($"update check {(check.GetValue<bool>() ? "on" : "off")}");
+            return Json(dmc.Updater.ToJson());
+        }));
         app.MapGet("/popout/settings", () => Json(new JsonObject { ["camera_restore_key"] = PopoutSettings.From(dmc.Config.Snapshot()).RestoreKey }));
         app.MapPost("/popout/settings", async (HttpRequest request) =>
         {
@@ -232,6 +253,7 @@ public static partial class Api
             ["build"] = dmc.Build,
             ["engine"] = ".NET",
             ["firmware_version"] = dmc.FirmwareVersion,
+            ["update"] = dmc.Updater.ToJson(),
             ["firmware_image"] = FirmwareSummary(dmc),
             ["process"] = new JsonObject { ["priority"] = dmc.Process.Priority, ["affinity"] = new JsonArray([.. dmc.Process.Affinity.Select(c => (JsonNode)c)]) },
             ["displays"] = Displays(dmc),
@@ -254,7 +276,7 @@ public static partial class Api
                 ["status"] = popout.Status, ["detail"] = popout.Detail, ["missing"] = new JsonArray([.. popout.Missing.Select(n => (JsonNode)n)]),
                 ["last_attempt"] = popout.LastAttempt?.ToString("HH:mm:ss"),
             },
-            ["advice"] = new JsonArray([.. advice.Select(a => (JsonNode)new JsonObject
+            ["advice"] = new JsonArray([.. advice.Concat(UpdateAdvice(dmc)).Select(a => (JsonNode)new JsonObject
             {
                 ["id"] = a.Id, ["level"] = a.Level, ["tab"] = a.Tab, ["title"] = a.Title, ["detail"] = a.Detail, ["steps"] = new JsonArray([.. a.Steps.Select(s => (JsonNode)s)]),
             })]),
@@ -352,6 +374,18 @@ public static partial class Api
     }
 
     private static (JsonObject Value, long At) _firmware = (new JsonObject(), long.MinValue / 2);
+
+    /// <summary>A newer GlassLink on GitHub, announced where the other advice is (#76).</summary>
+    private static IEnumerable<Advice> UpdateAdvice(DmcRuntime dmc)
+    {
+        var u = dmc.Updater;
+        if (u.Available && u.Latest is { } r)
+        {
+            yield return new Advice("update", "info", "system", $"GlassLink {r.Version} is available", $"This is {dmc.Version}.",
+                u.Installed ? ["System tab: read what is new, then Install update. The installer asks Windows for permission, stops GlassLink, updates it and starts it again; afterwards the DUs are offered their new firmware."]
+                            : ["This copy runs from a source checkout: update it with git pull and build it again."]);
+        }
+    }
 
     private static JsonObject FirmwareSummary(DmcRuntime dmc)
     {

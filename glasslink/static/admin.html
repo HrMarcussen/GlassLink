@@ -363,11 +363,44 @@
       ['Auto pop-out', esc(`${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`)],
       ['Brightness link', esc(!br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`)],
       ['DU firmware', `${esc(s.firmware_version || '-')} <span class="dim">· a DU with an older version gets an Update button</span>`],
-      ['Firmware image', fi.available ? `${esc(fi.version)} · ${Math.round(fi.size / 1024)} KB · built ${esc(fi.modified)} <span class="dim">· on this PC; nothing comes from the internet</span>` : esc(`none (${fi.error || ''})`)],
+      ['Firmware image', fi.available ? `${esc(fi.version)} · ${Math.round(fi.size / 1024)} KB · built ${esc(fi.modified)} <span class="dim">· comes with GlassLink; the DUs are updated from this PC only</span>` : esc(`none (${fi.error || ''})`)],
       ['USB', esc((s.usb || {}).enabled ? ((s.usb || {}).scan_error || 'scanning for display units') : 'off')],
       ['Getting started', '<button id="show-checklist">Show the checklist again</button>'],
     ];
+    if (s.update) rows.splice(1, 0, ['Updates', updateHtml(s.update)]);          // the .NET DMC only (#76)
     setHTML($('#system-kv'), rows.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join(''));
+    wireUpdate();
+  }
+
+  // Updates from GitHub Releases (#76): what is there, what is new, and an Install button that only the user presses.
+  function updateHtml(u) {
+    const busy = { checking: 'Checking…', downloading: `Downloading the update… ${Math.round((u.progress || 0) * 100)} %`,
+                   verifying: 'Checking the download…', starting: 'The installer is running: GlassLink stops, updates and starts again.' }[u.state];
+    let head;
+    if (busy) head = `<b>${esc(busy)}</b>`;
+    else if (u.available) head = `<b>&#8593; GlassLink ${esc(u.latest)} is available</b> <span class="dim">(this is ${esc(u.current)}${u.published ? ', published ' + esc(u.published) : ''})</span>`;
+    else if (u.latest) head = `Up to date <span class="dim">(${esc(u.current)})</span>`;
+    else head = `<span class="dim">${esc(u.current)} · ${u.enabled ? 'not checked yet' : 'the check is off'}</span>`;
+    const problem = u.error && !busy ? `<br>${pill(u.error, 'warn')}` : '';
+    const install = u.available && !busy ? (u.can_install ? '<button id="update-install" class="primary">Install update</button>'
+      : !u.installed ? '<span class="dim">This copy runs from a source checkout: update it with git pull.</span>' : '') : '';
+    const notes = u.available && u.notes ? `<details class="notes"><summary>What is new in ${esc(u.latest)}</summary><pre style="white-space:pre-wrap;font:inherit;margin:.4rem 0">${esc(u.notes)}</pre></details>` : '';
+    const checked = u.checked ? ` <span class="dim small">· last checked ${esc(u.checked)}</span>` : '';
+    return `${head}${problem}${notes}<div style="margin-top:.3rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center">${install}
+      <button id="update-check" ${busy ? 'disabled' : ''}>Check now</button>
+      <label><input type="checkbox" id="update-auto" ${u.enabled ? 'checked' : ''}> check for updates automatically</label>${checked}</div>`;
+  }
+
+  function wireUpdate() {
+    const post = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+      .then(r => r.ok ? null : r.text().then(t => alert(t || 'That did not work.'))).then(refresh);
+    const check = $('#update-check'); if (check) check.onclick = () => { check.disabled = true; post('/update/check'); };
+    const auto = $('#update-auto'); if (auto) auto.onchange = () => post('/update/settings', { check: auto.checked });
+    const inst = $('#update-install');
+    if (inst) inst.onclick = () => {
+      const u = (lastStatus || {}).update || {};
+      if (confirm(`Install GlassLink ${u.latest}?\n\nWindows asks for permission. GlassLink stops while it is updated and starts again by itself; the DUs show their idle screen for a moment.`)) post('/update/install');
+    };
   }
 
   function renderModules(m) {

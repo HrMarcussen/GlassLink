@@ -61,7 +61,7 @@ public sealed class Tray : IDisposable
     private readonly string _url;
     private readonly NotifyIcon _icon;
     private readonly System.Windows.Forms.Timer _timer;
-    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart, _withSim;
+    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart, _withSim, _update;
     private readonly Dictionary<Health, Icon> _icons = [];
     private Health? _shown;
 
@@ -79,10 +79,12 @@ public sealed class Tray : IDisposable
         _autostart = new ToolStripMenuItem("Start with Windows", null, (_, _) => ToggleAutostart()) { Checked = AutostartEnabled };
         _withSim = new ToolStripMenuItem("Start and stop with the simulator", null, (_, _) => ToggleWithSim()) { Checked = SimLaunch.Enabled, Enabled = SimLaunch.File_ is not null,
             ToolTipText = SimLaunch.File_ is null ? "The simulator's exe.xml was not found" : "An entry in the simulator's exe.xml; the DMC quits when the simulator does" };
+        _update = new ToolStripMenuItem("", null, (_, _) => OpenStatusPage()) { Visible = false,
+            ToolTipText = "Opens the status page; the System tab installs the update" };
         var menu = new ContextMenuStrip();
         menu.Items.AddRange(
         [
-            new ToolStripMenuItem($"GlassLink DMC {dmc.Version}") { Enabled = false }, _sim, _displays, _dus, new ToolStripSeparator(),
+            new ToolStripMenuItem($"GlassLink DMC {dmc.Version}") { Enabled = false }, _update, _sim, _displays, _dus, new ToolStripSeparator(),
             new ToolStripMenuItem("Open status page", null, (_, _) => OpenStatusPage()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) },
             new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.Auto?.Retry()),
             _autostart, _withSim, new ToolStripSeparator(),
@@ -121,7 +123,10 @@ public sealed class Tray : IDisposable
                 item.Tag = palette.For(level);
             }
 
-            var tip = $"GlassLink DMC\n{s.Sim}\n{s.Displays}\n{s.Dus}";
+            var update = _dmc.Updater.Available ? $"GlassLink {_dmc.Updater.Latest!.Version} is available" : null;
+            _update.Visible = update is not null;
+            _update.Text = update is null ? "" : $"\u2191  {update}…";        // an arrow and words, not a colour
+            var tip = $"GlassLink DMC\n{s.Sim}\n{s.Displays}\n{s.Dus}" + (update is null ? "" : $"\n{update}");
             _icon.Text = tip.Length > 127 ? tip[..127] : tip;          // the limit of a notification area tooltip
             if (_shown != s.Level)
             {

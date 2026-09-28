@@ -39,6 +39,7 @@ public sealed class DmcRuntime : IDisposable
         Displays.Removed = Dus.DisplayRemoved;
         Learner = new Learner(Config, Camera, Log) { PauseAuto = paused => { if (Auto is not null) { Auto.Paused = paused; } } };
         Advisor = new Advisor();
+        Updater = new Updater(Version, Config, Log);
     }
 
     public string ConfigPath { get; }
@@ -71,6 +72,8 @@ public sealed class DmcRuntime : IDisposable
 
     public Advisor Advisor { get; }
 
+    public Updater Updater { get; }
+
     public DateTime Started { get; } = DateTime.UtcNow;
 
     public bool BrightnessEnabled => Config.Read(root => (root["brightness"] as JsonObject)?["enabled"] is not { } e || e.GetValueKind() != System.Text.Json.JsonValueKind.False);
@@ -87,6 +90,7 @@ public sealed class DmcRuntime : IDisposable
         Sim.Start();
         Displays.StartAll();
         Dus.Start();
+        Updater.Start();
         if (PopoutSettings.From(Config.Root).Auto)
         {
             Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
@@ -188,6 +192,7 @@ public sealed class DmcRuntime : IDisposable
         Dus.Dispose();                                       // the panels fall back to NOT ASSIGNED
         Displays.Dispose();                                  // capture sessions are closed one by one, never killed
         Sim.Dispose();
+        Updater.Dispose();
     }
 
     private string? ReadText(string name)

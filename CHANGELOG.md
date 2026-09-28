@@ -18,12 +18,19 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ## [Unreleased]
 
 ### Added
+- **GlassLink updates itself from GitHub Releases** (#76). A minute after the start and every six hours the DMC asks
+  GitHub for the latest release (anonymously; `updates.check: false` switches it off). A newer one is announced on the
+  status page and in the tray menu, with what is new; **Install update** (the user's click only, and only in an
+  installed copy) downloads the setup program, checks it against the release's SHA256SUMS.txt and, once GlassLink is
+  code-signed, that it is validly signed by the same publisher, and runs it: GlassLink stops, is updated and starts
+  again, and the DUs are then offered their new firmware as usual.
 - Releases are built, signed and published by GitHub Actions from a version tag (`.github/workflows/release.yml`,
   `docs/releasing.md`), with the shared steps of `HrMarcussen/release-tools`: the installer, the zip, the DU firmware
   and `SHA256SUMS.txt` on the GitHub Release, the changelog section as notes. `toolsuild-release.ps1` gains
   `-Stage publish|package` so the program can be signed before it is packed.
 
 ### Fixed
+- The installer's "Start the GlassLink DMC now" started it with the installer's administrator rights; now as the user.
 - **[DU firmware]** Clearing the screen (layout changes, idle screens) no longer makes a 1080p screen flicker: the
   pixel accelerator fills the frame buffer on screen in one pass, in 32-byte bursts, instead of the CPU filling a
   6 MB work buffer that was then copied over. Display underruns in 18 layout changes: 13 before, 2 now (#75).

@@ -40,7 +40,8 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 - **HDMI modes** per DU: 768x768 (the square 8.8" panels), 1024x768, 800x600, 1280x720, 1920x1080 at 30 Hz.
 - **Brightness follows the cockpit knobs** (read through SimConnect), times a trim per DU; the DU dims in its JPEG
   decoder, at no cost.
-- **Firmware updates over USB** from the status page, with rollback if a new image does not come up.
+- **Updates itself** from GitHub Releases on your click (checked against the release's checksums), and **updates
+  the DUs' firmware** over USB from the status page, with rollback if a new image does not come up.
 - **Status page** in its own window and on any device in the LAN (read-only from other devices unless allowed),
   with advice when something limits the frame rate. Light and dark mode follow Windows; text follows the system
   text size; no state is shown by colour alone.
@@ -106,6 +107,7 @@ the same way: [pi/SETUP.md](pi/SETUP.md). Allow the port in the firewall when th
 | `modules.<serial>` | per DU: `display`, `label`, `brightness` (trim), `screen` (HDMI mode 0-4), `tiles` (several displays: `{display: {x, y}}`); `rotation` is stored but not drawn by the DU yet |
 | `popout` | `auto`, `aircraft`, `zoom`, `grace_s`, `retry_s`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
 | `brightness` | `enabled`, `source` |
+| `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours |
 
 ## HTTP API
 
@@ -119,6 +121,7 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 | `GET/POST /displays`, `POST/DELETE /displays/<name>`, `POST /displays/<name>/learn`, `/close` | display editor, Learn, close a pop-out |
 | `GET /modules`, `POST/DELETE /modules/<serial>` | DUs: display, label, brightness, screen, tiles, cards, `command` (`ident`, `ping`, `update`) |
 | `GET/POST /popout/settings`, `POST /popouts/close-strays`, `POST /learn/cancel` | pop-out settings |
+| `POST /update/check`, `/update/install`, `/update/settings` | look for a newer GlassLink now, install it, switch the automatic check on or off |
 | `POST /shutdown` | stop the DMC (what `GlassLink.exe --quit` does) |
 
 ## Repository
