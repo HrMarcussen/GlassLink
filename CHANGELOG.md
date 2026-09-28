@@ -112,6 +112,29 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   Learn, advice and firmware update as the Python DMC (28 tests). Either DMC can be run; they share `config.json`.
 
 ### Changed
+- **[DU firmware] Faster DUs: 768 x 768 from 20 to 57-60 fps, dimmed ones for free, 1080p bands at 25-30 fps.**
+  Measured 28 Sept 2026 on DU2 with the bench tool and PFD-like frames of 138 KB (`stream --busy`), old firmware on
+  DU1 against new on DU2:
+
+  | | old | new |
+  |---|---|---|
+  | 768 x 768, brightness 100 | 20 fps (transfer 24 ms, decode 8, copy 13) | 57 fps (transfer 4.9, decode 8, no copy) |
+  | 768 x 768, brightness 40 | 17.6 fps (dimming 20 ms) | 60 fps (dimming free) |
+  | 1080p, two 768 tiles | 11.9 fps per tile | 24.6-28.4 fps for both, sent as one band |
+  | 1080p, full-width picture 1920 x 1072 | 9.9 fps | 21.6 fps |
+
+  - USB receive in transfers of up to 16 KB instead of one per 512-byte packet: 28 MB/s instead of 6.7. The host
+    must end a write of n x 512 bytes with a zero-length packet; both DMCs always did.
+  - A full-size picture is decoded straight into the frame buffer that is not on screen and the panel flips to it:
+    no copy and no tearing. The same for a picture as wide as the panel (a band), which goes straight into its rows
+    of the frame buffer on screen. 1080 rows of 4:2:0 decode as 1088 and do not fit, so a full 1080p picture only
+    takes this path with `subsample_420` off or 1072 rows.
+  - Dimming happens in the decoder's own YUV to RGB conversion (its matrix scaled by the brightness) instead of a
+    second pass over the picture; the pixel accelerator and then the CPU remain as fallbacks. That also frees the two
+    full-screen buffers the old blend needed, so 1080p now has two frame buffers and 12 MB of PSRAM left (#22).
+  - The last frame is kept by swapping buffers instead of copying it.
+- Bench tool: `--busy` (gradients and a screen of text, for PFD-sized frames), `--444` and `--brightness`; its test
+  pictures are now encoded with the DMC's encoder.
 - **Status page, a pass with UX glasses on.** Displays carry the names a builder uses (Captain PFD, Upper ECAM, FO ND;
   the id stays beside it) and, on a wide window, sit in their cockpit positions with the lower ECAM under the upper
   one. A card says which DU shows it; window handle, backend and frame counters are behind one "technical details"

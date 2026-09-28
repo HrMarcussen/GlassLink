@@ -31,7 +31,9 @@ A module with blank firmware enumerates, reports its serial, shows a "not assign
 
 Every transfer on either pipe is one message: a 16-byte little-endian header followed by an optional payload.
 Bulk transfers larger than 512 bytes are split by USB automatically; the receiver reassembles by `length`.
-A message whose total size is a multiple of 512 is followed by a zero-length packet (ZLP) by the sender.
+A message whose total size is a multiple of 512 is followed by a zero-length packet (ZLP) by the sender. This is
+required towards the module: it receives in transfers of up to 16 KB that end on a short packet, so without the ZLP
+such a message would sit in the module until the next one arrives.
 
 ```
 offset  size  field
@@ -91,9 +93,12 @@ offset  size  field
 
 1. Boot, init panel via LT8912B (768x768@60, 2 DSI lanes), show the "not assigned" screen with serial and firmware version.
 2. Start USB; on configuration, send READY.
-3. On FRAME: hardware-JPEG-decode, dim in the pixel accelerator if the brightness is below 100 %, draw (a full-size
-   picture goes into the frame buffer that is not on screen and the driver switches to it; the next one waits until
-   the old buffer is free, so nothing tears), send READY with the frame's seq.
+3. On FRAME: hardware-JPEG-decode (dimmed in the decoder's colour conversion if the brightness is below 100 %), draw,
+   send READY with the frame's seq. A full-size picture whose rows are whole MCUs is decoded into the frame buffer
+   that is not on screen and the driver switches to it; the next one waits until the old buffer is free, so nothing
+   tears. A picture as wide as the panel is decoded straight into its rows of the frame buffer on screen. Anything
+   else is decoded into a work buffer and copied into place. So in 1080p the fast way to show several displays is
+   one picture as wide as the panel with the displays side by side, not one TILE each.
    Decode errors are reported with LOG and answered with READY so the stream continues.
    The module keeps a copy of the last frame and redraws it when an overlay (IDENT, idle screens) ends.
    Stream resync: if a header does not validate (magic, version, known type, length), the module slides its

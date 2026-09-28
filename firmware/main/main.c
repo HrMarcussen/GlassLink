@@ -391,7 +391,11 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         end_tile_mode();                                   /* a whole-screen picture ends a layout (#17) */
         esp_err_t err = display_show_jpeg(payload, h->length, &ms);
         if (err == ESP_OK) {
-            memcpy(s_last_jpeg, payload, h->length);
+            /* keep this frame for redraws by swapping buffers, not copying: the payload is s_rx, both are
+             * RX_BUF_SIZE, and the next frame is read into the old one */
+            uint8_t *old = s_last_jpeg;
+            s_last_jpeg = s_rx;
+            s_rx = old;
             s_last_jpeg_len = h->length;
         }
         xSemaphoreGive(s_frame_mutex);

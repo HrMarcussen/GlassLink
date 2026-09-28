@@ -8,12 +8,14 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "tinyusb.h"
 #include "tinyusb_default_config.h"
 #include "tusb.h"
 #include "usb_link.h"
 
 static const char *TAG = "usb";
+static SemaphoreHandle_t s_rx_ready;    /* given by TinyUSB when data arrived: the reader waits on it, not on ticks */
 
 /* Espressif VID with the development PID (see docs/usb-protocol.md). */
 #define XD_USB_VID 0x303A
@@ -128,9 +130,17 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
 }
 
 /* ---- API ------------------------------------------------------------------------------------- */
+/* Runs in the TinyUSB task whenever a bulk OUT transfer landed in the receive FIFO. */
+void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint16_t bufsize)
+{
+    (void)idx; (void)buffer; (void)bufsize;
+    if (s_rx_ready) xSemaphoreGive(s_rx_ready);
+}
+
 esp_err_t usb_link_start(const char *serial)
 {
     strlcpy(s_serial, serial, sizeof(s_serial));
+    if (!s_rx_ready) s_rx_ready = xSemaphoreCreateBinary();
     /* High-speed port 0 of the ESP32-P4 (the Type-A socket on the NANO), default PHY and task settings. */
     tinyusb_config_t cfg = TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL);
     /* The USB task must outrank the protocol task and run on its own core, otherwise the two time-slice at the
@@ -169,10 +179,13 @@ size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
             if (len > avail) len = avail;
             return tud_vendor_read(buf, len);
         }
-        if (xTaskGetTickCount() >= deadline) {
+        TickType_t now = xTaskGetTickCount();
+        if (now >= deadline) {
             return 0;
         }
-        vTaskDelay(1);
+        /* Sleep until TinyUSB says data arrived, not a whole tick: polling in 1 ms steps made a 28 KB frame take
+         * ~4 ms to come in. A give that raced the check above leaves the semaphore set, so nothing is missed. */
+        xSemaphoreTake(s_rx_ready, deadline - now);
     }
 }
 

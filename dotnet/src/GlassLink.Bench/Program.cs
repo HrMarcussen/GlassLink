@@ -1,7 +1,7 @@
 // Bench tool for the DU layer: talks to real DUs over WinUSB without the rest of the DMC.
 //
 //   GlassLink.Bench list
-//   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>]   a moving test picture to the DUs
+//   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>] [--brightness 0..100]   a moving test picture to the DUs
 //   GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards] [--seconds 20] [--fps 30]
 //        a layout of tiles on one DU (its HDMI mode must fit: see mode), then test pictures to every tile; --cards shows
 //        the tiles as test cards instead
@@ -14,6 +14,9 @@
 //   GlassLink.Bench sim [--seconds 6]                      what SimConnect says: aircraft, camera, fps, brightness knobs
 //   GlassLink.Bench popout <display> [<display>...]        close those pop-outs and pop them out again from .NET
 //   GlassLink.Bench update <image.bin> --serial <prefix>  install firmware on one DU over USB
+//
+//   stream and tiles also take --444 (JPEG without chroma subsampling, as a display with subsample_420 off) and --busy
+//   (gradients and a screen of text, for frame sizes like a real PFD instead of the small line drawing)
 //
 // Stop the Python DMC first: a DU can only be opened by one program at a time.
 
@@ -30,6 +33,8 @@ using GlassLink.Sim;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;   // 3.5, not 3,5
 var command = args.FirstOrDefault() ?? "list";
+Pattern.Subsample420 = !args.Contains("--444");
+Pattern.Busy = args.Contains("--busy");
 string? Text(string name) => Array.IndexOf(args, name) is var t and >= 0 && t + 1 < args.Length ? args[t + 1] : null;
 int Option(string name, int fallback) =>
     Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var v) ? v : fallback;
@@ -300,8 +305,13 @@ switch (command)
     {
         var size = (Text("--size") ?? "768x768").Split('x');
         var only = Text("--only");
-        Stream(connections.Where(c => only is null || c.Serial.StartsWith(only, StringComparison.OrdinalIgnoreCase)).ToList(),
-            Option("--seconds", 20), Option("--fps", 30), int.Parse(size[0]), int.Parse(size[1]));
+        var targets = connections.Where(c => only is null || c.Serial.StartsWith(only, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (Option("--brightness", -1) is var bright and >= 0)
+        {
+            targets.ForEach(c => c.SetBrightness(bright));         // below 100 the DU dims every picture: part of what is measured
+        }
+
+        Stream(targets, Option("--seconds", 20), Option("--fps", 30), int.Parse(size[0]), int.Parse(size[1]));
         break;
     }
 
@@ -313,6 +323,11 @@ switch (command)
             .Select(t => t.Split(',').Select(int.Parse).ToArray()).Select(r => new DuConnection.Tile(r[0], r[1], r[2], r[3])).ToList();
         Thread.Sleep(1500);                                   // INFO first (caps)
         Console.WriteLine($"{du.Short}: tiles supported: {du.SupportsTiles}, panel {du.Info?.PanelWidth}x{du.Info?.PanelHeight}");
+        if (Option("--brightness", -1) is var tb and >= 0)
+        {
+            du.SetBrightness(tb);
+        }
+
         du.SetLayout(layout, args.Contains("--cards"));
         if (args.Contains("--cards"))
         {
@@ -437,30 +452,56 @@ static void Stream(List<DuConnection> connections, int seconds, int fps, int wid
 
 internal static class Pattern
 {
-    /// <summary>A sweep hand, a moving bar and a frame counter, as JPEGs: enough change to look like an instrument.</summary>
+    public static bool Subsample420 = true;
+    public static bool Busy;
+
+    /// <summary>A sweep hand, a moving bar and a frame counter, as JPEGs: enough change to look like an instrument.
+    /// Encoded like the DMC does (libjpeg-turbo, quality 85). --busy adds what makes a real PFD's frames large.</summary>
     public static List<byte[]> Render(int width, int height, int count, int variant, string? caption = null)
     {
         var frames = new List<byte[]>(count);
-        var codec = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
-        using var quality = new EncoderParameters(1);
-        quality.Param[0] = new EncoderParameter(Encoder.Quality, 85L);
-        using var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+        using var encoder = new JpegEncoder(85, Subsample420);
+        using var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
         using var g = Graphics.FromImage(bitmap);
         using var font = new Font("Consolas", 40, FontStyle.Bold);
+        using var small = new Font("Consolas", Math.Max(8, height / 60f));
         using var pen = new Pen(variant == 0 ? Color.Lime : Color.Cyan, 6);
+        using var sky = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, width, height), Color.DeepSkyBlue, Color.SaddleBrown, 90f);
         var s = Math.Min(width, height) / 768f;              // the same picture on any screen size
         var (cx, cy) = (width / 2f, height / 2f);
         for (var i = 0; i < count; i++)
         {
-            g.Clear(Color.Black);
+            if (Busy)
+            {
+                g.FillRectangle(sky, 0, 0, width, height);
+                for (var line = 0; line * small.Height < height; line++)
+                {
+                    g.DrawString($"ALT {(line * 137 + i * 7) % 39000:00000} SPD {(line * 31 + i) % 350:000} HDG {(line * 11 + i) % 360:000} QNH 1013 V/S {line * 100 - 900:+0000;-0000}",
+                                 small, line % 3 == 0 ? Brushes.White : line % 3 == 1 ? Brushes.Lime : Brushes.Magenta, 4, line * small.Height);
+                }
+            }
+            else
+            {
+                g.Clear(Color.Black);
+            }
+
             g.DrawEllipse(Pens.White, cx - 300 * s, cy - 300 * s, 600 * s, 600 * s);
             var a = i * 2 * Math.PI / count;
             g.DrawLine(pen, cx, cy, cx + (float)(290 * s * Math.Sin(a)), cy - (float)(290 * s * Math.Cos(a)));
             g.FillRectangle(Brushes.Orange, i * (width - 60) / count, height - 48, 60, 24);
             g.DrawString($"{caption ?? $".NET DU{variant + 1}"}  {i:00}", font, Brushes.White, 20, 16);
-            using var stream = new MemoryStream();
-            bitmap.Save(stream, codec, quality);
-            frames.Add(stream.ToArray());
+            var bits = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                unsafe
+                {
+                    frames.Add(encoder.Encode(new ReadOnlySpan<byte>((void*)bits.Scan0, bits.Stride * height), width, height, bits.Stride));
+                }
+            }
+            finally
+            {
+                bitmap.UnlockBits(bits);
+            }
         }
 
         return frames;

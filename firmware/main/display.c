@@ -18,6 +18,9 @@
 #include "esp_lcd_lt8912b.h"
 #include "esp_ldo_regulator.h"
 #include "hal/mipi_dsi_host_ll.h"
+#include "hal/dma2d_types.h"
+#include "soc/dma2d_struct.h"
+#include "esp_private/dma2d.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "display.h"
@@ -55,14 +58,16 @@ static SemaphoreHandle_t s_fb_free;     /* given when a frame buffer we flipped 
 static volatile bool s_flip_wait;       /* a flip happened: wait for s_fb_free before rendering into the other buffer */
 static int s_brightness = 100;
 static uint8_t s_lut[256];          /* brightness lookup (CPU fallback), rebuilt by display_set_brightness */
-/* Hardware dimming: the PPA blends the decoded frame over black with alpha = brightness. The CPU loop over
- * 1.7 MB of PSRAM cost ~78 ms per frame (9 fps cap at any brightness below 100); the PPA does it in a few ms. */
+/* Dimming, cheapest first: in the decoder's own YUV -> RGB conversion (free), else the PPA lays black over the
+ * decoded picture in place (~15 ms at 768 x 768), else a CPU table (~78 ms). */
 static ppa_client_handle_t s_ppa;
-static uint8_t *s_dim;              /* PPA output buffer (same size/alignment as s_rgb) */
-static size_t s_dim_size;
-static uint8_t *s_black;            /* all-zero background picture for the blend */
+static volatile int s_csc_scale = 256;          /* brightness in 1/256: the conversion matrix is multiplied by it */
+static volatile bool s_csc_dimmed;              /* set by the wrapper when it applied s_csc_scale to a decode */
+static bool s_csc_works = true;                 /* cleared if a dimmed decode came out without the wrapper having run */
 static void *s_fb[2];               /* the DPI panel's two frame buffers */
-static int s_front;                 /* index of the one on screen; full-size dimmed frames render into the other and flip */
+static int s_front;                 /* index of the one on screen; full-size pictures are decoded into the other and flipped */
+/* PSRAM cache line: a buffer the decoder writes must start and end on one */
+#define CACHE_ALIGN CONFIG_CACHE_L2_CACHE_LINE_SIZE
 static char s_overlay1[40], s_overlay2[40];   /* banner stamped on every frame while non-empty (IDENT) */
 static int s_rotation = 0;
 
@@ -134,8 +139,8 @@ static esp_err_t make_panel(int mode, int dsivar)
     esp_lcd_panel_lt8912b_video_timing_t vt_1024 = ESP_LCD_LT8912B_VIDEO_TIMING_1024x768_60Hz();
     esp_lcd_panel_lt8912b_video_timing_t vt_800 = ESP_LCD_LT8912B_VIDEO_TIMING_800x600_60Hz();
     esp_lcd_panel_lt8912b_video_timing_t vt_720 = ESP_LCD_LT8912B_VIDEO_TIMING_1280x720_60Hz();
-    /* 1080p: one frame buffer (12 MB for two would not leave room for the decode buffers), 30 Hz on two DSI lanes */
-    static esp_lcd_dpi_panel_config_t dpi_1080 = LT8912B_1920x1080_PANEL_30HZ_DPI_CONFIG_WITH_FBS(1);
+    /* 1080p, 30 Hz on two DSI lanes; two frame buffers fit since dimming works in place (two 6 MB buffers less) */
+    static esp_lcd_dpi_panel_config_t dpi_1080 = LT8912B_1920x1080_PANEL_30HZ_DPI_CONFIG_WITH_FBS(2);
     esp_lcd_panel_lt8912b_video_timing_t vt_1080 = ESP_LCD_LT8912B_VIDEO_TIMING_1920x1080_30Hz();
     dpi_1080.flags.use_dma2d = true;
 
@@ -295,7 +300,73 @@ static uint32_t mcu_width(const jpeg_decode_picture_info_t *pic)
     return (pic->sample_method == JPEG_DOWN_SAMPLING_YUV420 || pic->sample_method == JPEG_DOWN_SAMPLING_YUV422) ? 16 : 8;
 }
 
+static uint32_t mcu_height(const jpeg_decode_picture_info_t *pic)
+{
+    return pic->sample_method == JPEG_DOWN_SAMPLING_YUV420 ? 16 : 8;
+}
+
 static size_t align16(size_t v) { return (v + 15) & ~(size_t)15; }
+
+/* The JPEG decoder converts YUV to RGB in the 2D-DMA on its way out, with a fixed-point matrix per output byte:
+ * out = (a*Y + b*U + c*V + d) / 256. Multiplying a, b, c and d by the brightness gives a dimmed picture for free: no
+ * extra pass over the frame. The driver writes the standard matrix before every decode through the function below;
+ * the linker sends that call here (-Wl,--wrap, main/CMakeLists.txt), and after the real one we scale the matrix of RX
+ * channel 0, the only channel with a converter. Only the YUV -> RGB888 options are touched, which only the JPEG
+ * decoder uses here. May run in an interrupt (a queued decode is started from the previous one's completion). */
+esp_err_t __real_dma2d_configure_color_space_conversion(dma2d_channel_handle_t chan, const dma2d_csc_config_t *config);
+
+esp_err_t IRAM_ATTR __wrap_dma2d_configure_color_space_conversion(dma2d_channel_handle_t chan, const dma2d_csc_config_t *config)
+{
+    esp_err_t err = __real_dma2d_configure_color_space_conversion(chan, config);
+    int k = s_csc_scale;
+    if (err != ESP_OK || k >= 256 || !config) return err;
+    static const int bt601[3][4] = DMA2D_COLOR_SPACE_CONV_PARAM_YUV2RGB_BT601;
+    static const int bt709[3][4] = DMA2D_COLOR_SPACE_CONV_PARAM_YUV2RGB_BT709;
+    const int (*m)[4] = config->rx_csc_option == DMA2D_CSC_RX_YUV420_TO_RGB888_601 ? bt601
+                      : config->rx_csc_option == DMA2D_CSC_RX_YUV420_TO_RGB888_709 ? bt709 : NULL;
+    if (!m) return err;
+    volatile dma2d_color_param_reg_t *regs[3] = {&DMA2D.in_channel[0].in_color_param_group.param_h,
+                                                 &DMA2D.in_channel[0].in_color_param_group.param_m,
+                                                 &DMA2D.in_channel[0].in_color_param_group.param_l};
+    for (int i = 0; i < 3; i++) {
+        dma2d_color_param_reg_t r = {.val = {0, 0}};
+        r.a = m[i][0] * k / 256;          /* bit fields take the two's complement of negative values */
+        r.b = m[i][1] * k / 256;
+        r.c = m[i][2] * k / 256;
+        r.d = m[i][3] * k / 256;
+        regs[i]->val[0] = r.val[0];
+        regs[i]->val[1] = r.val[1];
+    }
+    s_csc_dimmed = true;
+    return err;
+}
+
+/* Brightness below 100: black laid over the picture with alpha = 100 - brightness, in place (the driver writes the
+ * input back before it invalidates the output, so one buffer may be both). The foreground is A4 with a fixed colour
+ * and a fixed alpha, so none of its pixels are read for their value: it points at the picture itself instead of an
+ * all-black buffer of its own (6 MB in 1080p). Falls back to the CPU table. */
+static void dim(uint8_t *buf, size_t buf_size, uint32_t w, uint32_t h)
+{
+    if (s_ppa && w % 2 == 0) {                     /* A4 wants an even width */
+        ppa_blend_oper_config_t b = {
+            .in_bg = {.buffer = buf, .pic_w = w, .pic_h = h, .block_w = w, .block_h = h, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
+            .in_fg = {.buffer = buf, .pic_w = w, .pic_h = h, .block_w = w, .block_h = h, .blend_cm = PPA_BLEND_COLOR_MODE_A4},
+            .out = {.buffer = buf, .buffer_size = buf_size, .pic_w = w, .pic_h = h, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
+            .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .bg_alpha_fix_val = 255,
+            .fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .fg_alpha_fix_val = (uint32_t)(255 - s_brightness * 255 / 100),
+            .fg_fix_rgb_val = {.b = 0, .g = 0, .r = 0},
+            .mode = PPA_TRANS_MODE_BLOCKING,
+        };
+        esp_err_t err = ppa_do_blend(s_ppa, &b);
+        if (err == ESP_OK) return;
+        ESP_LOGW(TAG, "PPA blend failed (%s): CPU dimming from now on", esp_err_to_name(err));
+        s_ppa = NULL;
+    }
+    size_t n = (size_t)w * h * 3;
+    for (size_t i = 0; i < n; i++) {
+        buf[i] = s_lut[buf[i]];
+    }
+}
 
 esp_err_t display_init(int mode, int dsivar)
 {
@@ -314,22 +385,18 @@ esp_err_t display_init(int mode, int dsivar)
     jpeg_decode_memory_alloc_cfg_t mem = {.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER};
     s_rgb = jpeg_alloc_decoder_mem(buf_bytes, &mem, &s_rgb_size);
     ESP_RETURN_ON_FALSE(s_rgb, ESP_ERR_NO_MEM, TAG, "rgb buffer");
-    /* hardware dimming resources; if any of this fails the CPU lookup table is used instead */
-    size_t black_size = 0;
-    s_dim = jpeg_alloc_decoder_mem(buf_bytes, &mem, &s_dim_size);
-    s_black = jpeg_alloc_decoder_mem(buf_bytes, &mem, &black_size);
+    if (esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &s_fb[0], &s_fb[1]) != ESP_OK) {
+        s_fb[0] = s_fb[1] = NULL;
+    }
+    /* dimming needs no buffer of its own (it works in place); without the PPA the CPU lookup table is used */
     ppa_client_config_t ppa_cfg = {.oper_type = PPA_OPERATION_BLEND};
-    if (s_dim && s_black && ppa_register_client(&ppa_cfg, &s_ppa) == ESP_OK) {
-        memset(s_black, 0, black_size);
-        /* two frame buffers except in 1080p, which has room for one only (asking for two logs an error) */
-        if (s_info.mode == 4 || esp_lcd_dpi_panel_get_frame_buffer(s_panel, 2, &s_fb[0], &s_fb[1]) != ESP_OK) {
-            s_fb[0] = s_fb[1] = NULL;
-        }
-        ESP_LOGI(TAG, "hardware dimming (PPA blend) ready%s", s_fb[1] ? ", rendering into the back buffer" : "");
-    } else {
+    if (ppa_register_client(&ppa_cfg, &s_ppa) != ESP_OK) {
         s_ppa = NULL;
         ESP_LOGW(TAG, "PPA not available: dimming on the CPU");
     }
+    ESP_LOGI(TAG, "%s, %s; %u KB PSRAM free",
+             s_fb[1] ? "two frame buffers: full-size pictures are decoded into the back one" : "one frame buffer",
+             s_ppa ? "hardware dimming" : "CPU dimming", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     display_fill(0x000000);
     return ESP_OK;
 }
@@ -373,6 +440,7 @@ void display_set_brightness(int percent)
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
     s_brightness = percent;
+    if (s_csc_works) s_csc_scale = percent * 256 / 100;
     for (int i = 0; i < 256; i++) {
         s_lut[i] = (uint8_t)((i * percent + 50) / 100);
     }
@@ -433,64 +501,61 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
         .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,   /* the DSI frame buffer takes bytes as B,G,R */
         .conv_std = JPEG_YUV_RGB_CONV_STD_BT601,
     };
+    /* A full-size picture whose decoded rows fill the panel exactly (no MCU padding, so 1080 rows of 4:2:0, which
+     * decode as 1088, do not qualify) goes straight into the frame buffer that is not on screen, and the panel flips
+     * to it: no copy (13 ms at 768 x 768, 64 ms in 1080p) and no tearing. Anything else is decoded into s_rgb and
+     * copied into place, so the surround stays as it is. */
+    uint32_t mw = mcu_width(&pic), mh = mcu_height(&pic);
+    uint32_t stride = (pic.width + mw - 1) / mw * mw, rows = (pic.height + mh - 1) / mh * mh;
+    size_t fb_bytes = (size_t)s_info.width * s_info.height * 3;
+    bool direct = allow_flip && s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
+                  && stride == pic.width && rows == pic.height && fb_bytes % CACHE_ALIGN == 0
+                  && (uintptr_t)s_fb[0] % CACHE_ALIGN == 0 && (uintptr_t)s_fb[1] % CACHE_ALIGN == 0;
+    uint8_t *out = s_rgb;
+    size_t out_size = s_rgb_size;
+    if (direct) {
+        if (s_flip_wait) {
+            /* the buffer we are about to decode into was on screen until the last flip: the DMA may still be
+             * scanning it out, so wait until the driver says it is free (tearing, #23) */
+            xSemaphoreTake(s_fb_free, pdMS_TO_TICKS(40));
+            s_flip_wait = false;
+        }
+        out = s_fb[1 - s_front];
+        out_size = fb_bytes;
+    }
+    /* A picture as wide as the panel (tiles side by side sent as one band, or a picture with black above and below)
+     * has the frame buffer's row layout, so it is decoded straight into its rows of the frame buffer on screen: no
+     * copy (18 ms for a 768 x 768 tile in 1080p, where the copy competes with the scan-out for PSRAM). It can tear
+     * like the copy did. Its rows must be whole MCUs, or the decoder would write below the band. */
+    size_t row_bytes = (size_t)s_info.width * 3;
+    int band_y = at_y + (box_h - (int)pic.height) / 2;
+    bool band = !direct && s_fb[1] && pic.width == (uint32_t)s_info.width && stride == pic.width && rows == pic.height
+                && (uintptr_t)s_fb[s_front] % CACHE_ALIGN == 0 && ((size_t)band_y * row_bytes) % CACHE_ALIGN == 0
+                && ((size_t)rows * row_bytes) % CACHE_ALIGN == 0;
+    if (band) {
+        out = (uint8_t *)s_fb[s_front] + (size_t)band_y * row_bytes;
+        out_size = (size_t)rows * row_bytes;
+    }
     int64_t t0 = esp_timer_get_time();
     uint32_t out_len = 0;
-    ESP_RETURN_ON_ERROR(jpeg_decoder_process(s_jpeg, &cfg, jpeg, len, s_rgb, s_rgb_size, &out_len), TAG, "jpeg decode");
-    uint32_t stride = (pic.width + mcu_width(&pic) - 1) / mcu_width(&pic) * mcu_width(&pic);
+    s_csc_dimmed = false;
+    ESP_RETURN_ON_ERROR(jpeg_decoder_process(s_jpeg, &cfg, jpeg, len, out, out_size, &out_len), TAG, "jpeg decode");
     if (stride != pic.width) {
         /* rows come out padded to whole MCUs: pack them so every later step sees pic.width pixels per row (a width
          * that is a multiple of 8 but not 16 was drawn sheared) */
         for (uint32_t y = 1; y < pic.height; y++) {
-            memmove(s_rgb + (size_t)y * pic.width * 3, s_rgb + (size_t)y * stride * 3, (size_t)pic.width * 3);
+            memmove(out + (size_t)y * pic.width * 3, out + (size_t)y * stride * 3, (size_t)pic.width * 3);
         }
     }
-    uint8_t *shown = s_rgb;             /* the buffer that goes to the panel */
-    if (s_brightness < 100) {
-        bool done = false;
-        if (s_ppa) {
-            ppa_blend_oper_config_t b = {
-                .in_bg = {.buffer = s_black, .pic_w = pic.width, .pic_h = pic.height, .block_w = pic.width,
-                          .block_h = pic.height, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
-                .in_fg = {.buffer = s_rgb, .pic_w = pic.width, .pic_h = pic.height, .block_w = pic.width,
-                          .block_h = pic.height, .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
-                .out = {.buffer = s_dim, .buffer_size = s_dim_size, .pic_w = pic.width, .pic_h = pic.height,
-                        .blend_cm = PPA_BLEND_COLOR_MODE_RGB888},
-                .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .bg_alpha_fix_val = 255,
-                .fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE, .fg_alpha_fix_val = (uint32_t)(s_brightness * 255 / 100),
-                .mode = PPA_TRANS_MODE_BLOCKING,
-            };
-            /* A full-size frame goes straight into the frame buffer that is not on screen; drawing a buffer
-             * that lies inside a frame buffer makes the panel driver flip to it instead of copying: no 12 ms
-             * copy and no tearing. Smaller pictures keep the copy path so the surround stays intact. */
-            size_t fb_bytes = (size_t)s_info.width * s_info.height * 3;
-            bool flip = allow_flip && s_fb[1] && pic.width == (uint32_t)s_info.width && pic.height == (uint32_t)s_info.height
-                        && fb_bytes % 64 == 0;
-            if (flip) {
-                if (s_flip_wait) {
-                    /* the buffer we are about to render into was on screen until the last flip: the DMA may still be
-                     * scanning it out, so wait until the driver says it is free (tearing, #23) */
-                    xSemaphoreTake(s_fb_free, pdMS_TO_TICKS(40));
-                    s_flip_wait = false;
-                }
-                b.out.buffer = s_fb[1 - s_front];
-                b.out.buffer_size = fb_bytes;
-            }
-            esp_err_t perr = ppa_do_blend(s_ppa, &b);
-            if (perr == ESP_OK) {
-                shown = flip ? (uint8_t *)s_fb[1 - s_front] : s_dim;
-                done = true;
-            } else {
-                ESP_LOGW(TAG, "PPA blend failed (%s): CPU dimming from now on", esp_err_to_name(perr));
-                s_ppa = NULL;
-            }
+    if (s_brightness < 100 && !s_csc_dimmed) {
+        if (s_csc_works && s_csc_scale < 256) {
+            s_csc_works = false;        /* the wrapper did not run (another IDF version?): the PPA from now on */
+            s_csc_scale = 256;
+            ESP_LOGW(TAG, "dimming in the decoder did not take effect: PPA dimming from now on");
         }
-        if (!done) {
-            size_t n = (size_t)pic.width * pic.height * 3;
-            for (size_t i = 0; i < n; i++) {
-                s_rgb[i] = s_lut[s_rgb[i]];
-            }
-        }
+        dim(out, out_size, pic.width, pic.height);
     }
+    uint8_t *shown = out;               /* the buffer that goes to the panel */
     stamp_overlay(shown, pic.width, pic.height);
     if (decode_ms) {
         *decode_ms = (uint32_t)((esp_timer_get_time() - t0) / 1000);
