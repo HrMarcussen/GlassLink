@@ -18,7 +18,7 @@ body:
     attributes:
       label: Versions
       description: GlassLink version (System tab) and each DU's firmware (Display units tab)
-      placeholder: "GlassLink 0.6.2, DU firmware 0.6.0"
+      placeholder: "GlassLink 0.7.0, DU firmware 0.7.0"
     validations:
       required: true
   - type: input

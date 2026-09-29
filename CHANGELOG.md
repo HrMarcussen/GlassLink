@@ -17,6 +17,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-29
+
+**[DU firmware]** Update both DUs after installing (the status page offers it): the new DU screens need this DMC, and
+this DMC's "waiting for the sim" and goodbye need the new firmware. In short: GlassLink updates itself from GitHub
+Releases, the DUs have screens in GlassLink's look that say what is going on, a DU no longer gets stuck after a PC
+restart, and the DMC recovers from a sim crash and starts and stops with the sim.
+
 ### Added
 - **[DU firmware]** The DU's own screens in GlassLink's look (#81): the GlassLink mark and name, the status page's
   dark colours and the Inter typeface (built into the firmware, drawn with smooth edges at any size), and states that
@@ -37,6 +44,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   `-Stage publish|package` so the program can be signed before it is packed.
 
 ### Changed
+- The status page uses Inter too, the typeface of the DU screens, served by the DMC itself (it works offline).
+- "Start and stop with the simulator" checked live: the sim starts GlassLink, and GlassLink stops about 18 s after the
+  sim quits, the DUs then showing that they wait (#71).
 - Releases include `SimConnect.dll` from the MSFS 2024 SDK (1.6.9) instead of the older one from an MSFS 2020-era SDK;
   tested on MSFS 2024 with connection, cockpit detection, brightness L:vars, automatic pop-out and camera return (#79).
 
