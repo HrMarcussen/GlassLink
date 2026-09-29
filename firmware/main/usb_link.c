@@ -143,6 +143,8 @@ static StreamBufferHandle_t s_rx_stream;
 static portMUX_TYPE s_rx_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_rx_armed;                   /* a transfer is started and not yet in the stream buffer */
 static bool s_was_mounted;
+static volatile uint32_t s_session;                /* counts (re)configurations and unmounts, see usb_event */
+static uint32_t s_seen_session;                    /* the session the reader last set up */
 static SemaphoreHandle_t s_tx_done;                /* given when an IN transfer has gone out */
 
 /* Starts the next OUT transfer if none is running and a whole one fits; from any task. */
@@ -170,6 +172,24 @@ void tud_vendor_rx_cb(uint8_t idx, const uint8_t *buffer, uint16_t bufsize)
     rx_arm_if_room();
 }
 
+/* Runs in the TinyUSB task. A bus reset drops the configuration (and the started OUT transfer) without an unmount
+ * callback, and the host may configure the device again a few milliseconds later: a PC does that while it boots
+ * (the firmware sets the device up, then Windows resets it and sets it up again). A reader that only looks at
+ * "mounted" every few milliseconds can miss that gap and keep waiting for its lost transfer, so every write of the
+ * host then times out until the DU is power-cycled (#80). Counting the (re)configurations lets it see every one. */
+static void usb_event(tinyusb_event_t *event, void *arg)
+{
+    (void)arg;
+    if (event->id == TINYUSB_EVENT_ATTACHED || event->id == TINYUSB_EVENT_DETACHED) {
+        __atomic_add_fetch(&s_session, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+uint32_t usb_link_session(void)
+{
+    return __atomic_load_n(&s_session, __ATOMIC_SEQ_CST);
+}
+
 void tud_vendor_tx_cb(uint8_t idx, uint32_t sent_bytes)
 {
     (void)idx; (void)sent_bytes;
@@ -183,7 +203,7 @@ esp_err_t usb_link_start(const char *serial)
     if (!s_tx_done) s_tx_done = xSemaphoreCreateBinary();
     if (!s_rx_stream || !s_tx_done) return ESP_ERR_NO_MEM;
     /* High-speed port 0 of the ESP32-P4 (the Type-A socket on the NANO), default PHY and task settings. */
-    tinyusb_config_t cfg = TINYUSB_CONFIG_HIGH_SPEED(NULL, NULL);
+    tinyusb_config_t cfg = TINYUSB_CONFIG_HIGH_SPEED(usb_event, NULL);
     /* The USB task must outrank the protocol task and run on its own core, otherwise the two time-slice at the
        tick rate and every 512-byte packet costs ~1 ms. Protocol/screen tasks run on core 0 (see main.c). */
     cfg.task.priority = 8;
@@ -213,9 +233,11 @@ size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
     for (;;) {
         bool mounted = usb_link_connected();
-        if (mounted != s_was_mounted) {
+        uint32_t session = usb_link_session();
+        if (mounted != s_was_mounted || session != s_seen_session) {
             /* a new session (or none): the old one's bytes and its transfer are gone with the bus reset */
             s_was_mounted = mounted;
+            s_seen_session = session;
             taskENTER_CRITICAL(&s_rx_mux);
             s_rx_armed = false;
             taskEXIT_CRITICAL(&s_rx_mux);

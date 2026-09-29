@@ -11,6 +11,10 @@ esp_err_t usb_link_start(const char *serial);
 /* True while the host has configured the device. */
 bool usb_link_connected(void);
 
+/* Changes with every configuration and unmount by the host, also when a bus reset and a new configuration follow each
+ * other too quickly for usb_link_connected() to be seen false in between: a new host session (#80). */
+uint32_t usb_link_session(void);
+
 /* Blocking read of up to `len` bytes from the bulk OUT pipe; returns bytes read (0 on timeout). */
 size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms);
 

@@ -17,6 +17,7 @@
 #include "esp_mac.h"
 #include "esp_rom_md5.h"
 #include "esp_attr.h"
+#include "esp_task_wdt.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -210,6 +211,24 @@ static void send_stats(void)
 static void send_ready(void)
 {
     send_msg(XD_T_READY, NULL, 0, s_last_seq, 0);
+}
+
+/* Why the DU started, if it was not a normal start: said once to the first host that asks for INFO, so a restart by
+ * the watchdog shows in the DMC's log without a serial cable (#80). */
+static esp_reset_reason_t s_reset_reason;
+static bool s_reset_reported;
+
+static void report_reset_reason(void)
+{
+    if (s_reset_reported) return;
+    s_reset_reported = true;
+    const char *why = s_reset_reason == ESP_RST_TASK_WDT ? "the task watchdog: a task hung (the serial console shows where)"
+                    : s_reset_reason == ESP_RST_PANIC ? "a crash (the serial console shows where)"
+                    : s_reset_reason == ESP_RST_INT_WDT ? "the interrupt watchdog"
+                    : s_reset_reason == ESP_RST_WDT ? "a watchdog"
+                    : s_reset_reason == ESP_RST_BROWNOUT ? "a brownout (the supply voltage dipped)"
+                    : NULL;
+    if (why) send_log(2, "restarted after %s", why);
 }
 
 /* ---- OTA ------------------------------------------------------------------------------------- */
@@ -491,8 +510,12 @@ static uint8_t *show_picture(const picture_job_t *job)
 static void picture_task(void *arg)
 {
     picture_job_t job;
+    esp_task_wdt_add(NULL);                 /* a picture that never finishes restarts the DU (#80) */
     for (;;) {
-        xQueueReceive(s_jobs, &job, portMAX_DELAY);
+        esp_task_wdt_reset();
+        if (xQueueReceive(s_jobs, &job, pdMS_TO_TICKS(1000)) != pdTRUE) {
+            continue;                       /* idle: waiting for a picture is not hanging */
+        }
         uint8_t *spare = show_picture(&job);
         xQueueSend(s_free, &spare, portMAX_DELAY);
         if (__atomic_sub_fetch(&s_pictures, 1, __ATOMIC_SEQ_CST) == 0 && s_proto_task) {
@@ -509,7 +532,7 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         if (s_ota.active) { send_ready(); break; }        /* no pictures while updating, but the host must not stall */
         queue_picture(h);
         break;
-    case XD_T_GET_INFO: send_info(); send_ready(); break;   /* a (re)connecting host learns we can take a frame */
+    case XD_T_GET_INFO: send_info(); report_reset_reason(); send_ready(); break;   /* a (re)connecting host learns we can take a frame */
     case XD_T_SET_BRIGHTNESS:
         display_set_brightness((int)h->arg);        /* follows the cockpit knob: not persisted */
         if (picture_on_screen() && has_last() && esp_timer_get_time() - s_last_frame_us > 40000) {
@@ -617,6 +640,7 @@ static bool drain(uint32_t len)
     uint32_t left = len;
     while (left) {
         size_t chunk = left < RX_BUF_SIZE ? left : RX_BUF_SIZE;
+        esp_task_wdt_reset();
         if (read_exact(s_rx, chunk, 3000) != chunk) return false;
         left -= chunk;
     }
@@ -626,10 +650,15 @@ static bool drain(uint32_t len)
 static void protocol_task(void *arg)
 {
     s_proto_task = xTaskGetCurrentTaskHandle();
+    esp_task_wdt_add(NULL);                 /* every wait on this path is shorter than the watchdog's 30 s (#80) */
     bool was_connected = false;
+    uint32_t last_session = usb_link_session();
     for (;;) {
+        esp_task_wdt_reset();
         bool connected = usb_link_connected();
-        if (connected && !was_connected) {
+        uint32_t session = usb_link_session();
+        /* a new session also when the host reset and configured the DU again between two looks (#80) */
+        if (connected && (!was_connected || session != last_session)) {
             ESP_LOGI(TAG, "usb configured");
             s_last_stats_us = esp_timer_get_time();
             wait_pictures();                /* the old session's last pictures first */
@@ -640,6 +669,7 @@ static void protocol_task(void *arg)
             send_ready();
         }
         was_connected = connected;
+        last_session = session;
         if (s_ota.active && esp_timer_get_time() - s_ota.last_us > 15000000) {
             ota_fail(6);                     /* the host went away mid-update (also unplugged): give the flash slot back */
         }
@@ -832,6 +862,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     load_or_create_serial();
+    s_reset_reason = esp_reset_reason();
     const esp_app_desc_t *app = esp_app_get_description();
     ESP_LOGI(TAG, "GlassLink DU fw %s (%s, app %s) serial %s", FW_VERSION, FW_BUILD, app->version, s_serial);
 
@@ -879,6 +910,15 @@ void app_main(void)
         s_app_confirmed = true;
     }
 
+    /* The task watchdog restarts a DU whose protocol or picture task hangs, instead of leaving it deaf until someone
+     * power-cycles it; the panic output on the serial console shows where it hung (#80). 30 s is longer than any wait
+     * on those paths (the flash erase at the start of an update included). */
+    esp_task_wdt_config_t wdt = {
+        .timeout_ms = 30000,
+        .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+        .trigger_panic = true,
+    };
+    ESP_ERROR_CHECK(esp_task_wdt_reconfigure(&wdt));
     xTaskCreatePinnedToCore(picture_task, "picture", 8192, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(protocol_task, "proto", 8192, NULL, 5, NULL, 0);   /* core 0: TinyUSB owns core 1 */
     if (!display_ready()) return;           /* headless: no screen task */

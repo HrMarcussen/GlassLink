@@ -34,6 +34,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   tested on MSFS 2024 with connection, cockpit detection, brightness L:vars, automatic pop-out and camera return (#79).
 
 ### Fixed
+- **[DU firmware]** A DU could stop taking data after the PC restarted while the DU stayed powered: it showed up on
+  USB, but every write timed out until it was power-cycled. A USB bus reset followed quickly by a new configuration
+  (as a booting PC does) went unnoticed, and the DU kept waiting for a transfer the reset had thrown away. The DU now
+  counts the host's (re)configurations and starts over on every new session. A task watchdog restarts a DU whose
+  protocol or picture task hangs (30 s), prints where on the serial console, and the DMC's log then says why the DU
+  restarted (#80).
 - After the sim crashed or was ended, the DMC kept the old SimConnect connection with the last values (still "in
   cockpit", brightness frozen) and never connected again: a sim that goes away that way sends no quit message. Now a
   quiet connection without a sim process is dropped within seconds, and the DMC reconnects and pops the displays out
