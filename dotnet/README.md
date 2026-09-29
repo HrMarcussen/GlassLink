@@ -1,9 +1,8 @@
 # GlassLink DMC (.NET)
 
 `GlassLink.exe`, the DMC: a tray application with the status page in a window of its own and on port 8765. .NET 10,
-Windows only. The Python DMC in `../glasslink` was the original and stays as reference and test tool; both speak the
-same USB protocol, read the same `config.json` and serve the same status page (`glasslink/static/*.html`, copied at
-build time; `engine` in `/status` says which DMC answers).
+Windows only. It serves the status page from `../web` (copied at build time). The original Python DMC was retired in
+0.7.1 (#77); git history keeps it.
 
 ## Projects
 
@@ -58,7 +57,7 @@ dotnet run -c Release --project src/GlassLink.Bench -- update ../firmware/build/
 - **The DU is the clock**: one picture in flight, always the newest (`IFrameSource.WaitNewer` is a real predicate
   wait). A picture chosen for a layout is sent only if that layout is still the current one.
 - **Capture on demand**: a display that no DU, band or viewer uses is refused before any GPU copy.
-- **Configuration** is kept as a JSON tree, so keys this program does not know (the Python DMC's) survive a save;
+- **Configuration** is kept as a JSON tree, so keys this program does not know (from a newer or an older version) survive a save;
   saves go through a temporary file and keep a `.bak`.
 - **Requests**: changes are accepted only from this PC unless `server.allow_lan_control` is set, only as JSON, and
   only with this PC's host name or address (against DNS rebinding and cross-site requests).

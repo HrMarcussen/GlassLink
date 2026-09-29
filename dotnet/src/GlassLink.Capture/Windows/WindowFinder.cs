@@ -40,7 +40,7 @@ public sealed record WindowMatch(string? Process, string? ClassName, string? Tit
         && (ClientSize is null || (w.Client.Width == ClientSize[0] && w.Client.Height == ClientSize[1]));
 }
 
-/// <summary>Finding, sizing and parking the windows that are captured. Port of glasslink/windows.py.</summary>
+/// <summary>Finding, sizing and parking the windows that are captured.</summary>
 public static class WindowFinder
 {
     private static readonly Dictionary<uint, (string Name, long At)> ProcessNames = [];   // looked up again after 30 s: process ids are reused (#34)

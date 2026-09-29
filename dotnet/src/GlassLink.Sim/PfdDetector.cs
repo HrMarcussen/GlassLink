@@ -4,7 +4,7 @@ namespace GlassLink.Sim;
 /// Finds the PFD's attitude sphere in a picture of the sim: the largest blob of dark saturated blue that is wider than
 /// tall (the visible sky half). Used as a safety check before clicking: if the PFD is lit and is not where the
 /// aircraft profile expects it, the camera is not in the calibrated view (right after loading it can still be
-/// gliding), and a click would pop out the wrong instrument. Port of detect_pfd in glasslink/popout.py.
+/// gliding), and a click would pop out the wrong instrument.
 /// </summary>
 public static class PfdDetector
 {

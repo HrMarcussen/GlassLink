@@ -36,7 +36,7 @@ public sealed record AircraftProfile(string Key, double Zoom, IReadOnlyDictionar
 
 /// <summary>
 /// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points merge per display).
-/// A profile applies to an aircraft when its key is part of the aircraft's title. Same format as the Python DMC.
+/// A profile applies to an aircraft when its key is part of the aircraft's title.
 /// </summary>
 public static class Profiles
 {

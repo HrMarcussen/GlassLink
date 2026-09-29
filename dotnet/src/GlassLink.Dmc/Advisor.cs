@@ -20,7 +20,7 @@ public sealed record AdvisorInput(
 /// Turns what the DMC can observe into troubleshooting steps a builder can act on. Rules fire on evidence only, and
 /// the steps are tailored with facts read (never changed) from the PC: the graphics card brand, whether the AMD
 /// driver's frame generation is on, the sim's glass cockpit refresh rate. Deliberately not here: the stability of a
-/// particular PC. Port of glasslink/advisor.py.
+/// particular PC.
 /// </summary>
 public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? simFacts = null, Func<long>? clock = null)
 {

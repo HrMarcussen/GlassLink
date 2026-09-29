@@ -16,7 +16,7 @@ public sealed record DisplayEntry(string Name, FrameSlot Slot, DisplayCapture Ca
 /// <summary>
 /// Displays as data: add, change and remove displays while the DMC runs. A display is an entry in the "displays"
 /// section of config.json; the registry owns its capture and its frame slot (the slot is kept across a settings
-/// change, so a DU that shows the display sees the frame numbers continue). Port of glasslink/registry.py.
+/// change, so a DU that shows the display sees the frame numbers continue).
 /// </summary>
 public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool> shownOnDu, Action<string> log) : IDisposable
 {

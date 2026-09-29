@@ -20,7 +20,7 @@ from fontTools.varLib import instancer
 
 ROOT = Path(__file__).resolve().parents[2]
 DU_FONTS = ROOT / "firmware" / "main" / "fonts"
-WEB_FONTS = ROOT / "glasslink" / "static" / "fonts"
+WEB_FONTS = ROOT / "web" / "fonts"
 
 # Latin-1, plus en/em dash, curly quotes, bullet, ellipsis, arrow and minus.
 UNICODES = list(range(0x20, 0x7F)) + list(range(0xA0, 0x100)) + [0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D,

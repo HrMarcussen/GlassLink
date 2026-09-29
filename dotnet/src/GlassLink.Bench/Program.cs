@@ -22,7 +22,7 @@
 //   stream and tiles also take --444 (JPEG without chroma subsampling, as a display with subsample_420 off) and --busy
 //   (gradients and a screen of text, for frame sizes like a real PFD instead of the small line drawing)
 //
-// Stop the Python DMC first: a DU can only be opened by one program at a time.
+// Stop the DMC first: a DU can only be opened by one program at a time.
 
 using System.Diagnostics;
 using System.Drawing;
@@ -249,7 +249,7 @@ if (command == "manage")
 var paths = WinUsbTransport.FindDevicePaths();
 if (paths.Count == 0)
 {
-    Console.WriteLine("no DU found (plugged in? is the Python DMC still running and holding them?)");
+    Console.WriteLine("no DU found (plugged in? is the DMC still running and holding them?)");
     return 1;
 }
 

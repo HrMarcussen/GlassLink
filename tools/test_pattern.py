@@ -2,7 +2,7 @@
 """Synthetic 'display' window for testing without the sim.
 
 Draws a moving bar, a frame counter and a millisecond clock at a fixed rate, so you can
-assign it (`python -m glasslink assign pattern --title "GlassLink pattern"`) and check
+add it as a display on the status page (match by the window title "GlassLink pattern") and check
 capture, change detection, fps and glass-to-glass latency (compare the clock on this
 window with the clock in the viewer on a phone photo/video).
 

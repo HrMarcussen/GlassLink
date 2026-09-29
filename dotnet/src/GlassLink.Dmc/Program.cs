@@ -8,8 +8,7 @@
 // --add-sim-entry / --remove-sim-entry put GlassLink into or take it out of the sim's exe.xml ("Start and stop with the
 // simulator"): for the installer's task and the uninstaller.
 //
-// Same configuration file, USB protocol, HTTP API and status page as the Python DMC. Only one of the two can run at
-// a time (they share the DUs and the port). Stop it from the tray menu, with POST /shutdown, or with
+// Only one DMC can run at a time (the DUs and the port are its alone). Stop it from the tray menu, with POST /shutdown, or with
 // `python tools/stop_server.py`.
 
 using GlassLink.Core.Config;
@@ -155,10 +154,10 @@ internal static class Program
         }
         catch (IOException ex)
         {
-            dmc.Log($"cannot listen on {host}:{port}: {ex.Message} (is the Python DMC running?)");
+            dmc.Log($"cannot listen on {host}:{port}: {ex.Message} (is another program using the port?)");
             if (!args.Contains("--no-tray"))
             {
-                MessageBox.Show($"The GlassLink DMC cannot use port {port}: {ex.Message}\n\nIs the Python DMC (or another program) using it?",
+                MessageBox.Show($"The GlassLink DMC cannot use port {port}: {ex.Message}\n\nIs another program using it? The port can be changed with \"server.port\" in config.json.",
                     "GlassLink DMC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
 

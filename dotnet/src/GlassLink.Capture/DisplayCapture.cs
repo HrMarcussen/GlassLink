@@ -25,7 +25,7 @@ public sealed record DisplayCounters(long Received, long Skipped, long Unchanged
 /// <summary>
 /// One display: finds its window, sizes and parks it, captures it, and publishes every picture that differs from the
 /// last one as a JPEG. A display nobody is using costs next to nothing: its frames are refused before they are copied
-/// from the GPU, except for a preview picture now and then. Port of glasslink/display.py.
+/// from the GPU, except for a preview picture now and then.
 /// </summary>
 public sealed class DisplayCapture : IDisposable
 {

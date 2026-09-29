@@ -1,7 +1,7 @@
 # GlassLink DMC <-> DU USB protocol (draft 1, 2026-09-08)
 
-Applies to the ESP32-P4 display modules and to the DMC's USB output path: the .NET DMC (`dotnet/`, the default
-since 22 Sept 2026) and the Python reference DMC (`glasslink/`, which does not use screen modes and tiles).
+Applies to the ESP32-P4 display modules and to the DMC's USB output path (`dotnet/`; the original Python DMC was
+retired in 0.7.1).
 The WebSocket path (`/ws/<name>`) is unchanged and stays available for browsers, Pis and testing.
 
 ## 1. USB device

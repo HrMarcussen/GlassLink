@@ -1,14 +1,7 @@
-# Sim PC (Windows) display server
-aiohttp>=3.11
-windows-capture==2.0.1
-simplejpeg>=1.7
-numpy>=1.26
-pywin32>=306
-psutil>=5.9
-SimConnect>=0.4.26      # camera control / aircraft detection for automatic pop-out
-pyusb>=1.2              # USB display modules (docs/usb-protocol.md)
-libusb-package>=1.0     # bundled libusb-1.0 for pyusb on Windows
-
-# Native viewer (also used on the Pi; see pi/SETUP.md)
-websockets>=12
-pygame>=2.5
+# The measuring tools (tools/*.py) and the Pi viewer (pi/viewer.py). The DMC itself is .NET (dotnet/).
+psutil>=5.9             # du_cycle_test, du_multi_test, load_test
+numpy>=1.26             # measure_latency
+simplejpeg>=1.7         # measure_latency, pi/viewer.py
+websockets>=12          # measure_latency, pi/viewer.py
+pygame>=2.5             # test_pattern, pi/viewer.py
+SimConnect>=0.4.26      # sim_fps (the sim's own frame rate); AGPL, a separate tool that is never shipped

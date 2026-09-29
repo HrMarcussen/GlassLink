@@ -27,13 +27,14 @@ jobs:
           filters: |
             dotnet:
               - 'dotnet/**'
-              - 'glasslink/static/**'
+              - 'web/**'
               - 'VERSION'
               - 'FIRMWARE_VERSION'
               - 'config.example.json'
             python:
-              - 'glasslink/**'
               - 'tools/**'
+              - 'pi/**'
+              - 'firmware/**/*.py'
               - 'requirements.txt'
             firmware:
               - 'firmware/**'
@@ -65,7 +66,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Compile
-        run: python -m compileall -q glasslink tools firmware
+        run: python -m compileall -q tools firmware pi
 
   firmware:
     needs: changes

@@ -15,8 +15,7 @@ using Microsoft.AspNetCore.Http;
 namespace GlassLink.Dmc;
 
 /// <summary>
-/// The HTTP API, identical to the Python DMC's (glasslink/server.py), so the same status page and viewer work
-/// against either: same routes, same JSON field names.
+/// The HTTP API the status page and the viewer (web/) use, and scripts in tools/.
 /// </summary>
 public static partial class Api
 {

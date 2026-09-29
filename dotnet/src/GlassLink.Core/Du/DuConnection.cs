@@ -68,7 +68,7 @@ public sealed record OtaStatus(OtaState State, double Progress, string Message);
 /// <summary>
 /// The link to one DU: a thread that answers every READY with the newest frame of the assigned display (one frame in
 /// flight, always the newest: the DU is the clock), carries commands, keeps INFO and STATS, watches the DU's health
-/// and installs firmware. A straight port of the Python reference (glasslink/modules.py, ModuleWorker).
+/// and installs firmware.
 /// </summary>
 public sealed class DuConnection : IDisposable
 {

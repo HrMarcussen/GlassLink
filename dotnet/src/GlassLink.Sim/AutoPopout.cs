@@ -8,7 +8,6 @@ public sealed record AutoPopoutState(string Status, string Detail, IReadOnlyList
 /// Watches for displays without a window and pops them out when the sim is in the cockpit of an aircraft it has a
 /// profile for. It never keeps moving the user's camera for a click that does not work: after a few attempts that
 /// opened no window it gives up on that display until its click point changes or someone asks again.
-/// Port of glasslink/popout.py (AutoPopout).
 /// </summary>
 public sealed class AutoPopout : IDisposable
 {

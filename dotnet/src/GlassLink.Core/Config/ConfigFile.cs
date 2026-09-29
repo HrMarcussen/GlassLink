@@ -5,8 +5,8 @@ using System.Text.Json.Nodes;
 namespace GlassLink.Core.Config;
 
 /// <summary>
-/// config.json, shared with the Python DMC. Kept as a JSON tree, not as typed classes, so that every key this
-/// version does not know survives a save untouched: both DMCs can work on the same file during the port.
+/// config.json. Kept as a JSON tree, not as typed classes, so that every key this version does not know (from a newer
+/// or an older DMC) survives a save untouched.
 /// </summary>
 public sealed class ConfigFile
 {

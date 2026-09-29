@@ -24,6 +24,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ### Changed
 - The installer and uninstaller follow Windows' light or dark mode.
+- The status page and viewer moved from `glasslink/static/` to `web/`.
+
+### Removed
+- The original Python DMC (`glasslink/`, `start-dmc-python.bat`, `popout-displays.bat` and the tools built on it:
+  `auto_popout.py`, `import_popm.py`, `module_probe.py`), retired after the .NET DMC had been the default for a week and
+  the Python one had fallen behind (no bands, no self-update, no DU heartbeat) (#77). Git history keeps it. The
+  measuring tools in `tools/` and the Pi viewer stay; `requirements.txt` lists only what they need.
 
 ## [0.7.0] - 2026-09-29
 

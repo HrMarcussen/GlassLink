@@ -26,7 +26,7 @@ It is not covered by GlassLink's licence. A user may replace it with the one fro
 | libjpeg-turbo (`turbojpeg.dll`) | D. R. Commander, Viktor Szathmáry, the Independent JPEG Group and contributors | IJG licence, BSD 3-clause and zlib (<https://github.com/libjpeg-turbo/libjpeg-turbo/blob/main/LICENSE.md>). This software is based in part on the work of the Independent JPEG Group. |
 | Microsoft Visual C++ runtime (`vcruntime140.dll`, with libjpeg-turbo) | Microsoft Corporation | Visual C++ redistributable terms |
 | System.IO.Hashing, System.Drawing.Common | .NET Foundation and contributors | MIT |
-| Inter typeface (`glasslink/static/fonts/inter.woff2`, the status page's font) | The Inter Project Authors | SIL Open Font License 1.1 (`glasslink/static/fonts/OFL.txt`) |
+| Inter typeface (`web/fonts/inter.woff2`, the status page's font) | The Inter Project Authors | SIL Open Font License 1.1 (`web/fonts/OFL.txt`) |
 
 ## Built into the DU firmware
 
@@ -39,12 +39,10 @@ It is not covered by GlassLink's licence. A user may replace it with the one fro
 | stb_truetype (`firmware/main/third_party/stb_truetype.h`) | Sean Barrett | MIT or public domain (the header's own text) |
 | Inter typeface, cut to three weights (`firmware/main/fonts/`, made by `firmware/tools/make_fonts.py`) | The Inter Project Authors | SIL Open Font License 1.1 (`firmware/main/fonts/OFL.txt`) |
 
-## Used by the Python reference DMC and tools (installed with pip, not distributed)
+## Used by the measuring tools and the Pi viewer (installed with pip, not distributed)
 
-aiohttp (Apache 2.0), windows-capture (MIT), simplejpeg (BSD 2-clause), NumPy (BSD 3-clause), pywin32 (PSF),
-psutil (BSD 3-clause), Python-SimConnect (AGPL 3.0; a combination with it is governed by the AGPL, which GPL 3
-section 13 permits), pyusb (BSD 3-clause), libusb-package (Apache 2.0, bundling libusb under LGPL 2.1),
-websockets (BSD 3-clause), pygame (LGPL 2.1).
+psutil (BSD 3-clause), NumPy (BSD 3-clause), simplejpeg (BSD 2-clause), websockets (BSD 3-clause), pygame (LGPL 2.1),
+Python-SimConnect (AGPL 3.0; only `tools/sim_fps.py` uses it, a separate tool that is never part of a release).
 
 ## Licence texts
 
@@ -85,6 +83,6 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSE
 WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-### Apache License 2.0 (ESP-IDF, esp_tinyusb, esp_lcd_lt8912b, aiohttp)
+### Apache License 2.0 (ESP-IDF, esp_tinyusb, esp_lcd_lt8912b)
 
 <https://www.apache.org/licenses/LICENSE-2.0>. The full text ships with each component's source.

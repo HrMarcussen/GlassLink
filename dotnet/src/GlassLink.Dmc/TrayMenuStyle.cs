@@ -6,7 +6,7 @@ using Microsoft.Win32;
 
 namespace GlassLink.Dmc;
 
-/// <summary>The colours of the status page (glasslink/static/admin.html), light and dark, for everything the tray draws.</summary>
+/// <summary>The colours of the status page (web/admin.html), light and dark, for everything the tray draws.</summary>
 public sealed record Palette(Color Background, Color Card, Color Line, Color Text, Color Dim, Color Accent, Color Hover, Color Ok, Color Warn, Color Bad)
 {
     public static readonly Palette Dark = new(

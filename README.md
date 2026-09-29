@@ -130,8 +130,8 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 |---|---|
 | `dotnet/` | the DMC: `GlassLink.exe` and its libraries, the bench tool, tests ([dotnet/README.md](dotnet/README.md)) |
 | `firmware/` | the DU firmware, ESP-IDF 5.5 for the ESP32-P4 ([firmware/README.md](firmware/README.md)) |
-| `glasslink/` | the original Python DMC, kept as reference and test tool (`start-dmc-python.bat`); no tiles or bands |
-| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `module_probe.py`, `import_popm.py` (Pop Out Panel Manager profiles), `stop_server.py`; `build-release.ps1` |
+| `web/` | the status page and viewer the DMC serves, and their font |
+| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1` |
 | `installer/` | Inno Setup script |
 | `pi/` | the network viewer for a Raspberry Pi |
 | `docs/` | [USB protocol](docs/usb-protocol.md), [hardware](docs/hardware.md), [troubleshooting](docs/TROUBLESHOOTING.md), [design notes and findings](docs/notes.md), [panel data](docs/panel-DBC088HXN60L050A.md) |

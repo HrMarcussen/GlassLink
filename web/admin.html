@@ -260,7 +260,7 @@
   // Cards are built once per set of display names and then only patched: rebuilding them every refresh made the
   // whole page jump while the new images loaded.
   let cardsKey = null; const lastSeq = {};
-  let advised = [];                               // advice from the DMC, see glasslink/advisor.py
+  let advised = [];                               // advice from the DMC (Advisor.cs)
   let sourceFps = {};
   const isSlow = (name) => advised.some(a => a.id === 'slow_source') && sourceFps[name] !== undefined && sourceFps[name] < 16
     && (displaysNow[name] || {}).in_use;          // an idle display runs at the preview rate: not slow (#12)
@@ -412,7 +412,6 @@
       return;
     }
     const openMore = new Set([...document.querySelectorAll('#modules details.more[open]')].map(x => x.closest('tr').dataset.serial));
-    const python = !!(lastStatus && lastStatus.engine === 'python');          // the reference DMC cannot drive layouts (#50)
     const openLayout = new Set([...document.querySelectorAll('#modules tr.layout-row details[open]')].map(x => x.closest('tr').dataset.serial));
     const opts2 = (cur) => ['<option value="">— not assigned —</option>']
       .concat(displaysOrder.map(n => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(nice(n))}</option>`)).join('');
@@ -421,14 +420,13 @@
       const alive = x.alive ? pill('connected', 'ok') : pill(x.error || 'not connected', 'bad');
       const info = x.info || {};
       const facts = esc(info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''} · serial ${serial}` : `serial ${serial}`);
-      const canLayout = !python && ((info.caps || []).includes('tiles') || (info.caps || []).includes('mode'));
+      const canLayout = (info.caps || []).includes('tiles') || (info.caps || []).includes('mode');
       return `<tr data-serial="${esc(serial)}">
         <td><input type="text" class="label" value="${esc(x.label || '')}" maxlength="32" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${esc(serial.slice(0, 8))}</code></span></td>
         <td>${alive}</td>
         <td>${tiled(x) ? `<span class="tiles-summary">${esc(Object.keys(x.settings.tiles).map(nice).join(' + '))}</span><br><span class="dim small">${esc((x.layout || []).map(l => `${nice(l.display)} ${l.w}x${l.h} at ${l.x},${l.y}`).join(' · ') || 'layout not sent yet')}</span>${x.layout_problem ? '<br>' + pill(x.layout_problem, 'warn') : ''}`
               : `<select class="display" aria-label="display shown on ${esc(x.label || serial.slice(0, 8))}">${opts2(x.display)}</select>`}
-            ${canLayout && (info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${tiled(x) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}
-            ${python && tiled(x) ? '<br>' + pill('this layout needs the .NET DMC', 'warn') : ''}</td>
+            ${canLayout && (info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${tiled(x) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}</td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
         <td class="stats"></td>
         <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>

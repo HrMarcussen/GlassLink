@@ -55,7 +55,6 @@ public sealed record PopoutSettings(double GraceSeconds, double RetrySeconds, in
 /// <summary>
 /// Pops displays out of the cockpit: puts the camera where the click points were recorded, Right-Alt + clicks each
 /// display, names the window that appears (GlassLink:pfd), sizes and parks it, and gives the user their view back.
-/// Port of glasslink/popout.py (ensure_popouts).
 /// </summary>
 public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<string> say)
 {

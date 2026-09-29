@@ -19,7 +19,6 @@ public sealed record LearnState(string Status, string? Display, string Detail, d
 ///   adopting   the point goes into the aircraft's profile (fractions of the sim's client area), the new window
 ///              becomes the display's window (named, sized, parked)
 ///   done       the camera is back where it was; capture of the new window starts by itself
-/// Port of glasslink/learn.py.
 /// </summary>
 public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> log)
 {

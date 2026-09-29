@@ -1,4 +1,4 @@
-/* GlassLink USB module protocol - mirror of docs/usb-protocol.md and glasslink/modules.py */
+/* GlassLink USB module protocol - mirror of docs/usb-protocol.md and dotnet/src/GlassLink.Core/Protocol */
 #pragma once
 #include <stdint.h>
 
