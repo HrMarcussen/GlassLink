@@ -25,7 +25,8 @@ OutputDir=..\dist
 OutputBaseFilename=GlassLink-{#Version}-setup
 Compression=lzma2
 SolidCompression=yes
-WizardStyle=modern
+; follows Windows' light or dark mode (Inno Setup 6.6 and later)
+WizardStyle=modern dynamic
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
@@ -36,7 +37,10 @@ MinVersion=10.0.19041
 SetupIconFile=..\dotnet\src\GlassLink.Dmc\glasslink.ico
 
 [Tasks]
-Name: "autostart"; Description: "Start the DMC when I sign in to Windows"; Flags: unchecked
+; the sim starts GlassLink through its exe.xml and GlassLink quits with the sim; the same as the tray's "Start and stop
+; with the simulator" (it needs the sim to have been started once on this PC; if not, the tray can do it later)
+Name: "withsim"; Description: "Start GlassLink with the simulator, and stop it when the simulator quits (recommended)"
+Name: "autostart"; Description: "Start GlassLink when I sign in to Windows (it then runs all the time)"; Flags: unchecked
 Name: "firewall"; Description: "Let other devices on my network open the status page (a phone, a tablet: firewall rule for GlassLink.exe)"; Flags: unchecked
 
 [Files]
@@ -53,6 +57,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; delete first, then add: an upgrade must not pile up copies of the rule (#46)
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLink DMC"""; Flags: runhidden; Tasks: firewall
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""GlassLink DMC"" dir=in action=allow program=""{app}\GlassLink.exe"" enable=yes profile=private"; Flags: runhidden; Tasks: firewall
+; the sim's exe.xml is in the profile of the user who runs the setup: as that user, not as the administrator
+Filename: "{app}\GlassLink.exe"; Parameters: "--add-sim-entry"; Flags: runhidden runasoriginaluser; Tasks: withsim
 ; as the user who runs the setup, not with the setup's administrator rights
 Filename: "{app}\GlassLink.exe"; Description: "Start the GlassLink DMC now"; Flags: nowait postinstall skipifsilent runasoriginaluser
 ; an update started from the DMC's status page (/update=1) is silent: start the new DMC again when it is done (#76)

@@ -5,6 +5,8 @@
 // Without --config the configuration is config.json in or above the working directory (a checkout), else
 // %LOCALAPPDATA%\GlassLink\config.json (an installed copy), created from config.example.json on first start.
 // --quit stops the DMC that is running (as the tray's Quit does) and returns when it has gone: for installers.
+// --add-sim-entry / --remove-sim-entry put GlassLink into or take it out of the sim's exe.xml ("Start and stop with the
+// simulator"): for the installer's task and the uninstaller.
 //
 // Same configuration file, USB protocol, HTTP API and status page as the Python DMC. Only one of the two can run at
 // a time (they share the DUs and the port). Stop it from the tray menu, with POST /shutdown, or with
@@ -30,14 +32,20 @@ internal static class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         string? Option(string name) => Array.IndexOf(args, name) is var i and >= 0 && i + 1 < args.Length ? args[i + 1] : null;
 
-        if (args.Contains("--remove-sim-entry"))            // the uninstaller: take GlassLink out of the sim's exe.xml (#46)
+        // The installer's "start with the simulator" task and the uninstaller: GlassLink into or out of the sim's exe.xml
+        // (#46, #73). Exit code 2: the sim has not been started on this PC yet, so it has no exe.xml (the tray can add
+        // the entry later).
+        if (args.Contains("--remove-sim-entry") || args.Contains("--add-sim-entry"))
         {
+            var add = args.Contains("--add-sim-entry");
             try
             {
-                if (SimLaunch.Files.Count > 0)
+                if (SimLaunch.Files.Count == 0)
                 {
-                    SimLaunch.Set(false, "config.json");
+                    return add ? 2 : 0;
                 }
+
+                SimLaunch.Set(add, Option("--config") ?? DefaultConfigPath());
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or System.Xml.XmlException or UnauthorizedAccessException)
             {

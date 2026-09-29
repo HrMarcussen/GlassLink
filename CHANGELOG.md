@@ -17,6 +17,14 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- The installer can set up "Start and stop with the simulator" (on by default; the same as the tray's option, which
+  it still is afterwards), and says what the two ways of starting GlassLink mean. `GlassLink.exe --add-sim-entry`
+  does it for the installer, as `--remove-sim-entry` does for the uninstaller.
+
+### Changed
+- The installer and uninstaller follow Windows' light or dark mode.
+
 ## [0.7.0] - 2026-09-29
 
 **[DU firmware]** Update both DUs after installing (the status page offers it): the new DU screens need this DMC, and
