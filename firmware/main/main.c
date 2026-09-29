@@ -28,6 +28,7 @@
 #include "usb_link.h"
 #include "display.h"
 #include "ident.h"
+#include "screens.h"
 
 static const char *TAG = "main";
 
@@ -46,9 +47,11 @@ static uint32_t s_rx_size = 512 * 1024;
 #define XD_MAX_DRAIN (16u * 1024 * 1024)   /* larger than this is not a message but garbage: resync */
 
 static char s_serial[33];
-static char s_label[32];    /* human-readable unit name sent by the host with SHOW_IDENT */
+static char s_label[32];    /* the DU's name on the status page (SHOW_IDENT, SET_ASSIGNED), kept in NVS for the screens */
 static volatile uint32_t s_ident_gen;   /* bumped by every SHOW_IDENT, so a new label shows while ident is on */
-static volatile int s_screen_state = -1;   /* the screen task's state: 0 picture, 1 ident, 2 no USB, 3 not assigned */
+/* the screen task's state: 0 picture, 1 picture with the Identify banner, 2 no USB, 3 not assigned, 4 no DMC,
+ * 5 waiting for the sim, 6 updating, 7 Identify without a picture (#81) */
+static volatile int s_screen_state = -1;
 static char s_display_error[48];    /* why the display could not start (INFO); empty when it runs */
 static uint8_t *s_rx;               /* frame receive buffer (PSRAM) */
 static uint8_t *s_last_jpeg;        /* copy of the last frame shown, redrawn after IDENT / idle screens (PSRAM) */
@@ -68,7 +71,11 @@ static void redraw_last(void);
 static uint32_t s_last_seq;
 static uint32_t s_frames, s_dropped, s_decode_ms_acc, s_decode_n, s_draw_us_acc, s_rx_us_acc;
 static int64_t s_last_frame_us, s_ident_until_us, s_last_stats_us;
-static bool s_assigned;
+static volatile int s_assign;           /* SET_ASSIGNED: 0 nothing assigned, 1 pictures come, 2 waiting for the sim (#81) */
+static char s_display_name[64];         /* the assigned display's name, from SET_ASSIGNED */
+static volatile int64_t s_host_us;      /* when the last message from a DMC came; 0: none in this session */
+static volatile uint32_t s_screen_gen;  /* bumped when what a screen of the DU's own shows changes: draw it again */
+#define HOST_TIMEOUT_US 6000000         /* a DMC repeats SET_ASSIGNED every 2 s */
 static struct { esp_ota_handle_t h; const esp_partition_t *part; uint32_t expected; uint32_t got; uint32_t crc;
                 int64_t last_us; bool active; } s_ota;
 static bool s_app_confirmed;        /* this image has shown it works; until then a crash rolls back to the old one */
@@ -121,6 +128,26 @@ static void nvs_set_int(const char *key, int v)
     nvs_handle_t nvs;
     if (nvs_open("module", NVS_READWRITE, &nvs) == ESP_OK) {
         nvs_set_i32(nvs, key, v);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+}
+
+static void nvs_load_label(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("module", NVS_READONLY, &nvs) == ESP_OK) {
+        size_t len = sizeof(s_label);
+        if (nvs_get_str(nvs, "label", s_label, &len) != ESP_OK) s_label[0] = 0;
+        nvs_close(nvs);
+    }
+}
+
+static void nvs_save_label(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("module", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_str(nvs, "label", s_label);
         nvs_commit(nvs);
         nvs_close(nvs);
     }
@@ -259,11 +286,7 @@ static void ota_begin(uint32_t size)
     }
     s_ota.active = true;
     s_ota.last_us = esp_timer_get_time();
-    display_set_overlay("UPDATING FIRMWARE", "DO NOT UNPLUG");
-    if (has_last() && xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-        redraw_last();
-        xSemaphoreGive(s_frame_mutex);
-    }
+    s_screen_gen++;                          /* the screen task shows the update with its progress (#81) */
     send_msg(XD_T_OTA_PROGRESS, NULL, 0, 0, 0);
 }
 
@@ -401,6 +424,17 @@ static void end_tile_mode(void)
     display_fill(0x000000);
 }
 
+/* A new DMC session, a DMC that quit, or a display whose sim went away must not bring back an old picture: yesterday's
+ * PFD while the sim is not running (#81). The layout stays unless asked. Called with no picture being drawn. */
+static void forget_pictures(bool end_layout)
+{
+    xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+    if (end_layout) end_tile_mode();
+    for (int i = 0; i < MAX_TILES; i++) s_tile_jpeg_len[i] = 0;
+    s_last_jpeg_len = 0;
+    xSemaphoreGive(s_frame_mutex);
+}
+
 static int64_t s_hdr_us;   /* when the last header arrived (for rx time accounting) */
 
 /* ---- pictures (#61) ----------------------------------------------------------------------------
@@ -459,7 +493,7 @@ static uint8_t *show_picture(const picture_job_t *job)
             s_frames++; s_decode_ms_acc += ms; s_decode_n++;
             s_draw_us_acc += display_last_draw_us();
             s_rx_us_acc += (uint32_t)(job->rx_done_us - job->hdr_us);
-            s_last_frame_us = esp_timer_get_time(); s_assigned = true;
+            s_last_frame_us = esp_timer_get_time(); s_assign = 1;
             confirm_app("a picture was shown");
         } else {
             s_dropped++;
@@ -498,7 +532,7 @@ static uint8_t *show_picture(const picture_job_t *job)
         s_frames++; s_decode_ms_acc += ms; s_decode_n++;
         s_draw_us_acc += cards ? 0 : display_last_draw_us();
         s_rx_us_acc += (uint32_t)(job->rx_done_us - job->hdr_us);
-        s_last_frame_us = esp_timer_get_time(); s_assigned = true;
+        s_last_frame_us = esp_timer_get_time(); s_assign = 1;
         confirm_app("a tile was shown");
     } else {
         s_dropped++;
@@ -550,8 +584,40 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         send_stats();                       /* so the host sees the new ident state immediately */
         break;
     case XD_T_PING: send_msg(XD_T_PONG, NULL, 0, 0, h->arg); break;
-    case XD_T_SET_ASSIGNED:
-        s_assigned = h->arg != 0;           /* the screen task switches between picture and NOT ASSIGNED */
+    case XD_T_SET_ASSIGNED: {
+        /* the screen task switches between the picture and the DU's own screens (#81); a DMC repeats it every 2 s */
+        int a = h->arg <= 2 ? (int)h->arg : 1;
+        if (h->length) {                    /* "label\ndisplay name" */
+            char text[128];
+            size_t n = h->length < sizeof(text) - 1 ? h->length : sizeof(text) - 1;
+            memcpy(text, payload, n);
+            text[n] = 0;
+            char *nl = strchr(text, '\n');
+            const char *name = "";
+            if (nl) { *nl = 0; name = nl + 1; }
+            if (strlen(text) >= sizeof(s_label)) text[sizeof(s_label) - 1] = 0;          /* compared as stored: a long
+                                                                                 label must not be written every 2 s */
+            if (strlen(name) >= sizeof(s_display_name)) ((char *)name)[sizeof(s_display_name) - 1] = 0;
+            if (strcmp(name, s_display_name) != 0) {
+                snprintf(s_display_name, sizeof(s_display_name), "%.63s", name);
+                s_screen_gen++;
+            }
+            if (text[0] && strcmp(text, s_label) != 0) {
+                snprintf(s_label, sizeof(s_label), "%.31s", text);
+                nvs_save_label();           /* only when it changes: the screens show it without a DMC too */
+                s_screen_gen++;
+            }
+        }
+        if (a == 2 && s_assign != 2) forget_pictures(false);   /* its sim went away: no stale picture when it is back */
+        s_assign = a;
+        break;
+    }
+    case XD_T_BYE:                          /* the DMC quits: "waiting for the DMC", and nothing of its session stays */
+        s_host_us = 0;
+        s_assign = 0;
+        s_display_name[0] = 0;
+        forget_pictures(true);
+        s_screen_gen++;
         break;
     case XD_T_SET_LAYOUT: {
         if (s_ota.active) { break; }
@@ -615,7 +681,7 @@ static bool type_known(uint8_t type)
 {
     switch (type) {
     case XD_T_FRAME: case XD_T_GET_INFO: case XD_T_SET_BRIGHTNESS: case XD_T_SET_ROTATION: case XD_T_SHOW_IDENT:
-    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_SET_LAYOUT: case XD_T_TILE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
+    case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_SET_LAYOUT: case XD_T_TILE: case XD_T_BYE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
         return true;
     default:
         return false;
@@ -662,9 +728,11 @@ static void protocol_task(void *arg)
             ESP_LOGI(TAG, "usb configured");
             s_last_stats_us = esp_timer_get_time();
             wait_pictures();                /* the old session's last pictures first */
-            xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
-            end_tile_mode();                /* a new host session starts without the old one's layout (#17) */
-            xSemaphoreGive(s_frame_mutex);
+            forget_pictures(true);          /* a new host session starts without the old one's layout (#17) or pictures (#81) */
+            s_assign = 0;
+            s_host_us = 0;
+            s_display_name[0] = 0;
+            s_screen_gen++;
             vTaskDelay(pdMS_TO_TICKS(100));
             send_ready();
         }
@@ -715,6 +783,7 @@ static void protocol_task(void *arg)
             }
         }
         s_hdr_us = esp_timer_get_time();
+        s_host_us = s_hdr_us;                   /* a DMC is there (#81) */
         if (h.length > RX_BUF_SIZE || !type_known(h.type)) {
             /* a frame too large for this unit, or a message a newer host sends: skip it by its length, say so, and
              * keep the flow going (it used to cost a 3 s resync per frame) (#16) */
@@ -734,7 +803,8 @@ static void protocol_task(void *arg)
             send_ready();
             continue;
         }
-        if (h.type != XD_T_FRAME && h.type != XD_T_TILE && h.type != XD_T_PING && h.type != XD_T_SET_BRIGHTNESS) {
+        bool heartbeat = h.type == XD_T_SET_ASSIGNED && (int)h.arg == s_assign;   /* every 2 s: no wait while streaming */
+        if (h.type != XD_T_FRAME && h.type != XD_T_TILE && h.type != XD_T_PING && h.type != XD_T_SET_BRIGHTNESS && !heartbeat) {
             wait_pictures();                    /* layout, ident, mode, OTA ...: after the pictures sent before them */
         }
         handle_message(&h, s_rx);
@@ -742,26 +812,67 @@ static void protocol_task(void *arg)
     }
 }
 
+/* The Identify banner over live pictures, in the DU's look (display.c asks for it per picture width). */
+static const uint8_t *banner_now(int w, int *h)
+{
+    return screens_banner(w, s_label, s_display_name, s_serial, display_get_brightness(), h);
+}
+
+static bool s_screens_ok;               /* the fonts loaded: the DU's own screens; else the old 5x7 text */
+
+/* One of the DU's own screens, under the frame lock like every other draw (#18, #81). */
+static bool show_screen(screen_kind_t kind, int progress)
+{
+    if (!display_ready()) return true;
+    if (!s_screens_ok) {
+        static const char *const words[] = {"NO USB", "NO DMC", "NOT ASSIGNED", "WAITING FOR SIM", "IDENT", "UPDATING"};
+        char l2[40];
+        snprintf(l2, sizeof(l2), "%.8s FW %s", s_serial, FW_VERSION);
+        return show_idle_screen(words[kind], l2, 0x00A0FF);
+    }
+    screen_t sc = {kind, s_label, s_display_name, s_serial, FW_VERSION, progress, display_get_brightness()};
+    bool ok = false;
+    if (xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        ok = screens_show(&sc) == ESP_OK;
+        xSemaphoreGive(s_frame_mutex);
+    }
+    return ok;
+}
+
 static void screen_task(void *arg)
 {
-    /* Idle / ident / no-signal presentation, independent of the protocol loop. */
+    /* What the panel shows when it is not a picture, independent of the protocol loop (#81):
+     *   no USB -> no DMC talking (none for 6 s, or it said BYE) -> nothing assigned -> assigned but no picture yet
+     *   (the sim is not showing it) -> the picture. Identify and a firmware update take precedence. */
     char l1[40], l2[40];
-    int64_t last_state = -1;
-    uint32_t last_gen = 0;
-    bool idle_up = false;                  /* an idle screen covers the whole panel: clear it before a picture */
+    int last_state = -1, last_bright = -1, last_pct = -1;
+    uint32_t last_gen = 0, last_ident = 0;
+    int64_t last_pct_us = 0;
+    bool idle_up = false;                  /* one of our screens covers the whole panel: clear it before a picture */
     for (;;) {
         int64_t now = esp_timer_get_time();
+        bool usb = usb_link_host_present();       /* a pulled cable shows only as a suspended bus */
+        bool host = usb && s_host_us && now - s_host_us < HOST_TIMEOUT_US;
+        bool picture = host && s_assign == 1 && has_last();
         int state;
-        if (now < s_ident_until_us) state = 1;                       /* identify */
-        else if (!usb_link_connected()) state = 2;                    /* no usb */
-        else if (!s_assigned) state = 3;                              /* waiting for assignment */
-        else state = 0;                                               /* streaming */
+        if (s_ota.active) state = 6;
+        else if (now < s_ident_until_us) state = picture ? 1 : 7;
+        else if (!usb) state = 2;
+        else if (!host) state = 4;
+        else if (s_assign == 0) state = 3;
+        else if (!picture) state = 5;
+        else state = 0;
         s_screen_state = state;
-        if (state == 1 && s_ident_gen != last_gen) last_state = -1;   /* a new label while ident is on */
-        last_gen = s_ident_gen;
-        if (state != last_state) {
+        int bright = display_get_brightness();
+        int pct = s_ota.expected ? (int)((uint64_t)s_ota.got * 100 / s_ota.expected) : 0;
+        bool own = state >= 2;
+        bool redraw = state != last_state || s_screen_gen != last_gen
+                      || ((state == 1 || state == 7) && s_ident_gen != last_ident)
+                      || (own && bright != last_bright)
+                      || (state == 6 && pct != last_pct && now - last_pct_us > 400000);
+        if (redraw) {
             bool drawn = true;
-            /* IDENT is a banner stamped on every frame (live or the kept last one), not a separate screen. */
+            /* IDENT on a picture is a banner stamped on every frame (live or the kept last one) */
             if (state == 1) {
                 snprintf(l1, sizeof(l1), "IDENT %s", s_label);
                 snprintf(l2, sizeof(l2), "%.8s-%.8s", s_serial, s_serial + 8);
@@ -769,9 +880,11 @@ static void screen_task(void *arg)
             } else {
                 display_set_overlay(NULL, NULL);
             }
-            if ((state == 0 && last_state != 0) || (state == 1 && has_last())) {
-                /* redraw the last received frame: without the banner (back to normal) or with it (ident); after an
-                 * idle screen clear first, or its text stays around a smaller picture or between tiles (#17) */
+            switch (state) {
+            case 0:
+            case 1:
+                /* the last frame again: without the banner (back to normal) or with it (ident); after one of our screens
+                 * clear first, or it stays around a smaller picture or between tiles (#17) */
                 if (xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
                     if (idle_up) display_fill(0x000000);
                     redraw_last();
@@ -780,21 +893,25 @@ static void screen_task(void *arg)
                 } else {
                     drawn = false;
                 }
-            } else if (state == 1) {
-                drawn = show_idle_screen(l1, l2, 0xFF8000);     /* no frame received yet: plain ident screen */
-                idle_up = true;
-            } else if (state == 2) {
-                snprintf(l1, sizeof(l1), "NO USB");
-                snprintf(l2, sizeof(l2), "%.8s FW %s", s_serial, FW_VERSION);
-                drawn = show_idle_screen(l1, l2, 0x404040);
-                idle_up = true;
-            } else if (state == 3) {
-                snprintf(l1, sizeof(l1), "NOT ASSIGNED");
-                snprintf(l2, sizeof(l2), "%.8s-%.8s", s_serial, s_serial + 8);
-                drawn = show_idle_screen(l1, l2, 0x00A0FF);
-                idle_up = true;
+                break;
+            case 2: drawn = show_screen(SCREEN_NO_USB, 0); break;
+            case 3: drawn = show_screen(SCREEN_UNASSIGNED, 0); break;
+            case 4: drawn = show_screen(SCREEN_NO_HOST, 0); break;
+            case 5: drawn = show_screen(SCREEN_WAITING, 0); break;
+            case 6:
+                drawn = show_screen(SCREEN_UPDATING, pct);
+                last_pct = pct;
+                last_pct_us = now;
+                break;
+            default: drawn = show_screen(SCREEN_IDENTIFY, 0); break;
             }
-            if (drawn) last_state = state;                            /* not drawn: try again next round */
+            if (own) idle_up = true;
+            if (drawn) {                   /* not drawn: try again next round */
+                last_state = state;
+                last_gen = s_screen_gen;
+                last_ident = s_ident_gen;
+                last_bright = bright;
+            }
         }
         static int tick;
         if (++tick % 25 == 0) {          /* every 5 s */
@@ -862,6 +979,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     load_or_create_serial();
+    nvs_load_label();
     s_reset_reason = esp_reset_reason();
     const esp_app_desc_t *app = esp_app_get_description();
     ESP_LOGI(TAG, "GlassLink DU fw %s (%s, app %s) serial %s", FW_VERSION, FW_BUILD, app->version, s_serial);
@@ -899,6 +1017,10 @@ void app_main(void)
     if (derr != ESP_OK) {
         snprintf(s_display_error, sizeof(s_display_error), "display: %s", esp_err_to_name(derr));
         ESP_LOGE(TAG, "%s: running without a display (USB, LOG and firmware updates still work)", s_display_error);
+    }
+    if (display_ready()) {
+        s_screens_ok = screens_init() == ESP_OK;
+        if (s_screens_ok) display_set_banner_fn(banner_now);
     }
     display_set_brightness(nvs_get_int("brightness", 100));
     display_set_rotation(nvs_get_int("rotation", 0));

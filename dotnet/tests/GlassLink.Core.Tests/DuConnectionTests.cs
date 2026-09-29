@@ -179,6 +179,26 @@ public class DuConnectionTests
     }
 
     [Fact]
+    public void The_DU_hears_every_2_s_what_it_shows_and_whether_the_sim_is_showing_it()
+    {
+        var du = new FakeDu();
+        var pfd = new FrameSlot("pfd") { Title = "Captain PFD", Live = false };      // the sim is not running
+        using var conn = new DuConnection(du) { Label = "DU1" };
+        conn.Start();
+        conn.Source = pfd;
+        Until(() => du.Of(MessageType.SetAssigned).Any(m => m.Arg == 2));
+        Assert.Equal("DU1\nCaptain PFD", du.Of(MessageType.SetAssigned).Last(m => m.Arg == 2).Text());
+
+        pfd.Live = true;                                                           // its window is there again
+        Until(() => du.Of(MessageType.SetAssigned).Any(m => m.Arg == 1));          // the next heartbeat says so
+        var count = du.Of(MessageType.SetAssigned).Count;
+        Until(() => du.Of(MessageType.SetAssigned).Count > count);                // and keeps coming (the DMC is there)
+
+        conn.SayBye();
+        Until(() => du.Of(MessageType.Bye).Count == 1);
+    }
+
+    [Fact]
     public void Survives_stale_bytes_and_a_lost_info_answer()
     {
         var stale = Enumerable.Range(0, 100).Select(i => (byte)i).ToArray();

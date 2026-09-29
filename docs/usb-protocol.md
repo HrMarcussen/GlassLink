@@ -55,10 +55,11 @@ offset  size  field
 | 0x04 | SET_ROTATION | none | 0, 90, 180, 270 | Rotation applied by the module. |
 | 0x05 | SHOW_IDENT | UTF-8 label of the module (<= 31 bytes, may be empty) | seconds, 0 = off | Stamp an "IDENT <label>" banner with the serial across the top of every frame (live picture or the kept last frame) so the user can see which physical unit this is while assigning. 0 cancels it; the module then redraws the last frame without the banner. |
 | 0x06 | PING | none | nonce | Module answers PONG with the same nonce. |
-| 0x07 | SET_ASSIGNED | none | 1 = assigned, 0 = not | Sent after INFO and whenever the assignment changes. With 0 the module shows its NOT ASSIGNED screen instead of the last frame. |
+| 0x07 | SET_ASSIGNED | optional (0.7): the DU's label, a newline, the assigned display's name, UTF-8 (`DU1\nCaptain PFD`) | 0 = nothing assigned, 1 = assigned and its pictures come, 2 (0.7) = assigned, but its display has no window (the sim is not showing it) | Sent after INFO, whenever the assignment changes, and (0.7) every 2 s, which also tells the DU that a DMC is there: with no message from a host for 6 s the DU shows "Waiting for the DMC". 0 shows "Not assigned", 2 "<display> · waiting for the sim" instead of an old picture; the DU keeps the label in NVS for its screens. Older firmware reads only arg 0 / not 0. |
 | 0x09 | SET_MODE | none | HDMI mode: 0 = 768x768, 1 = 1024x768, 2 = 800x600, 3 = 1280x720, 4 = 1920x1080 at 30 Hz (two DSI lanes carry no more; one frame buffer) | The DU stores the mode and restarts into it (about 3 s); INFO reports it as `mode`. For a DU on an ordinary HDMI screen. A frame smaller than the screen is centred, a larger one refused. |
 | 0x0A | SET_LAYOUT | tiles, 8 bytes each: uint16 LE x, y, w, h (up to 6) | bit 0 = show test cards | A screen with several displays on it: the DU keeps the layout in RAM (the host sends it after every INFO), clears the screen and then takes TILE messages. With bit 0 set every tile is drawn as a test card (bright border, number, size) for lining the tiles up with a panel's cutouts; TILEs are kept but not drawn meanwhile. An empty payload ends tile mode. INFO reports `tiles` (the count) and `caps` containing `tiles`. Tile sizes (and so the displays' `client_size`) are multiples of 16: the DU's hardware JPEG decoder writes whole 16 x 16 blocks of a 4:2:0 picture and refuses other sizes (found 22 Sept 2026, #15); positions are free. A DU whose `caps` contain `band` (0.6.0) decodes a picture as wide as its screen straight into the frame buffer, so the DMC sends all tiles of such a DU as one layout tile covering the rows they use, full width, with the displays side by side on black (a "band"); test cards stay per tile. |
 | 0x0B | TILE | JPEG | tile index | A frame for one tile of the layout, centred in its rectangle; the rest of the screen is untouched. Same flow control as FRAME (one in flight, READY after it). A tile costs what a frame of its own size costs, whatever the screen size: two 640x640 tiles on a 1280x720 screen run at 48 tiles/s in total, four 432x432 at 77/s (measured 22 Sept 2026). |
+| 0x0C | BYE | none | 0 | (0.7) The DMC is quitting: the DU shows "Waiting for the DMC" at once and forgets the pictures of the session. Older firmware skips it as unknown. |
 | 0x10 | OTA_BEGIN | none | total image size | Start a firmware update. The DU erases the inactive slot, shows an "UPDATING FIRMWARE" banner, ignores FRAMEs, and answers OTA_PROGRESS 0 (or OTA_RESULT 1). |
 | 0x11 | OTA_DATA | firmware chunk (the DMC uses 32 KiB) | offset of this chunk | Must arrive in order. Answered with OTA_PROGRESS = bytes written so far; the host sends the next chunk only then (stop and wait, because flash writes block the DU). |
 | 0x12 | OTA_END | none | CRC32 of the image (zlib) | The DU checks size and CRC, lets ESP-IDF validate the image, selects the new slot, answers OTA_RESULT and reboots if it was 0. The new image confirms itself after the display is up; otherwise the bootloader rolls back. |
@@ -85,14 +86,19 @@ offset  size  field
    screen is centred by the DU; a larger one is refused, so
    the display's `client_size` should not exceed the screen (the host does not scale to fit).
 3. Look up the serial in `modules`. Unassigned modules are listed in the app with a "show ident" button; assigning writes the config.
-   Send SET_ASSIGNED so the module shows either the picture or its NOT ASSIGNED screen. An unplugged module stays
+   Send SET_ASSIGNED so the module shows either the picture or one of its own screens, and repeat it every 2 s; send BYE
+   when quitting. An unplugged module stays
    listed only if it has an assignment or a label ("Forget" removes that); an unconfigured unit vanishes when unplugged.
 4. Loop: wait for READY, then send the newest JPEG of the assigned display if its seq is newer than the READY's seq, otherwise wait for a new frame. This is exactly the WebSocket hub logic with a different transport.
 5. On USB error or unplug: close, forget, and pick the device up again on the next enumeration.
 
 ## 6. Module behaviour
 
-1. Boot, init panel via LT8912B (768x768@60, 2 DSI lanes), show the "not assigned" screen with serial and firmware version.
+1. Boot, init panel via LT8912B (768x768@60, 2 DSI lanes). With no picture to show the DU draws its own screens (0.7,
+   #81), in Inter from fonts built into the firmware: Waiting for the PC (no USB host, or the bus is suspended: a pulled
+   cable looks like that on a DU with its own power), Waiting for the DMC, Not assigned, <display> · waiting for the
+   sim, Identify, Updating firmware (with progress). A new USB session, BYE and SET_ASSIGNED 2 make it forget the
+   pictures it had, so an old picture never comes back.
 2. Start USB; on configuration, send READY.
 3. On FRAME: hardware-JPEG-decode (dimmed in the decoder's colour conversion if the brightness is below 100 %), draw.
    READY goes out as soon as the frame is received and handed to the drawing task (0.6.0), so the host sends the

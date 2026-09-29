@@ -29,6 +29,8 @@ public static partial class Api
         IResult Page(string file) => Results.File(Path.Combine(statics, file), "text/html; charset=utf-8");
 
         app.MapGet("/", () => Page("admin.html"));
+        // The page's typeface (Inter, the DU's too, #81), from here and not from the internet: the cockpit PC may be offline.
+        app.MapGet("/fonts/inter.woff2", () => Results.File(Path.Combine(statics, "fonts", "inter.woff2"), "font/woff2"));
         app.MapGet("/view/{name}", (string name) => dmc.Displays.Get(name) is null ? Results.NotFound() : Page("viewer.html"));
         app.MapGet("/status", () => Json(Status(dmc)));
 

@@ -99,6 +99,7 @@ public sealed class DuConnection : IDisposable
     private long _oversizeLogged;
     private int _badChecks, _goodChecks;
     private bool _readyPending;
+    private long _assignedSentAt;
     private byte[]? _otaImage;
     private uint? _otaAcked;
     private int? _otaResult;
@@ -228,7 +229,7 @@ public sealed class DuConnection : IDisposable
 
             if (before != after)
             {
-                Send(MessageType.SetAssigned, arg: after ? 1u : 0u);
+                SendAssigned();
             }
         }
     }
@@ -265,9 +266,28 @@ public sealed class DuConnection : IDisposable
                 _screen = _screen with { Single = value };
             }
 
-            Send(MessageType.SetAssigned, arg: HasSource ? 1u : 0u);
+            SendAssigned();
         }
     }
+
+    /// <summary>The DU's name on the status page ("DU1"); it shows it on its own screens (#81).</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>What the DU is to show, with its label and the display's name (#81): 0 nothing assigned, 1 its pictures
+    /// come, 2 assigned but its display has no window (the sim is not showing it: the DU says it waits, instead of
+    /// keeping an old picture up). Repeated every 2 s, which also tells the DU that a DMC is there.</summary>
+    private void SendAssigned()
+    {
+        var screen = _screen;
+        var sources = (screen.Layout.Length > 0 ? screen.Sources : [screen.Single]).OfType<IFrameSource>().ToList();
+        var state = sources.Count == 0 ? 0u : sources.Any(s => s.Live) ? 1u : 2u;
+        var names = string.Join(" · ", sources.Select(s => s.Title).Distinct());
+        _assignedSentAt = Environment.TickCount64;
+        Send(MessageType.SetAssigned, Encoding.UTF8.GetBytes($"{Label}\n{names}"), arg: state);
+    }
+
+    /// <summary>The DMC is quitting: the DU shows "waiting for the DMC" at once and keeps no picture of this session.</summary>
+    public void SayBye() => Send(MessageType.Bye);
 
     public void Start() => _thread.Start();
 
@@ -357,6 +377,11 @@ public sealed class DuConnection : IDisposable
                 {
                     DoUpdate(image);
                     continue;
+                }
+
+                if (Info is not null && Environment.TickCount64 - _assignedSentAt >= 2000)
+                {
+                    SendAssigned();                         // the DU's sign that a DMC is there, and whether its sim is (#81)
                 }
 
                 // With a READY pending, wait for the next picture rather than for the DU (it has nothing to say until it
@@ -554,7 +579,7 @@ public sealed class DuConnection : IDisposable
                     }
                 }
 
-                Send(MessageType.SetAssigned, arg: HasSource ? 1u : 0u);
+                SendAssigned();
                 InfoReceived?.Invoke(this);
                 break;
             case MessageType.Stats:

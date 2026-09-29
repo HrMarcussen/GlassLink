@@ -246,7 +246,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
         {
             if (!_slots.TryGetValue(name, out var slot))
             {
-                _slots[name] = slot = new FrameSlot(name);
+                _slots[name] = slot = new FrameSlot(name) { Title = DisplayNames.For(name) };
             }
 
             if (_entries.Remove(name, out var old))

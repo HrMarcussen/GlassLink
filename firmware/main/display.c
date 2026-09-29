@@ -70,6 +70,7 @@ static int s_front;                 /* index of the one on screen; full-size pic
 /* PSRAM cache line: a buffer the decoder writes must start and end on one */
 #define CACHE_ALIGN CONFIG_CACHE_L2_CACHE_LINE_SIZE
 static char s_overlay1[40], s_overlay2[40];   /* banner stamped on every frame while non-empty (IDENT) */
+static display_banner_fn s_banner_fn;         /* draws the banner in the DU's look (screens.c); the 5x7 text without it */
 static int s_rotation = 0;
 
 static void lt_write(esp_lcd_panel_io_handle_t io, uint8_t reg, uint8_t val);
@@ -495,10 +496,26 @@ void display_set_overlay(const char *line1, const char *line2)
     snprintf(s_overlay2, sizeof(s_overlay2), "%s", line2 ? line2 : "");
 }
 
+void display_set_banner_fn(display_banner_fn fn)
+{
+    s_banner_fn = fn;
+}
+
+int display_get_brightness(void)
+{
+    return s_brightness;
+}
+
 /* Dark band across the top of the picture with two lines of text (B,G,R buffer of w x h). */
 static void stamp_overlay(uint8_t *bgr, int w, int h)
 {
     if (!s_overlay1[0] && !s_overlay2[0]) return;
+    int bh = 0;
+    const uint8_t *banner = s_banner_fn ? s_banner_fn(w, &bh) : NULL;
+    if (banner) {                                                /* made once per width and text, copied per frame */
+        memcpy(bgr, banner, (size_t)w * (bh < h ? bh : h) * 3);
+        return;
+    }
     int big = w / 100, small = big / 2 > 0 ? big / 2 : 1;      /* ~7 px and ~4 px glyph columns at 768 */
     int band = 7 * big + 7 * small + 4 * big;
     if (band > h) band = h;

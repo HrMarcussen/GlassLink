@@ -60,6 +60,12 @@ public sealed class BandComposer : IFrameSource, IDisposable
 
     public string Name => _slot.Name;
 
+    /// <summary>The names of the displays in the band, as a DU shows them while it waits (#81).</summary>
+    public string Title => string.Join(" · ", _parts.Select(p => p.Source.Title).Distinct());
+
+    /// <summary>Live while any of its displays is.</summary>
+    public bool Live => _parts.Any(p => p.Source.Live);
+
     public Frame? Latest => _slot.Latest;
 
     public Frame? WaitNewer(uint afterSeq, int timeoutMs) => _slot.WaitNewer(afterSeq, timeoutMs);

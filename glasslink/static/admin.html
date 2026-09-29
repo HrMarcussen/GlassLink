@@ -16,12 +16,14 @@
     :root { --bg:#0f1115; --card:#181b22; --line:#6b7486; --fg:#eceef2; --dim:#a3acbd; --input:#0f1115;
             --ok:#4ade6a; --warn:#f5c04a; --bad:#ff7b7b; --acc:#6cb2ff;
             --ok-bg:#13261a; --warn-bg:#2a2412; --bad-bg:#2a1414; } }
+  /* Inter, the typeface the DUs draw their own screens in (#81); served by the DMC itself. */
+  @font-face { font-family: 'Inter'; src: url('/fonts/inter.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
   * { box-sizing: border-box; }
   [hidden] { display:none !important; }
   html { font-size:100%; }
   /* The bar stays, the rest scrolls beneath it: the scroll bar starts under the bar, as in an application. */
   html, body { height:100%; }
-  body { margin:0; background:var(--bg); color:var(--fg); font: 1rem/1.45 system-ui, "Segoe UI", sans-serif; display:flex; flex-direction:column; }
+  body { margin:0; background:var(--bg); color:var(--fg); font: 1rem/1.45 'Inter', system-ui, "Segoe UI", sans-serif; display:flex; flex-direction:column; }
   /* One bar for everything: brand, tabs, status. In the DMC's own window it is also the title bar: the window is
      dragged by it (app-region) and it carries the minimise / maximise / close buttons. */
   header { display:flex; flex-wrap:wrap; align-items:center; gap:.2rem 1rem; padding:0 0 0 1.4rem; border-bottom:1px solid var(--line);

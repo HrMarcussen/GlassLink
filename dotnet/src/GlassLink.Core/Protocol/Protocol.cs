@@ -19,6 +19,7 @@ public enum MessageType : byte
     SetMode = 0x09,             // HDMI mode 0..4; the DU stores it and restarts
     SetLayout = 0x0A,           // tiles, 8 bytes each (uint16 x, y, w, h); arg bit 0 = show test cards
     Tile = 0x0B,                // a JPEG for one tile (arg = tile index); answered with READY like Frame
+    Bye = 0x0C,                 // the DMC quits: the DU shows "waiting for the DMC" at once (#81)
     OtaBegin = 0x10,
     OtaData = 0x11,
     OtaEnd = 0x12,

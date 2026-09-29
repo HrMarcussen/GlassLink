@@ -185,6 +185,11 @@ static void usb_event(tinyusb_event_t *event, void *arg)
     }
 }
 
+bool usb_link_host_present(void)
+{
+    return usb_link_connected() && !tud_suspended();
+}
+
 uint32_t usb_link_session(void)
 {
     return __atomic_load_n(&s_session, __ATOMIC_SEQ_CST);

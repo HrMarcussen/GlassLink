@@ -13,6 +13,13 @@ public interface IFrameSource
 {
     string Name { get; }
 
+    /// <summary>The display's name as people know it ("Captain PFD"): a DU shows it while it waits for the picture (#81).</summary>
+    string Title => Name;
+
+    /// <summary>False while the display cannot deliver pictures: its window is not there (the sim is not showing it). A
+    /// DU then says it waits for the sim instead of keeping an old picture up (#81).</summary>
+    bool Live => true;
+
     /// <summary>The newest frame, or null before the first one.</summary>
     Frame? Latest { get; }
 
@@ -31,6 +38,17 @@ public sealed class FrameSlot(string name) : IFrameSource
     private Frame? _latest;
 
     public string Name { get; } = name;
+
+    public string Title { get; set; } = name;
+
+    private volatile bool _live = true;
+
+    /// <summary>Set by the capture: true while it has the display's window. A slot fed by anything else stays live.</summary>
+    public bool Live
+    {
+        get => _live;
+        set => _live = value;
+    }
 
     public Frame? Latest
     {

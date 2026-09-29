@@ -18,6 +18,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ## [Unreleased]
 
 ### Added
+- **[DU firmware]** The DU's own screens in GlassLink's look (#81): the GlassLink mark and name, the status page's
+  dark colours and the Inter typeface (built into the firmware, drawn with smooth edges at any size), and states that
+  say what is going on: Waiting for the PC, Waiting for the DMC, Not assigned, *display* · waiting for the sim,
+  Identify, and Updating firmware with its progress. The Identify banner over a picture is drawn the same way. A DU no
+  longer shows an old picture from an earlier session (e.g. yesterday's PFD while the sim is not running), notices a
+  pulled cable, and keeps its label for when no DMC is running. The DMC tells each DU every 2 s what it shows and
+  whether the sim is showing it, and says goodbye when it quits.
 - **GlassLink updates itself from GitHub Releases** (#76). A minute after the start and every six hours the DMC asks
   GitHub for the latest release (anonymously; `updates.check: false` switches it off). A newer one is announced on the
   status page and in the tray menu, with what is new; **Install update** (the user's click only, and only in an

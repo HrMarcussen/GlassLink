@@ -36,6 +36,11 @@ esp_err_t display_show_rgb(const uint8_t *rgb, int w, int h);
 void display_set_brightness(int percent);
 /* Two-line banner stamped on every subsequent frame (empty strings = off). */
 void display_set_overlay(const char *line1, const char *line2);
+/* While the banner is on: returns w x *h B,G,R pixels to lay over the top of a picture w wide (NULL: the 5x7 text). */
+typedef const uint8_t *(*display_banner_fn)(int w, int *h);
+void display_set_banner_fn(display_banner_fn fn);
+/* The brightness pictures are shown at, 0..100. */
+int display_get_brightness(void);
 uint32_t display_last_draw_us(void);
 void display_log_bridge_status(void);
 void display_diag_set_dsi(bool pn_swap, bool lane_swap);

@@ -26,6 +26,7 @@ It is not covered by GlassLink's licence. A user may replace it with the one fro
 | libjpeg-turbo (`turbojpeg.dll`) | D. R. Commander, Viktor Szathmáry, the Independent JPEG Group and contributors | IJG licence, BSD 3-clause and zlib (<https://github.com/libjpeg-turbo/libjpeg-turbo/blob/main/LICENSE.md>). This software is based in part on the work of the Independent JPEG Group. |
 | Microsoft Visual C++ runtime (`vcruntime140.dll`, with libjpeg-turbo) | Microsoft Corporation | Visual C++ redistributable terms |
 | System.IO.Hashing, System.Drawing.Common | .NET Foundation and contributors | MIT |
+| Inter typeface (`glasslink/static/fonts/inter.woff2`, the status page's font) | The Inter Project Authors | SIL Open Font License 1.1 (`glasslink/static/fonts/OFL.txt`) |
 
 ## Built into the DU firmware
 
@@ -35,6 +36,8 @@ It is not covered by GlassLink's licence. A user may replace it with the one fro
 | TinyUSB | Ha Thach (tinyusb.org) and contributors | MIT |
 | esp_tinyusb | Espressif Systems | Apache 2.0 |
 | esp_lcd_lt8912b | Espressif Systems | Apache 2.0 |
+| stb_truetype (`firmware/main/third_party/stb_truetype.h`) | Sean Barrett | MIT or public domain (the header's own text) |
+| Inter typeface, cut to three weights (`firmware/main/fonts/`, made by `firmware/tools/make_fonts.py`) | The Inter Project Authors | SIL Open Font License 1.1 (`firmware/main/fonts/OFL.txt`) |
 
 ## Used by the Python reference DMC and tools (installed with pip, not distributed)
 

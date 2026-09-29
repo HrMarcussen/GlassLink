@@ -140,6 +140,7 @@ public sealed class DuManager : IDisposable
 
             foreach (var (serial, conn) in _connections)
             {
+                conn.Label = Settings(serial).Label;          // shown on the DU's own screens (#81)
                 SyncScreen(serial, conn);
             }
         }
@@ -630,7 +631,7 @@ public sealed class DuManager : IDisposable
             _disposed = true;
             foreach (var conn in _connections.Values)
             {
-                conn.Source = null;                 // the panels show NOT ASSIGNED rather than a frozen last picture
+                conn.SayBye();                      // the panels show "waiting for the DMC", not a frozen last picture (#81)
                 conn.Dispose();
             }
 

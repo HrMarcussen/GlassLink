@@ -67,6 +67,7 @@ public sealed class DisplayCapture : IDisposable
     public DisplayCapture(string name, JsonObject display, JsonObject? captureSection, FrameSlot slot, Func<bool> inUse, Action<string>? log = null)
     {
         (Name, _display, _slot, _inUse, _log) = (name, display, slot, inUse, log);
+        _slot.Live = false;                                  // until the window is found (#81)
         _settings = CaptureSettings.From(captureSection, display);
         _encoder = new JpegEncoder(_settings.Quality, _settings.Subsample420);
         _watch = new Timer(_ => Watch(), null, 0, 1000);
@@ -122,11 +123,13 @@ public sealed class DisplayCapture : IDisposable
                         }
                     });
                     Error = "";
+                    _slot.Live = true;
                     _log?.Invoke($"[{Name}] capturing 0x{Window.Handle:x} '{Window.Title}' ({Window.Process}, client {Window.Client.Width}x{Window.Client.Height})");
                 }
                 else if (_capture is null)
                 {
                     Error = "window not found";
+                    _slot.Live = false;
                 }
             }
             catch (Exception ex)                                // a timer callback must never take the process down
@@ -151,6 +154,7 @@ public sealed class DisplayCapture : IDisposable
         _capture = null;
         Window = null;
         Error = "window not found";
+        _slot.Live = false;
         _log?.Invoke($"[{Name}] {why}");
     }
 

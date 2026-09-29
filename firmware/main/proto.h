@@ -15,10 +15,13 @@
 #define XD_T_SET_ROTATION   0x04
 #define XD_T_SHOW_IDENT     0x05
 #define XD_T_PING           0x06
-#define XD_T_SET_ASSIGNED   0x07   /* arg 1 = a display is assigned, 0 = show NOT ASSIGNED */
+#define XD_T_SET_ASSIGNED   0x07   /* arg 0 = nothing assigned, 1 = assigned and its pictures come, 2 = assigned, waiting for
+                                      the sim; payload (optional) = the DU's label, a newline, the display's name. A DMC
+                                      repeats it every 2 s: it is also the DU's sign that a DMC is there (#81) */
 #define XD_T_SET_MODE       0x09   /* arg = HDMI mode (0 768x768, 1 1024x768, 2 800x600, 3 1280x720, 4 1920x1080@30): stored, then reboot */
 #define XD_T_SET_LAYOUT     0x0A   /* payload = tiles, 8 bytes each: uint16 LE x, y, w, h (up to 6); arg bit 0 = show test cards */
 #define XD_T_TILE           0x0B   /* a JPEG for one tile of the layout (arg = tile index); answered with READY like FRAME */
+#define XD_T_BYE            0x0C   /* the DMC is quitting: the DU shows "waiting for the DMC" at once (#81) */
 #define XD_T_OTA_BEGIN      0x10
 #define XD_T_OTA_DATA       0x11
 #define XD_T_OTA_END        0x12
