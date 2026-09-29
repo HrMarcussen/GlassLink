@@ -25,8 +25,30 @@ public sealed record CameraSpec(int? ViewType, int? ViewIndex)
         : new JsonObject { ["mode"] = "view", ["type"] = ViewType, ["index"] = ViewIndex };
 }
 
-/// <summary>Where to click for one display: fractions of the sim window's client area, in a given camera.</summary>
-public sealed record ClickPoint(double X, double Y, CameraSpec Camera);
+/// <summary>Where to click for one display: fractions of the sim window's client area, in a given camera, made on a sim
+/// window of the shape Aspect (width / height; null = not known).</summary>
+public sealed record ClickPoint(double X, double Y, CameraSpec Camera, double? Aspect = null)
+{
+    /// <summary>True when the point was made on a window of this shape (3 % either way), or its shape is not known. The
+    /// cockpit camera shows more or less of the cockpit on another shape, so a point from a 16:9 screen lands somewhere
+    /// else on a 21:9 one; at another resolution of the same shape it lands right.</summary>
+    public bool Fits(double aspect) => Aspect is not { } a || Math.Abs(a - aspect) <= a * 0.03;
+
+    /// <summary>A screen shape as people name it ("16:9", "21:9"), else as a ratio ("2.10:1").</summary>
+    public static string Shape(double aspect)
+    {
+        (string Name, double Value)[] known = [("16:9", 16.0 / 9), ("16:10", 1.6), ("21:9", 64.0 / 27), ("32:9", 32.0 / 9), ("4:3", 4.0 / 3), ("5:4", 1.25), ("3:2", 1.5)];
+        foreach (var (name, value) in known)
+        {
+            if (Math.Abs(value - aspect) <= value * 0.03)
+            {
+                return name;
+            }
+        }
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{aspect:0.00}:1");
+    }
+}
 
 /// <summary>What the DMC knows about one aircraft: zoom, click points, brightness variables, and whether the aircraft
 /// dims its own pop-outs.</summary>
@@ -44,6 +66,7 @@ public static class Profiles
     {
       "Fenix": {
         "zoom": 30,
+        "aspect": 1.7778,
         "detect": "pfd_sphere",
         "points": {
           "pfd": [0.4832, 0.8160], "nd": [0.5805, 0.8090], "ecam_upper": [0.7488, 0.7903], "ecam_lower": [0.7488, 0.9500],
@@ -111,18 +134,20 @@ public static class Profiles
     private static AircraftProfile Parse(string key, JsonObject o, double defaultZoom)
     {
         var profileCamera = CameraSpec.From(o["camera"] as JsonObject);
+        static double? Number(JsonNode? n) => n is not null && n.GetValueKind() == JsonValueKind.Number && n.AsDouble() > 0 ? n.AsDouble() : null;
+        var profileAspect = Number(o["aspect"]);                     // the screen shape the profile's points were made on
         var points = new Dictionary<string, ClickPoint>();
         foreach (var (name, node) in o["points"] as JsonObject ?? [])
         {
             switch (node)
             {
                 case JsonArray { Count: 2 } a:
-                    points[name] = new ClickPoint(a[0]!.AsDouble(), a[1]!.AsDouble(), profileCamera);
+                    points[name] = new ClickPoint(a[0]!.AsDouble(), a[1]!.AsDouble(), profileCamera, profileAspect);
                     break;
                 // sim custom cameras ("mode": "custom") were a dead end in 0.4 development builds: such a point is not learned
                 case JsonObject p when p["xy"] is JsonArray { Count: 2 } xy && !IsCustomCamera(p):
                     points[name] = new ClickPoint(xy[0]!.AsDouble(), xy[1]!.AsDouble(),
-                        p["camera"] is JsonObject c ? CameraSpec.From(c) : profileCamera);
+                        p["camera"] is JsonObject c ? CameraSpec.From(c) : profileCamera, Number(p["aspect"]) ?? profileAspect);
                     break;
             }
         }

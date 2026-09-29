@@ -151,9 +151,17 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
             {
                 var target = ConfigFile.Section(ConfigFile.Section(ConfigFile.Section(root, "popout"), "profiles"), key);
                 var points = ConfigFile.Section(target, "points");
-                points[display] = spec.ViewType is null
-                    ? new JsonArray(point[0], point[1])
-                    : new JsonObject { ["xy"] = new JsonArray(point[0], point[1]), ["camera"] = spec.ToJson() };
+                var stored = new JsonObject
+                {
+                    ["xy"] = new JsonArray(point[0], point[1]),
+                    ["aspect"] = Math.Round(sim.Client.Width / (double)Math.Max(1, sim.Client.Height), 4),   // the screen shape it fits
+                };
+                if (spec.ViewType is not null)
+                {
+                    stored["camera"] = spec.ToJson();
+                }
+
+                points[display] = stored;
                 target["zoom"] ??= zoom;
             });
             procedure.Adopt(hwnd, display);

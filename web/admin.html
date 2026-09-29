@@ -192,8 +192,17 @@
   <h2>Camera after a pop-out</h2>
   <div style="margin:4px 0 18px">
     <input id="restore-key" readonly placeholder="click, then press the keys" title="click here and press the key combination; Backspace or Delete clears it" style="width:14rem;max-width:100%;cursor:pointer" aria-label="key that loads your own view"> <button id="restore-save">Save</button>
-    <span class="dim" style="margin-left:10px">The key that loads <b>your own flying view</b> (a sim custom camera), exactly as bound in the
-      sim's controls. The DMC presses it when it has finished popping out displays. Empty = stay in the pilot seat view.</span>
+    <span class="dim small" style="margin-left:10px">Optional. Leave it empty if you do not use a custom camera.</span>
+    <div class="dim" style="margin-top:.5rem;max-width:52rem">
+      To pop out a display GlassLink has to move the cockpit camera. Afterwards it puts you back in the seat view at the
+      zoom you had; the sim does not let a program restore a camera position of your own. If you fly with a <b>custom
+      camera</b> (a view you saved in the sim), GlassLink can load it for you as well:
+      <ol style="margin:.4rem 0 0 1.2rem;padding:0">
+        <li>In the sim, save your view as a custom camera, and look up the key that <b>loads</b> it (the sim's controls, camera section: load custom camera; give it a key if it has none).</li>
+        <li>Click the field above and press exactly that key combination, then Save.</li>
+      </ol>
+      GlassLink presses this key in the sim after every pop-out, so enter only a key that loads your camera and does nothing else.
+    </div>
   </div>
   </section>
 
@@ -577,7 +586,7 @@
         title="${seat === 'fo' ? 'the DMC switches to the copilot seat view, then you Right-Alt + click the display once' : 'the DMC switches to the captain seat view, then you Right-Alt + click the display once'}">${primary ? (d.has_point ? 'Learn again' : 'Learn') : (seat === 'fo' ? 'Learn from the FO seat' : 'Learn from the captain seat')}</button>`;
       return `<tr data-name="${esc(name)}">
         <td><b>${esc(nice(name))}</b><br><span class="dim small">${esc(name)}</span></td>
-        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? pill('click point · ' + d.point_view, 'ok') : pill('no click point yet', 'warn')}<br>${d.has_window ? pill('window open', 'ok') : pill('no window', '')}</td>
+        <td>${!d.sim_window ? '<span class="dim">not a sim window</span>' : d.has_point ? (d.point_fits === false ? pill(`click point for a ${d.point_shape} screen: Learn again`, 'warn') : pill('click point · ' + d.point_view, 'ok')) : pill('no click point yet', 'warn')}<br>${d.has_window ? pill('window open', 'ok') : pill('no window', '')}</td>
         <td><input type="number" class="w" value="${sz[0]}" min="64" max="4096" step="16" aria-label="${esc(nice(name))}: width"> x <input type="number" class="h" value="${sz[1]}" min="64" max="4096" step="16" aria-label="${esc(nice(name))}: height"></td>
         <td><input type="number" class="x" value="${pos[0]}" aria-label="${esc(nice(name))}: parked x"> , <input type="number" class="y" value="${pos[1]}" aria-label="${esc(nice(name))}: parked y"></td>
         <td><input type="number" class="fps" value="${d.fps ?? ''}" placeholder="auto" min="0.2" max="60" step="any" aria-label="${esc(nice(name))}: capture rate"></td>

@@ -130,6 +130,14 @@ public sealed class Advisor(Func<GpuFacts>? gpuFacts = null, Func<SimFacts>? sim
                     "Press Close window on that display to make GlassLink try again with the learned point.",
                 ]));
             }
+            else if (input.PopoutDetail.StartsWith("other screen shape", StringComparison.Ordinal))
+            {
+                result.Add(new Advice("popout_screen_shape", "info", "setup", "Your screen has another shape than GlassLink's built-in click points", input.PopoutDetail,
+                [
+                    "The built-in points fit one screen shape; on another one the cockpit camera shows more or less of the cockpit, so they would miss. GlassLink does not click them.",
+                    "Setup tab: press Learn on each display (Learn (FO seat) for an FO side display) and Right-Alt + click it once when the banner says so. The points are stored for your screen; afterwards the displays pop out by themselves.",
+                ]));
+            }
             else if (input.PopoutDetail.Contains("no pop-out profile") || input.PopoutDetail.Contains("no click point"))
             {
                 result.Add(new Advice("popout_unlearned", "info", "setup", "GlassLink does not know where some displays are in this aircraft", input.PopoutDetail,

@@ -19,7 +19,9 @@ thing changed; this file says why things are the way they are.
 - The camera for popping out: `CAMERA REQUEST ACTION = 1` resets the cockpit camera and `COCKPIT CAMERA ZOOM`
   brings the displays into view (pitch and yaw are not writable in MSFS 2024). Click points are fractions of the sim
   window after the reset, per aircraft profile, so they work cold and dark and at any resolution with the same
-  aspect ratio. The sim ignores injected "save custom camera" keys, but a "load custom camera" key (e.g. Shift+F1)
+  aspect ratio. Each point records that shape (the built-in Fenix points 16:9, a learned one the user's sim window),
+  and a point made on another shape is not clicked: the user is asked to Learn it (a 16:9 point lands elsewhere on a
+  21:9 screen, where the camera shows more of the cockpit). The sim ignores injected "save custom camera" keys, but a "load custom camera" key (e.g. Shift+F1)
   works for getting the user's view back.
 - **Frame rates.** A pop-out never gets more frames than the sim renders, and pop-outs cost no measurable sim frame
   rate. The Fenix draws its displays at about 20 Hz (19.5 changes a second measured in flight), so more than that

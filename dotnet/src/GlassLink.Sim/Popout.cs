@@ -92,6 +92,14 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             return done;
         }
 
+        var aspect = sim.Client.Height > 0 ? sim.Client.Width / (double)sim.Client.Height : 0;
+        var otherShape = aspect > 0 ? names.Where(n => profile.Points.TryGetValue(n, out var p) && !p.Fits(aspect)).ToList() : [];
+        if (otherShape.Count > 0)
+        {
+            say($"not clicking {string.Join(", ", otherShape)}: the click points were made on a screen of another shape than this {ClickPoint.Shape(aspect)} one (Learn them)");
+            names = [.. names.Except(otherShape)];
+        }
+
         var (oldView, oldZoom) = (camera.View, camera.Zoom);
         say($"using profile '{profile.Key}', camera was view {oldView} zoom {oldZoom:0}");
         try
@@ -105,7 +113,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
 
                 ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
-                if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && !ViewMatches(sim, pfd))
+                if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && (aspect <= 0 || pfd.Fits(aspect)) && !ViewMatches(sim, pfd))
                 {
                     // Clicking now would pop out the wrong instruments (seen 18 Sept 2026: PFD -> ND, ND -> standby horizon).
                     say("the view still does not match the profile; not clicking. Retrying later.");

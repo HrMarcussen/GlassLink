@@ -197,6 +197,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
     public JsonObject Describe(AircraftProfile? profile)
     {
         var result = new JsonObject();
+        var aspect = PopoutProcedure.SimMainWindow() is { Client.Height: > 0 } sim ? sim.Client.Width / (double)sim.Client.Height : 0;
         config.Read(root =>
         {
             foreach (var (name, node) in root["displays"] as JsonObject ?? [])
@@ -217,6 +218,9 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
                 entry["sim_window"] = IsSimDisplay(name);
                 entry["has_point"] = point is not null;
                 entry["point_view"] = point is null ? null : point.Camera.ViewType is null ? "captain seat" : "FO seat";
+                // made for another screen shape than the sim window has now: not used until learned again
+                entry["point_shape"] = point?.Aspect is { } made ? ClickPoint.Shape(made) : null;
+                entry["point_fits"] = point is null || aspect <= 0 || point.Fits(aspect);
                 entry["has_window"] = Get(name)?.Capture.HasWindow ?? false;
                 result[name] = entry;
             }

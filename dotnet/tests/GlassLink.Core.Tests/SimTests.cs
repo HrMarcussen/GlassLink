@@ -23,6 +23,21 @@ public class SimTests
     }
 
     [Fact]
+    public void A_click_point_fits_only_the_screen_shape_it_was_made_on()
+    {
+        var config = Config("""{"popout":{"profiles":{"Fenix":{"points":{"pfd":{"xy":[0.40,0.81],"aspect":2.3889}}}}}}""");
+        var fenix = Profiles.Select(config, "FenixA320 CFM SL")!;
+        Assert.Equal(16.0 / 9, fenix.Points["nd"].Aspect!.Value, 3);              // built in: made on a 16:9 screen
+        Assert.True(fenix.Points["nd"].Fits(2560 / 1440.0));                        // any 16:9 resolution
+        Assert.True(fenix.Points["nd"].Fits(3840 / 2160.0));
+        Assert.False(fenix.Points["nd"].Fits(3440 / 1440.0));                       // 21:9: would miss, so it is not used
+        Assert.True(fenix.Points["pfd"].Fits(3440 / 1440.0));                       // learned on the 21:9 screen
+        Assert.True(new ClickPoint(0.5, 0.5, CameraSpec.PilotReset).Fits(1.6));     // shape not known: used as before
+        Assert.Equal(("16:9", "21:9", "16:10", "32:9", "1.90:1"),
+            (ClickPoint.Shape(1920 / 1080.0), ClickPoint.Shape(3440 / 1440.0), ClickPoint.Shape(1.6), ClickPoint.Shape(5120 / 1440.0), ClickPoint.Shape(1.9)));
+    }
+
+    [Fact]
     public void Learned_points_in_the_configuration_win_and_custom_camera_points_do_not_count()
     {
         var config = Config("""

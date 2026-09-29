@@ -169,7 +169,11 @@ public sealed class AutoPopout : IDisposable
             return;
         }
 
-        var unlearned = missing.Where(n => !profile.Points.ContainsKey(n)).ToList();
+        // A point made on a screen of another shape would miss (a 16:9 profile on a 21:9 screen): it counts as not learned,
+        // so the user is asked to Learn it instead of watching clicks that open nothing.
+        var aspect = PopoutProcedure.SimMainWindow() is { Client.Height: > 0 } sim ? sim.Client.Width / (double)sim.Client.Height : 0;
+        var otherShape = aspect > 0 ? missing.Where(n => profile.Points.TryGetValue(n, out var p) && !p.Fits(aspect)).ToList() : [];
+        var unlearned = missing.Where(n => !profile.Points.ContainsKey(n)).Concat(otherShape).ToList();
         List<string> givenUp;
         lock (_gate)
         {
@@ -187,9 +191,12 @@ public sealed class AutoPopout : IDisposable
         var todo = missing.Except(unlearned).Except(givenUp).ToList();
         if (todo.Count == 0)
         {
+            var madeFor = otherShape.Select(n => profile.Points[n].Aspect).OfType<double>().Select(ClickPoint.Shape).Distinct();
             State = givenUp.Count > 0
                 ? new("gave_up", $"gave up on {string.Join(", ", givenUp)}: the click opened no window {settings.MaxAttempts} times. Learn it again, or press Close window to retry", givenUp, State.LastAttempt)
-                : new("waiting", $"no click point yet for {string.Join(", ", unlearned)}: use Learn on the status page", unlearned, State.LastAttempt);
+                : otherShape.Count > 0
+                    ? new("waiting", $"other screen shape: the click points for {string.Join(", ", otherShape)} were made on a {string.Join("/", madeFor)} screen, the sim window here is {ClickPoint.Shape(aspect)}: use Learn on the status page, once per display", unlearned, State.LastAttempt)
+                    : new("waiting", $"no click point yet for {string.Join(", ", unlearned)}: use Learn on the status page", unlearned, State.LastAttempt);
             return;
         }
 

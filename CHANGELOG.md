@@ -25,6 +25,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ### Changed
 - The installer and uninstaller follow Windows' light or dark mode.
 - The status page and viewer moved from `glasslink/static/` to `web/`.
+- Pop-out click points know the screen shape they were made on (the built-in Fenix points: 16:9; Learn stores the
+  shape of your sim window). On a screen of another shape (21:9, 16:10, triple screens) a point would miss, so it is
+  not clicked: the status page says which displays to Learn and why, instead of two clicks that open nothing and a
+  "gave up". Any resolution of the same shape works as before.
+- The Setup page explains the "camera after a pop-out" key: optional, only for a custom camera saved in the sim, and
+  what GlassLink does without it (back to the seat view and zoom you had).
 
 ### Removed
 - The original Python DMC (`glasslink/`, `start-dmc-python.bat`, `popout-displays.bat` and the tools built on it:
