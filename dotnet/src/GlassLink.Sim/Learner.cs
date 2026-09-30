@@ -116,7 +116,8 @@ public sealed class Learner(ConfigFile config, SimCamera camera, Action<string> 
             var profile = Profiles.Select(config.Snapshot(), title);
             var key = profile?.Key ?? (title.Trim().Length > 0 ? title.Trim() : "aircraft");     // first display of an unknown aircraft
             var zoom = profile?.Zoom ?? PopoutDefaultZoom();
-            var spec = view == "copilot" ? CameraSpec.Copilot : CameraSpec.PilotReset;
+            // the FO seat is the sim's copilot seat view, unless the aircraft has its own (the FSLabs: an instrument view)
+            var spec = view == "copilot" ? profile?.CopilotCamera ?? CameraSpec.Copilot : CameraSpec.PilotReset;
             restore = (camera.View, camera.Zoom, sim.Handle);
             procedure.ApplyCamera(spec, zoom, sim.Handle);
             sim = PopoutProcedure.SimMainWindow() ?? sim;

@@ -23,6 +23,21 @@ public class SimTests
     }
 
     [Fact]
+    public void The_built_in_fslabs_profile_has_its_own_fo_view_and_lets_the_aircraft_dim()
+    {
+        var profile = Profiles.Select(Config("{}"), "FSLabs A321-251NX - Sunclass (OY-VKA)")!;
+        Assert.Equal("FSLabs", profile.Key);
+        Assert.Equal(["ecam_lower", "ecam_upper", "fo_nd", "fo_pfd", "nd", "pfd"], profile.Points.Keys.Order());
+        Assert.Equal("reset", profile.Points["fo_nd"].Camera.Key);                  // in view from the captain's seat
+        Assert.Equal("view:2:5", profile.Points["fo_pfd"].Camera.Key);              // the FSLabs' First Officer view
+        Assert.Equal("view:2:5", profile.CopilotCamera!.Key);                       // what Learn (FO seat) uses
+        Assert.True(profile.Points.Values.All(p => p.Fits(16.0 / 9)));
+        Assert.True(profile.DimmingAlways);                                         // its pop-outs follow the knobs themselves
+        Assert.Empty(profile.Brightness);
+        Assert.False(Profiles.Select(Config("{}"), "FenixA320 CFM SL")!.DimmingAlways);
+    }
+
+    [Fact]
     public void A_click_point_fits_only_the_screen_shape_it_was_made_on()
     {
         var config = Config("""{"popout":{"profiles":{"Fenix":{"points":{"pfd":{"xy":[0.40,0.81],"aspect":2.3889}}}}}}""");

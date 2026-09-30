@@ -59,6 +59,13 @@ public sealed class BrightnessLink(ConfigFile config, SimConnectClient sim, SimC
     /// <summary>The name of the aircraft's own dimming mode if it is switched on (looked up every 5 s).</summary>
     private string? Standdown(AircraftProfile profile)
     {
+        if (profile.DimmingAlways)
+        {
+            // the FSLabs: its pop-outs get darker with the cockpit knob (measured 30 Sept 2026: the picture's brightness
+            // follows the knob down to black), so dimming on the DU as well would dim twice
+            return profile.DimmingName ?? "the aircraft dims its pop-outs";
+        }
+
         if (profile.DimmingFile is null || profile.DimmingTag is null)
         {
             return null;

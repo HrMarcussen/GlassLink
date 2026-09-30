@@ -154,6 +154,25 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
                 Thread.Sleep(1000);
             }
         }
+        else if (spec.ViewType.Value != SimCamera.PilotView.Type)
+        {
+            // An instrument view (the FSLabs' First Officer view): the reset action would leave it for the pilot's view,
+            // so it is entered afresh instead, which puts it back in its own place if the user had moved it.
+            var view = (spec.ViewType.Value, spec.ViewIndex!.Value);
+            say($"camera: view {view.Item1}/{view.Item2}, zoom {zoom:0}");
+            if (camera.View == view)
+            {
+                camera.SetView(SimCamera.PilotView.Type, SimCamera.PilotView.Index);
+                Thread.Sleep(1000);
+            }
+
+            camera.SetView(view.Item1, view.Item2);
+            Thread.Sleep(1500);
+            camera.SetZoom(zoom);
+            Thread.Sleep(1200);
+            WaitUntilStill(simWindow);
+            return;
+        }
         else
         {
             say($"camera: view {spec.ViewType}/{spec.ViewIndex}, reset, zoom {zoom:0}");

@@ -5,8 +5,8 @@
 GlassLink puts a flight simulator's glass-cockpit displays on real screens in a home cockpit. A service on the sim
 PC, the **DMC**, captures the aircraft's displays (PFD, ND, ECAM, ...) and streams them over USB to small
 **DU** modules, each of which drives a panel or monitor. No GPU ports, no extra PCs, one USB cable per DU. Built for
-an Airbus home cockpit on MSFS 2024 with the Fenix A320; the capture side works with any aircraft, the automatic
-pop-out needs a profile per aircraft (built in for the Fenix, learned for others).
+an Airbus home cockpit on MSFS 2024 with the Fenix A320 and the FSLabs A321; the capture side works with any
+aircraft, the automatic pop-out needs a profile per aircraft (built in for those two, learned for others).
 
 | Term | In the aircraft | Here |
 |---|---|---|
@@ -76,8 +76,8 @@ what helps.
    the simulator".
 2. Plug in the DUs. A new DU shows NOT ASSIGNED with its serial; on the status page press **Identify** to see which
    one it is and choose its display (Display units tab, or "Put on a DU" on a display's card).
-3. Start the sim and load the Fenix. About ten seconds after you are in the cockpit, GlassLink pops the displays out
-   (about 20 s for four, do not touch mouse or keyboard meanwhile) and the DUs show them.
+3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, GlassLink pops the
+   displays out (about 20 s for four, do not touch mouse or keyboard meanwhile) and the DUs show them.
 4. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
 
 Stop GlassLink with **Quit** in its tray menu. Never end it with Task Manager while the sim runs: ending a process
@@ -159,4 +159,4 @@ additional permission to convey the resulting work.
 
 Board designs, once published here, will be under the CERN Open Hardware Licence version 2, strongly reciprocal
 (CERN-OHL-S-2.0). Components of others and their licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-GlassLink is not affiliated with or endorsed by Microsoft, Asobo or Fenix Simulations.
+GlassLink is not affiliated with or endorsed by Microsoft, Asobo, Fenix Simulations or Flight Sim Labs.

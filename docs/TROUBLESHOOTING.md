@@ -68,7 +68,8 @@ once. The Setup tab shows "pop-out windows not made by GlassLink" with a button 
 
 In current sim and Fenix versions a pop-out is only on or off under the brightness knob, never dimmed; GlassLink
 reads the knobs over SimConnect and dims the DU. Exception: with the Fenix EFB setting *Home Cockpit Mode* on, the
-pop-outs do dim themselves, and GlassLink stands down ("dimmed by the aircraft" on the System tab).
+pop-outs do dim themselves, and GlassLink stands down ("dimmed by the aircraft" on the System tab). The FSLabs always
+dims its pop-outs itself, so GlassLink never dims for it.
 
 ## Blue screens or sim crashes while testing
 

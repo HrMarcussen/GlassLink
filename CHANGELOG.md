@@ -18,6 +18,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ## [Unreleased]
 
 ### Added
+- **FSLabs A321 (A32X) profile built in** (#64): the six displays pop out by themselves as with the Fenix (37 s for all
+  six; the PFD check recognises the FSLabs PFD). The FO PFD is taken from the FSLabs' own First Officer view, which is
+  an instrument view, not the sim's copilot seat: a profile can name its FO camera (`copilot_camera`), and the camera
+  is not reset in such a view (the reset would leave it). The FSLabs dims its pop-outs with the cockpit knobs itself
+  (measured: the picture follows the knob down to black), so GlassLink does not dim the DUs a second time
+  (`popout_dimming.always`).
 - The installer can set up "Start and stop with the simulator" (on by default; the same as the tray's option, which
   it still is afterwards), and says what the two ways of starting GlassLink mean. `GlassLink.exe --add-sim-entry`
   does it for the installer, as `--remove-sim-entry` does for the uninstaller.

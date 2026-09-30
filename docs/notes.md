@@ -32,7 +32,14 @@ thing changed; this file says why things are the way they are.
   Fenix applies brightness on the 3D model), so the DMC reads the knobs' L:vars through SimConnect
   (`N_DISPLAY_BRIGHTNESS_*`, 0..1; MSFS 2024 accepts `L:` names in data definitions, no WASM or FSUIPC needed) and
   dims the DU. With the Fenix EFB setting *Home Cockpit Mode* on, the pop-outs dim themselves and the DMC stands
-  down (it reads `homeCockpitMode` in Fenix's `persistancy.xml`).
+  down (it reads `homeCockpitMode` in Fenix's `persistancy.xml`). The **FSLabs** always dims its pop-outs itself
+  (30 Sept 2026: the brightest 5 % of the captured PFD went 164, 137, 96, 58, 32, 0 for the knob at 100, 70, 55, 35,
+  15, 0 %), so its profile says so and the DMC never dims for it. Its knobs are `L:VC_MIP_CPT_DU_PNL_PFD_BRT_Knob`
+  and the like, 0..270.
+- **FSLabs cameras and buttons.** Its First Officer view is a custom cockpit camera, which the sim counts as an
+  instrument view (`CAMERA VIEW TYPE AND INDEX` 2/5), not as pilot view 4 like the Fenix's copilot seat; the camera
+  reset action leaves such a view for the pilot's. Push buttons send `K:ROTOR_BRAKE` with the button's id + 0
+  (press) and + 2 (release): BAT 1 72320, BAT 2 72324, EXT PWR 72352, APU MASTER 72516, APU START 72520.
 - Never end a process that holds window captures on the sim with Task Manager: it was followed twice by AMD "video
   engine timeout" driver resets. Stop the DMC through its tray menu, `GlassLink.exe --quit` or `POST /shutdown`.
 

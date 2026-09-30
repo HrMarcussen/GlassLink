@@ -54,7 +54,7 @@ public sealed record ClickPoint(double X, double Y, CameraSpec Camera, double? A
 /// dims its own pop-outs.</summary>
 public sealed record AircraftProfile(string Key, double Zoom, IReadOnlyDictionary<string, ClickPoint> Points,
     IReadOnlyDictionary<string, string> Brightness, string? DimmingFile, string? DimmingTag, string? DimmingOnValue, string? DimmingName,
-    string? Detect = null);
+    string? Detect = null, CameraSpec? CopilotCamera = null, bool DimmingAlways = false);
 
 /// <summary>
 /// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points merge per display).
@@ -81,6 +81,18 @@ public static class Profiles
           "file": "C:\\ProgramData\\Fenix\\FenixSim A320\\persistancy.xml", "xml_tag": "homeCockpitMode", "on_value": "true",
           "name": "Fenix Home Cockpit Mode"
         }
+      },
+      "FSLabs": {
+        "zoom": 30,
+        "detect": "pfd_sphere",
+        "aspect": 1.7778,
+        "copilot_camera": {"mode": "view", "type": 2, "index": 5},
+        "points": {
+          "pfd": [0.4902, 0.8056], "nd": [0.5902, 0.8056], "ecam_upper": [0.7715, 0.7944], "ecam_lower": [0.7809, 0.9556],
+          "fo_nd": [0.9340, 0.8056],
+          "fo_pfd": {"xy": [0.5559, 0.7000], "camera": {"mode": "view", "type": 2, "index": 5}}
+        },
+        "popout_dimming": {"always": true, "name": "the FSLabs dims its pop-outs itself"}
       }
     }
     """;
@@ -156,6 +168,8 @@ public static class Profiles
         var dim = o["popout_dimming"] as JsonObject;
         return new AircraftProfile(key, o["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : defaultZoom, points, brightness,
             dim?["file"].Text(), dim?["xml_tag"].Text(), dim?["on_value"].Text(), dim?["name"].Text(),
-            o["detect"] is { } detect && detect.GetValueKind() == JsonValueKind.String ? detect.GetValue<string>() : null);
+            o["detect"] is { } detect && detect.GetValueKind() == JsonValueKind.String ? detect.GetValue<string>() : null,
+            o["copilot_camera"] is JsonObject seat ? CameraSpec.From(seat) : null,    // the FO seat's view, if not the sim's copilot seat
+            dim?["always"] is { } always && always.GetValueKind() == JsonValueKind.True);   // the aircraft always dims its pop-outs itself
     }
 }
