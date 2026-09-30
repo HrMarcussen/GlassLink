@@ -17,6 +17,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-30
+
+In short: the FSLabs A321 works out of the box like the Fenix, the installer follows dark mode and can set up
+starting with the simulator, click points are only used on the screen shape they were made for, and the old Python
+DMC is gone. The DU firmware is unchanged (0.7.0): the DUs need no update.
+
 ### Added
 - **FSLabs A321 (A32X) profile built in** (#64): the six displays pop out by themselves as with the Fenix (37 s for all
   six; the PFD check recognises the FSLabs PFD). The FO PFD is taken from the FSLabs' own First Officer view, which is
