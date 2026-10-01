@@ -113,7 +113,8 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
 
                 ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
-                if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && (aspect <= 0 || pfd.Fits(aspect)) && !ViewMatches(sim, pfd))
+                if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && (aspect <= 0 || pfd.Fits(aspect))
+                    && !ViewMatches(sim, pfd, profile.Points.GetValueOrDefault("nd") is { Camera.Key: "reset" } nd && (aspect <= 0 || nd.Fits(aspect)) ? nd : null))
                 {
                     // Clicking now would pop out the wrong instruments (seen 18 Sept 2026: PFD -> ND, ND -> standby horizon).
                     say("the view still does not match the profile; not clicking. Retrying later.");
@@ -190,16 +191,17 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     /// <summary>
     /// If the PFD is lit, it must be where the profile expects it. A dark cockpit gives nothing to check: then the
     /// profile's points are trusted (true). A PFD somewhere else means the camera is not in the calibrated view yet;
-    /// four looks, 1.5 s apart, before giving up (false).
+    /// four looks, 1.5 s apart, before giving up (false). With the ND's point the spheres too small for a PFD are left out.
     /// </summary>
-    private bool ViewMatches(WindowInfo sim, ClickPoint pfd)
+    private bool ViewMatches(WindowInfo sim, ClickPoint pfd, ClickPoint? nd)
     {
         var (expectedX, expectedY) = (sim.Client.Left + pfd.X * sim.Client.Width, sim.Client.Top + pfd.Y * sim.Client.Height);
+        var minWidth = nd is null ? 0 : PfdDetector.MinWidth(Math.Sqrt(Math.Pow((nd.X - pfd.X) * sim.Client.Width, 2) + Math.Pow((nd.Y - pfd.Y) * sim.Client.Height, 2)));
         for (var attempt = 1; attempt <= 4; attempt++)
         {
-            if (WindowFinder.Grab(sim.Handle) is not { } grab || PfdDetector.Find(grab.Pixels, grab.Width, grab.Height, grab.Width * 4) is not { } found)
+            if (WindowFinder.Grab(sim.Handle) is not { } grab || PfdDetector.Find(grab.Pixels, grab.Width, grab.Height, grab.Width * 4, minWidth: minWidth) is not { } found)
             {
-                say("displays not detected (dark cockpit?); using the profile's points");
+                say("no lit PFD attitude sphere (dark cockpit, or the PFD still aligning); using the profile's points");
                 return true;
             }
 
@@ -268,8 +270,11 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             return false;
         }
 
+        // a pop-out window appears 1-3 s after the click (measured with the Fenix and the FSLabs); 8 s is plenty. A display
+        // that is not ready opens nothing at all (the FSLabs' ECAMs while it starts up), and waiting longer only kept
+        // the user's camera away for 15 s per display.
         var appeared = new HashSet<nint>();
-        for (var i = 0; i < 30 && appeared.Count == 0; i++)
+        for (var i = 0; i < 16 && appeared.Count == 0; i++)
         {
             Thread.Sleep(500);
             appeared = SimWindows();

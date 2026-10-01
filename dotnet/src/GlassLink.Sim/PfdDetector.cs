@@ -9,8 +9,9 @@ namespace GlassLink.Sim;
 public static class PfdDetector
 {
     /// <summary>Centre x, horizon y (the blob's lower edge) and width of the sphere, in pixels of the picture; null if
-    /// there is none (a dark cockpit). Pixels are BGRA, <paramref name="stride"/> bytes per row.</summary>
-    public static (int X, int Y, int Width)? Find(ReadOnlySpan<byte> bgra, int width, int height, int stride, int step = 2)
+    /// there is none (a dark cockpit). Pixels are BGRA, <paramref name="stride"/> bytes per row. A sphere narrower than
+    /// <paramref name="minWidth"/> is not a PFD's (see <see cref="MinWidth"/>).</summary>
+    public static (int X, int Y, int Width)? Find(ReadOnlySpan<byte> bgra, int width, int height, int stride, int step = 2, int minWidth = 30)
     {
         var (w, h) = (width / step, height / step);
         if (w < 8 || h < 8)
@@ -65,7 +66,7 @@ public static class PfdDetector
             var (bw, bh) = ((maxX - minX + 1) * step, (maxY - minY + 1) * step);
             var fullArea = area * step * step;
             var aspect = bw / (double)Math.Max(bh, 1);
-            if (fullArea >= 300 && bw >= 30 && bh >= 12 && aspect is >= 1.3 and <= 4.0 && (best is null || fullArea > best.Value.Area)
+            if (fullArea >= 300 && bw >= Math.Max(minWidth, 30) && bh >= 12 && aspect is >= 1.3 and <= 4.0 && (best is null || fullArea > best.Value.Area)
                 && GroundBelow(bgra, width, height, stride, minX * step, maxX * step, (maxY + 1) * step))
             {
                 best = (minX * step, minY * step, bw, bh, fullArea);
@@ -74,6 +75,12 @@ public static class PfdDetector
 
         return best is { } hit ? (hit.X + hit.W / 2, hit.Y + hit.H, hit.W) : null;
     }
+
+    /// <summary>The narrowest sphere that can be the PFD's, from the distance between the PFD and ND click points (one
+    /// display apart, at the zoom the points were made at): a PFD's sky is about half a display wide, the standby
+    /// horizon's a quarter. While the PFD shows no attitude (ADIRS aligning, 1 Oct 2026) the standby horizon was the
+    /// only sphere and was taken for a PFD in the wrong place: the check refused to click a view that was right.</summary>
+    public static int MinWidth(double pfdToNdPixels) => (int)(pfdToNdPixels / 3);
 
     /// <summary>An attitude sphere has brown ground right under its sky. A blue screen without it (the FSLabs' EFB
     /// tablet in a cold and dark cockpit, 1 Oct 2026) is not a PFD: taking it for one, the safety check refused to

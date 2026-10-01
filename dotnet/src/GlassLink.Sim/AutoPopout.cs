@@ -20,7 +20,15 @@ public sealed class AutoPopout : IDisposable
     private readonly Dictionary<string, (int Fails, ClickPoint? Point)> _fails = [];
     private long? _missingSince;
     private long _lastAttempt = long.MinValue / 2;
+    private long _retryAfterMs = 60_000;
+    private long? _inCockpitSince;
     private bool _busy;
+
+    /// <summary>An aircraft loaded ready to fly may still be starting its systems for a minute or two (the FSLabs:
+    /// about two; the Fenix: seconds), and until then some of its displays open no pop-out at all, dark ones included.
+    /// A display that does not pop out in this time after entering the cockpit is tried again sooner and does not
+    /// count towards giving up.</summary>
+    private const int StartupSeconds = 180, StartupRetrySeconds = 30;
 
     public AutoPopoutState State { get; private set; } = new("starting", "", [], null);
 
@@ -145,9 +153,9 @@ public sealed class AutoPopout : IDisposable
             return;
         }
 
-        if (now - _lastAttempt < settings.RetrySeconds * 1000)
+        if (now - _lastAttempt < _retryAfterMs)
         {
-            State = new("waiting", $"retry in {(settings.RetrySeconds * 1000 - (now - _lastAttempt)) / 1000:0} s", missing, State.LastAttempt);
+            State = new("waiting", $"retry in {(_retryAfterMs - (now - _lastAttempt)) / 1000:0} s", missing, State.LastAttempt);
             return;
         }
 
@@ -159,9 +167,12 @@ public sealed class AutoPopout : IDisposable
 
         if (!_camera.InCockpit)
         {
+            _inCockpitSince = null;                          // a new flight (loading screen) starts the start-up window again
             State = new("waiting", $"not in cockpit view (aircraft '{_camera.Title}')", missing, State.LastAttempt);
             return;
         }
+
+        _inCockpitSince ??= now;
 
         if (Profiles.Select(_config.Snapshot(), _camera.Title) is not { } profile)
         {
@@ -220,16 +231,20 @@ public sealed class AutoPopout : IDisposable
         }
 
         var still = todo.Except(done).ToList();
+        var startingUp = _inCockpitSince is { } since && now - since < StartupSeconds * 1000;
         lock (_gate)
         {
-            foreach (var name in still)
+            foreach (var name in startingUp ? [] : still)
             {
                 _fails[name] = ((_fails.TryGetValue(name, out var f) ? f.Fails : 0) + 1, profile.Points.GetValueOrDefault(name));
             }
         }
 
+        _retryAfterMs = startingUp ? StartupRetrySeconds * 1000 : (long)(settings.RetrySeconds * 1000);
         State = still.Count == 0
             ? new("done", "all displays popped out", [], DateTime.Now)
-            : new("partial", $"still missing {string.Join(", ", still)}, retry in {settings.RetrySeconds:0} s", still, DateTime.Now);
+            : startingUp
+                ? new("partial", $"still missing {string.Join(", ", still)}: the aircraft may still be starting up (some take a minute or two before every display pops out); trying again in {StartupRetrySeconds} s", still, DateTime.Now)
+                : new("partial", $"still missing {string.Join(", ", still)}, retry in {settings.RetrySeconds:0} s", still, DateTime.Now);
     }
 }

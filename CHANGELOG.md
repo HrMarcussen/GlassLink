@@ -25,6 +25,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - The PFD check before a pop-out took a blue screen without ground under it for a PFD (the FSLabs' EFB tablet, lit
   while the displays were still dark after loading) and then refused to click, every minute, moving the camera each
   time. An attitude sphere now needs brown ground right under its blue sky.
+- The same check took the standby horizon for the PFD while the PFD showed no attitude yet (ADIRS aligning, FSLabs
+  at a gate on ground power), and again refused to click a view that was right. A sphere narrower than a third of
+  the distance between the PFD and ND click points is too small for a PFD and is not counted.
+- An aircraft that has just loaded may take a minute or two before every display opens a pop-out (the FSLabs: about
+  two). Displays that do not pop out in the first 3 minutes in the cockpit are tried again every 30 s and do not
+  count towards giving up. The wait for a pop-out window after a click is 8 s instead of 15 s, so a display that is
+  not ready yet keeps the camera away from the user for less time.
 
 ## [0.8.0] - 2026-09-30
 

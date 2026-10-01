@@ -100,6 +100,26 @@ public class SimTests
     }
 
     [Fact]
+    public void A_sphere_too_small_for_the_pfd_is_the_standby_horizon()
+    {
+        const int w = 640, h = 360;
+        var pixels = new byte[w * h * 4];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                var (b, g, r) = x is >= 400 and < 440 && y is >= 200 and < 240 ? y < 220 ? (200, 110, 40) : (43, 90, 138) : (30, 30, 30);
+                (pixels[(y * w + x) * 4], pixels[(y * w + x) * 4 + 1], pixels[(y * w + x) * 4 + 2], pixels[(y * w + x) * 4 + 3]) = ((byte)b, (byte)g, (byte)r, 255);
+            }
+        }
+
+        // PFD and ND points 160 px apart: the PFD's sky would be about 80 px wide, this one is 40 (a PFD showing ATT flags)
+        Assert.Equal(53, PfdDetector.MinWidth(160));
+        Assert.NotNull(PfdDetector.Find(pixels, w, h, w * 4));
+        Assert.Null(PfdDetector.Find(pixels, w, h, w * 4, minWidth: PfdDetector.MinWidth(160)));
+    }
+
+    [Fact]
     public void Key_combinations_are_parsed_modifiers_first()
     {
         Assert.Equal(new ushort[] { 0x10, 0x70 }, Input.ParseCombo("Shift + F1"));
