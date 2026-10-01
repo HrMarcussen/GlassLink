@@ -18,11 +18,13 @@ aircraft, the automatic pop-out needs a profile per aircraft (built in for those
 Why pixels: re-rendering a PFD from simulator variables means rewriting the aircraft's display software. Capturing
 the rendered pop-out windows gives an exact copy for any aircraft.
 
+<p align="center"><img src="docs/images/status-displays.png" width="100%" alt="The status page's Displays tab with the FSLabs A321 loaded: six live previews (Captain PFD and ND, upper and lower ECAM, FO PFD and ND), the captain's PFD and ND in use on DU1 and DU2 at 19.5 and 12.5 frames a second, the others with a Put on a DU menu."></p>
+
 ## What it does
 
 - **Pops the displays out by itself** once you are in the cockpit: camera reset, Right-Alt + click on each display,
   windows renamed, sized to the DU and parked off-screen, then your own camera view back. Up to six displays
-  (captain and first officer side). New aircraft: press **Learn** on a display and click it once.
+  (captain and first officer side), dark ones too: a cold and dark cockpit at the gate pops out like a ready one. New aircraft: press **Learn** on a display and click it once.
 - **Any number of DUs**, each assigned to a display on the status page; a DU is known by its serial number, so any
   unit can take any place in the cockpit.
 - **Several displays on one DU**: for a monitor behind a MIP with two cut-outs, place the displays in a layout on the
@@ -38,6 +40,8 @@ the rendered pop-out windows gives an exact copy for any aircraft.
   text size; no state is shown by colour alone.
 - **The DUs say what is going on** when they have no picture to show: waiting for the PC, waiting for the DMC, not
   assigned, the assigned display waiting for the sim, Identify, a firmware update with its progress.
+
+<p align="center"><img src="docs/images/status-dus.png" width="100%" alt="The status page's Display units tab: DU1 and DU2 connected, showing the Captain PFD and ND, with a brightness slider, frames per second and time per picture, firmware 0.7.0, and Identify and More buttons for each."></p>
 
 <p align="center"><img src="docs/images/du-screens.png" width="100%" alt="Three DU screens: Captain PFD waiting for the sim; Identify with a large DU1 and a blue border; a firmware update at 64 percent."></p>
 
@@ -74,6 +78,8 @@ what helps.
 3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, GlassLink pops the
    displays out (about 20 s for four, do not touch mouse or keyboard meanwhile) and the DUs show them.
 4. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
+
+<p align="center"><img src="docs/images/status-setup.png" width="100%" alt="The status page's Setup tab for the FSLabs: each of the six displays has a click point (captain seat, or FO seat for the FO PFD) and an open window, its size of 768 by 768, where it is parked off-screen, and Learn again; below, the key that brings back your own camera after a pop-out."></p>
 
 Stop GlassLink with **Quit** in its tray menu. Never end it with Task Manager while the sim runs: ending a process
 that holds window captures can upset the graphics driver.
@@ -126,7 +132,7 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 | `dotnet/` | the DMC: `GlassLink.exe` and its libraries, the bench tool, tests ([dotnet/README.md](dotnet/README.md)) |
 | `firmware/` | the DU firmware, ESP-IDF 5.5 for the ESP32-P4 ([firmware/README.md](firmware/README.md)) |
 | `web/` | the status page and viewer the DMC serves, and their font |
-| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1`; `render-images.ps1` (this page's pictures, from `docs/images/src/`) |
+| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1`; `render-images.ps1` (this page's drawn pictures, from `docs/images/src/`; the `status-*.png` ones are screenshots) |
 | `installer/` | Inno Setup script |
 | `pi/` | the network viewer for a Raspberry Pi |
 | `docs/` | [USB protocol](docs/usb-protocol.md), [hardware](docs/hardware.md), [troubleshooting](docs/TROUBLESHOOTING.md), [design notes and findings](docs/notes.md), [panel data](docs/panel-DBC088HXN60L050A.md) |

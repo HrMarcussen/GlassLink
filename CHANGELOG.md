@@ -19,7 +19,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ### Changed
 - The README has pictures: a banner, a "how it works" diagram and the DU's own screens, made from HTML sources in
-  `docs/images/src/` by `tools/render-images.ps1`.
+  `docs/images/src/` by `tools/render-images.ps1`, and screenshots of the status page's Displays, Display units and
+  Setup tabs.
 
 ### Fixed
 - The PFD check before a pop-out took a blue screen without ground under it for a PFD (the FSLabs' EFB tablet, lit
