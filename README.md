@@ -1,4 +1,4 @@
-# GlassLink
+<h1 align="center"><img src="docs/images/banner.png" width="100%" alt="GlassLink: your simulator's glass cockpit, on real screens. Three display units showing a primary flight display, a navigation display and an engine display."></h1>
 
 [![CI](https://github.com/HrMarcussen/GlassLink/actions/workflows/ci.yml/badge.svg)](https://github.com/HrMarcussen/GlassLink/actions/workflows/ci.yml)
 
@@ -13,16 +13,7 @@ aircraft, the automatic pop-out needs a profile per aircraft (built in for those
 | **DMC** | Display Management Computer, feeds the display units | the GlassLink program on the sim PC: `GlassLink.exe`, a tray application (`dotnet/`) |
 | **DU** | Display Unit, one screen in the panel | one GlassLink module: ESP32-P4 board + HDMI bridge + panel or monitor (`firmware/`) |
 
-```
- Sim PC (Windows)                                               DU (per panel or monitor)
- ┌───────────────────────────────────────────┐   USB 2.0 HS    ┌─────────────────────────────────┐
- │ MSFS pop-out windows, parked off-screen    │   JPEG frames   │ ESP32-P4: hardware JPEG decode  │
- │   └─ Windows.Graphics.Capture              │ ──────────────▶ │  → MIPI-DSI → LT8912B → HDMI    │
- │ GlassLink DMC: crop → JPEG → one stream    │ ◀────────────── │  → panel / monitor               │
- │   per DU, brightness from the cockpit knobs │  READY, STATS   └─────────────────────────────────┘
- │   status page on http://localhost:8765     │
- └───────────────────────────────────────────┘ ── LAN (WebSocket/MJPEG) ──▶ browser, phone, Raspberry Pi
-```
+<p align="center"><img src="docs/images/how-it-works.png" width="100%" alt="How it works: on the sim PC, the GlassLink DMC captures the simulator's pop-out displays and streams each one over USB to a display unit (an ESP32-P4 with a hardware JPEG decoder, driving a panel or a monitor over HDMI); a status page is available on the PC and on the network."></p>
 
 Why pixels: re-rendering a PFD from simulator variables means rewriting the aircraft's display software. Capturing
 the rendered pop-out windows gives an exact copy for any aircraft.
@@ -45,6 +36,10 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 - **Status page** in its own window and on any device in the LAN (read-only from other devices unless allowed),
   with advice when something limits the frame rate. Light and dark mode follow Windows; text follows the system
   text size; no state is shown by colour alone.
+- **The DUs say what is going on** when they have no picture to show: waiting for the PC, waiting for the DMC, not
+  assigned, the assigned display waiting for the sim, Identify, a firmware update with its progress.
+
+<p align="center"><img src="docs/images/du-screens.png" width="100%" alt="Three DU screens: Captain PFD waiting for the sim; Identify with a large DU1 and a blue border; a firmware update at 64 percent."></p>
 
 What a DU achieves (DMC and firmware 0.6.0, PFD-like frames of about 140 KB, measured on a Waveshare
 ESP32-P4-NANO):
@@ -131,7 +126,7 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 | `dotnet/` | the DMC: `GlassLink.exe` and its libraries, the bench tool, tests ([dotnet/README.md](dotnet/README.md)) |
 | `firmware/` | the DU firmware, ESP-IDF 5.5 for the ESP32-P4 ([firmware/README.md](firmware/README.md)) |
 | `web/` | the status page and viewer the DMC serves, and their font |
-| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1` |
+| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1`; `render-images.ps1` (this page's pictures, from `docs/images/src/`) |
 | `installer/` | Inno Setup script |
 | `pi/` | the network viewer for a Raspberry Pi |
 | `docs/` | [USB protocol](docs/usb-protocol.md), [hardware](docs/hardware.md), [troubleshooting](docs/TROUBLESHOOTING.md), [design notes and findings](docs/notes.md), [panel data](docs/panel-DBC088HXN60L050A.md) |

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="render-size" content="1280x470">
+<title>DU screens</title>
+<!-- Three of the DU's own screens, as firmware/main/screens.c draws them (768 x 768, scaled down here).
+     Render: powershell -File tools\render-images.ps1 du-screens -->
+<style>
+  @font-face { font-family: 'Inter'; src: url('../../../web/fonts/inter.woff2') format('woff2'); font-weight: 100 900; }
+  html, body { margin: 0; }
+  body { width: 1280px; height: 470px; background: #0f1115; color: #eceef2; font-family: 'Inter', sans-serif;
+         display: flex; justify-content: center; gap: 36px; padding-top: 30px; box-sizing: border-box; }
+  figure { margin: 0; width: 368px; }
+  .bezel { width: 368px; height: 368px; border-radius: 16px; background: #1a1e26; border: 1px solid #2c3240;
+           padding: 12px; box-sizing: border-box; box-shadow: 0 16px 36px rgba(0,0,0,.45); }
+  .clip { width: 342px; height: 342px; overflow: hidden; border-radius: 4px; }
+  .du { width: 768px; height: 768px; transform: scale(0.4453); transform-origin: 0 0; box-sizing: border-box;
+        padding: 56px; display: flex; flex-direction: column; justify-content: space-between; background: #0f1115; color: #eceef2; }
+  figcaption { text-align: center; font-size: 16px; color: #a3acbd; margin-top: 14px; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .brand span { font-size: 30px; font-weight: 600; letter-spacing: .01em; }
+  .pill { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; letter-spacing: .12em; color: #a3acbd; }
+  .dot { width: 14px; height: 14px; border-radius: 7px; }
+  .foot { display: flex; justify-content: space-between; align-items: baseline; font-size: 20px; color: #a3acbd; font-variant-numeric: tabular-nums; }
+  .foot b { color: #eceef2; font-weight: 600; }
+</style>
+</head>
+<body>
+<template id="mark"><svg width="44" height="44" viewBox="0 0 64 64" aria-hidden="true"><defs><clipPath id="m"><rect x="2" y="2" width="60" height="60" rx="14"/></clipPath></defs><g clip-path="url(#m)"><rect width="64" height="32" fill="#2f8fe0"/><rect y="32" width="64" height="32" fill="#8a5a2b"/><line x1="0" y1="32" x2="64" y2="32" stroke="#fff" stroke-width="3"/><line x1="12" y1="32" x2="24" y2="32" stroke="#ffd030" stroke-width="5" stroke-linecap="round"/><line x1="40" y1="32" x2="52" y2="32" stroke="#ffd030" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="32" r="3" fill="#fff"/></g></svg></template>
+
+<figure><div class="bezel"><div class="clip"><div class="du">
+  <div class="brand"><i class="m"></i><span>GlassLink</span></div>
+  <div style="display:flex; flex-direction:column; gap:20px">
+    <div class="pill"><span class="dot" style="background:#f5c04a"></span><span>WAITING FOR THE SIM</span></div>
+    <div style="font-size:72px; font-weight:700; line-height:1.05">Captain PFD</div>
+    <div style="font-size:26px; line-height:1.4; color:#a3acbd; max-width:600px">The picture appears as soon as the sim shows this display.</div>
+  </div>
+  <div class="foot"><b>DU1</b><span>4F2A91C0 · FW 0.7.0</span></div>
+</div></div></div><figcaption>Assigned, waiting for the sim</figcaption></figure>
+
+<figure><div class="bezel"><div class="clip"><div class="du" style="box-shadow: inset 0 0 0 12px #6cb2ff">
+  <div class="brand"><i class="m"></i><span>GlassLink</span></div>
+  <div style="display:flex; flex-direction:column; align-items:center; gap:8px">
+    <div class="pill" style="color:#6cb2ff">IDENTIFY</div>
+    <div style="font-size:200px; font-weight:700; line-height:1; letter-spacing:-.02em">DU1</div>
+    <div style="font-size:26px; color:#a3acbd">Captain PFD</div>
+  </div>
+  <div class="foot"><span>4F2A91C0-7D3E6B15</span><span>FW 0.7.0</span></div>
+</div></div></div><figcaption>Identify, from the status page</figcaption></figure>
+
+<figure><div class="bezel"><div class="clip"><div class="du">
+  <div class="brand"><i class="m"></i><span>GlassLink</span></div>
+  <div style="display:flex; flex-direction:column; gap:20px">
+    <div class="pill"><span class="dot" style="background:#6cb2ff"></span><span>UPDATING</span></div>
+    <div style="font-size:60px; font-weight:600; line-height:1.1">Updating firmware</div>
+    <div style="display:flex; align-items:center; gap:20px">
+      <div style="flex-grow:1; height:14px; border-radius:7px; background:#262b36; overflow:hidden"><div style="width:64%; height:14px; border-radius:7px; background:#6cb2ff"></div></div>
+      <span style="font-size:26px; font-weight:600">64 %</span>
+    </div>
+    <div style="font-size:26px; line-height:1.4; color:#a3acbd">Do not unplug the DU.</div>
+  </div>
+  <div class="foot"><b>DU1</b><span>4F2A91C0 · FW 0.7.0</span></div>
+</div></div></div><figcaption>A firmware update over USB</figcaption></figure>
+
+<script>
+  // the GlassLink mark in every screen's header
+  for (const slot of document.querySelectorAll('i.m')) slot.replaceWith(document.getElementById('mark').content.cloneNode(true));
+</script>
+</body>
+</html>

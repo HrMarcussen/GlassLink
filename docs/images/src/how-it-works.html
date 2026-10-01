@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="render-size" content="1280x560">
+<title>How GlassLink works</title>
+<!-- The README's "how it works" diagram. Render: powershell -File tools\render-images.ps1 how-it-works -->
+<style>
+  @font-face { font-family: 'Inter'; src: url('../../../web/fonts/inter.woff2') format('woff2'); font-weight: 100 900; }
+  html, body { margin: 0; }
+  body { width: 1280px; height: 560px; background: #0f1115; color: #eceef2; font-family: 'Inter', sans-serif;
+         box-sizing: border-box; padding: 44px 48px; position: relative; }
+  .zone { position: absolute; border: 1px solid #2c3240; border-radius: 18px; background: #151922; }
+  .zone > .label { position: absolute; top: -12px; left: 20px; background: #0f1115; padding: 0 10px; font-size: 14px;
+                   font-weight: 600; letter-spacing: .12em; color: #a3acbd; }
+  .box { position: absolute; border-radius: 12px; background: #1d222c; border: 1px solid #333a49; padding: 14px 18px; box-sizing: border-box; }
+  .box b { display: block; font-size: 19px; font-weight: 650; margin-bottom: 5px; }
+  .box span { display: block; font-size: 14.5px; color: #a3acbd; line-height: 1.45; }
+  .accent { border-color: #6cb2ff; background: #18233a; }
+  svg.wires { position: absolute; left: 0; top: 0; }
+  .tag { position: absolute; font-size: 14px; color: #c8cfdb; text-align: center; }
+  .tag em { font-style: normal; color: #6cb2ff; font-weight: 600; }
+  .screen { width: 52px; height: 52px; border-radius: 6px; background: #000; border: 3px solid #2c3240; flex: none;
+            display: flex; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box; }
+  .att { width: 26px; height: 30px; border-radius: 4px; background: linear-gradient(#2f8fe0 50%, #8a5a2b 50%);
+         position: relative; }
+  .att::after { content: ''; position: absolute; left: 5px; right: 5px; top: 14px; height: 2px; background: #ffd030; }
+  .nd { width: 26px; height: 30px; border-radius: 4px; position: relative; overflow: hidden; }
+  .nd::before { content: ''; position: absolute; left: 1px; top: 6px; width: 24px; height: 24px; border: 1.5px solid #fff;
+                border-radius: 50%; box-sizing: border-box; }
+  .nd::after { content: ''; position: absolute; left: 12px; top: 10px; width: 2px; height: 16px; background: #3ddc84;
+               transform: rotate(20deg); }
+  .row { display: flex; gap: 14px; align-items: center; }
+</style>
+</head>
+<body>
+<!-- sim PC -->
+<div class="zone" style="left:48px; top:44px; width:520px; height:350px"><div class="label">SIM PC · WINDOWS</div></div>
+<div class="box" style="left:76px; top:78px; width:464px; height:100px">
+  <b>Microsoft Flight Simulator 2024</b>
+  <span>The aircraft's displays as pop-out windows, opened and parked off-screen by GlassLink itself.</span>
+</div>
+<div class="box accent" style="left:76px; top:226px; width:464px; height:138px">
+  <div class="row" style="margin-bottom:6px">
+    <svg width="30" height="30" viewBox="0 0 64 64" aria-hidden="true"><defs><clipPath id="l"><rect x="2" y="2" width="60" height="60" rx="14"/></clipPath></defs><g clip-path="url(#l)"><rect width="64" height="32" fill="#2f8fe0"/><rect y="32" width="64" height="32" fill="#8a5a2b"/><line x1="0" y1="32" x2="64" y2="32" stroke="#fff" stroke-width="3"/><line x1="12" y1="32" x2="24" y2="32" stroke="#ffd030" stroke-width="5" stroke-linecap="round"/><line x1="40" y1="32" x2="52" y2="32" stroke="#ffd030" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="32" r="3" fill="#fff"/></g></svg>
+    <b style="margin:0">GlassLink DMC</b>
+  </div>
+  <span>Captures every display, encodes it as JPEG and streams it to the DU that shows it. Follows the cockpit's
+    brightness knobs, starts and stops with the sim, updates itself and the DUs.</span>
+</div>
+
+<!-- DUs -->
+<div class="zone" style="left:760px; top:44px; width:472px; height:350px"><div class="label">DISPLAY UNITS · ONE PER SCREEN</div></div>
+<div class="box" style="left:788px; top:78px; width:416px; height:138px">
+  <div class="row">
+    <div class="screen"><div class="att"></div></div>
+    <div><b>DU · ESP32-P4</b><span>Hardware JPEG decoder, 60 frames a second on a 768 × 768 panel, HDMI out to the panel or monitor.</span></div>
+  </div>
+</div>
+<div class="box" style="left:788px; top:238px; width:416px; height:126px">
+  <div class="row">
+    <div class="screen" style="width:84px"><div class="att"></div><div class="nd"></div></div>
+    <div><b>DU · ESP32-P4</b><span>Or one 1080p monitor behind the panel, with several displays side by side.</span></div>
+  </div>
+</div>
+
+<!-- LAN -->
+<div class="box" style="left:76px; top:436px; width:464px; height:104px">
+  <b>Status page</b>
+  <span>In its own window on the sim PC, or any browser, phone or Raspberry Pi on the network.</span>
+</div>
+
+<svg class="wires" width="1280" height="560">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6cb2ff"/></marker>
+        <marker id="g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7486"/></marker></defs>
+  <line x1="308" y1="180" x2="308" y2="222" stroke="#6b7486" stroke-width="2" marker-end="url(#g)"/>
+  <path d="M 542 295 C 650 295, 660 147, 784 147" fill="none" stroke="#6cb2ff" stroke-width="2.5" marker-end="url(#a)"/>
+  <path d="M 542 295 C 650 295, 660 301, 784 301" fill="none" stroke="#6cb2ff" stroke-width="2.5" marker-end="url(#a)"/>
+  <line x1="308" y1="366" x2="308" y2="432" stroke="#6b7486" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#g)"/>
+</svg>
+<div class="tag" style="left:578px; top:318px; width:170px"><em>USB 2.0</em><br>one cable per DU</div>
+<div class="tag" style="left:318px; top:392px; width:200px; text-align:left">network (optional)</div>
+</body>
+</html>
