@@ -38,6 +38,8 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 - **Status page** in its own window and on any device in the LAN (read-only from other devices unless allowed),
   with advice when something limits the frame rate. Light and dark mode follow Windows; text follows the system
   text size; no state is shown by colour alone.
+- **Any screen in the network can show a display** too: every display is also a web page, for a phone, a tablet or
+  a Raspberry Pi with a screen ([below](#viewing-a-display-on-another-device)).
 - **The DUs say what is going on** when they have no picture to show: waiting for the PC, waiting for the DMC, not
   assigned, the assigned display waiting for the sim, Identify, a firmware update with its progress.
 
@@ -89,6 +91,8 @@ The configuration is `%LOCALAPPDATA%\GlassLink\config.json` for an installed cop
 [Configuration](#configuration).
 
 ## Viewing a display on another device
+
+<p align="center"><img src="docs/images/any-screen.png" width="100%" alt="Every display on any screen in the house: a phone showing the ND, a tablet showing the upper ECAM and a Raspberry Pi with a small screen showing the PFD, each opened from http://sim-pc:8765/view/ followed by the display's name."></p>
 
 Any browser in the LAN: `http://<sim-pc>:8765/view/pfd` (click for full screen; `?rotate=90`, `?mode=mjpeg`,
 `?fps=1` for a frame counter). A phone gets a lighter stream by itself. A Raspberry Pi with a screen can show a display

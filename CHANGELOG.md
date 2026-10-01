@@ -19,7 +19,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ### Changed
 - The README has pictures: a banner, a "how it works" diagram and the DU's own screens, made from HTML sources in
-  `docs/images/src/` by `tools/render-images.ps1`, and screenshots of the status page's Displays, Display units and
+  `docs/images/src/` by `tools/render-images.ps1` (also one for viewing a display on a phone, tablet or Raspberry Pi),
+  and screenshots of the status page's Displays, Display units and
   Setup tabs.
 
 ### Fixed
