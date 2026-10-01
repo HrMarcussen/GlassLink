@@ -86,7 +86,10 @@ public class SimTests
 
         Fill(0, 0, w, h, 30, 30, 30);                        // a dark cockpit
         Assert.Null(PfdDetector.Find(pixels, w, h, w * 4));
+        Fill(20, 300, 140, 352, 200, 110, 40);               // a blue tablet screen, larger, with no ground under it
+        Assert.Null(PfdDetector.Find(pixels, w, h, w * 4));
         Fill(300, 200, 380, 240, 200, 110, 40);              // the sky half of the sphere: 80 x 40, saturated blue
+        Fill(300, 240, 380, 280, 43, 90, 138);               // and the brown ground under it
         Fill(500, 100, 510, 200, 200, 110, 40);              // something blue but tall: not it
         Fill(100, 50, 140, 60, 250, 250, 250);               // white: not it
         var found = PfdDetector.Find(pixels, w, h, w * 4);

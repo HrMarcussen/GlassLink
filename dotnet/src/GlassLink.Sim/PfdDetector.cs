@@ -65,12 +65,36 @@ public static class PfdDetector
             var (bw, bh) = ((maxX - minX + 1) * step, (maxY - minY + 1) * step);
             var fullArea = area * step * step;
             var aspect = bw / (double)Math.Max(bh, 1);
-            if (fullArea >= 300 && bw >= 30 && bh >= 12 && aspect is >= 1.3 and <= 4.0 && (best is null || fullArea > best.Value.Area))
+            if (fullArea >= 300 && bw >= 30 && bh >= 12 && aspect is >= 1.3 and <= 4.0 && (best is null || fullArea > best.Value.Area)
+                && GroundBelow(bgra, width, height, stride, minX * step, maxX * step, (maxY + 1) * step))
             {
                 best = (minX * step, minY * step, bw, bh, fullArea);
             }
         }
 
         return best is { } hit ? (hit.X + hit.W / 2, hit.Y + hit.H, hit.W) : null;
+    }
+
+    /// <summary>An attitude sphere has brown ground right under its sky. A blue screen without it (the FSLabs' EFB
+    /// tablet in a cold and dark cockpit, 1 Oct 2026) is not a PFD: taking it for one, the safety check refused to
+    /// click forever.</summary>
+    private static bool GroundBelow(ReadOnlySpan<byte> bgra, int width, int height, int stride, int x0, int x1, int y0)
+    {
+        int brown = 0, seen = 0;
+        for (var y = y0 + 2; y < Math.Min(height, y0 + 12); y += 2)
+        {
+            var row = bgra.Slice(y * stride, width * 4);
+            for (var x = x0; x <= Math.Min(x1, width - 1); x += 2)
+            {
+                int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+                seen++;
+                if (r > 50 && r > g && g > b && r > b + 25)
+                {
+                    brown++;
+                }
+            }
+        }
+
+        return seen > 0 && brown * 10 >= seen * 3;                // at least 30 % brown
     }
 }
