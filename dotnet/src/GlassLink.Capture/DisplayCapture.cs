@@ -22,6 +22,11 @@ public sealed record CaptureSettings(double Fps, double IdleFps, double IdleAfte
 
 public sealed record DisplayCounters(long Received, long Skipped, long Unchanged, long Published, double EncodeMs, int JpegBytes);
 
+/// <summary>How a display's window is found and treated: the match, a frame the sim draws inside the window (X-Plane
+/// draws one of 15 px around its pop-outs: it is cropped off, and the window is made that much larger so the picture
+/// keeps the configured size) and whether the window is kept out of Alt+Tab and the taskbar.</summary>
+public sealed record WindowRule(WindowMatch Match, int Frame = 0, bool ToolWindow = false);
+
 /// <summary>
 /// One display: finds its window, sizes and parks it, captures it, and publishes every picture that differs from the
 /// last one as a JPEG. A display nobody is using costs next to nothing: its frames are refused before they are copied
@@ -34,10 +39,13 @@ public sealed class DisplayCapture : IDisposable
     private readonly FrameSlot _slot;
     private readonly Func<bool> _inUse;
     private readonly Action<string>? _log;
+    private readonly Func<WindowRule?> _alternative;
     private readonly JpegEncoder _encoder;
     private readonly Timer _watch;
     private readonly object _gate = new();
     private WindowCapture? _capture;
+    private WindowRule? _rule;
+    private volatile int _crop;
     private byte[] _previous = [];
     private byte[] _current = [];
     private (int W, int H) _size;
@@ -64,9 +72,13 @@ public sealed class DisplayCapture : IDisposable
 
     public DisplayCounters Counters => new(_received, _skipped, _unchanged, _published, _encodeMs, _jpegBytes);
 
-    public DisplayCapture(string name, JsonObject display, JsonObject? captureSection, FrameSlot slot, Func<bool> inUse, Action<string>? log = null)
+    /// <param name="alternative">Another window this display may be, asked while the configured one is not there (the
+    /// X-Plane aircraft profile's pop-out for it); null for none.</param>
+    public DisplayCapture(string name, JsonObject display, JsonObject? captureSection, FrameSlot slot, Func<bool> inUse, Action<string>? log = null,
+        Func<WindowRule?>? alternative = null)
     {
         (Name, _display, _slot, _inUse, _log) = (name, display, slot, inUse, log);
+        _alternative = alternative ?? (() => null);
         _slot.Live = false;                                  // until the window is found (#81)
         _settings = CaptureSettings.From(captureSection, display);
         _encoder = new JpegEncoder(_settings.Quality, _settings.Subsample420);
@@ -103,14 +115,15 @@ public sealed class DisplayCapture : IDisposable
                 }
 
                 if (_capture is not null && (Window is null || !WindowFinder.IsAlive(Window.Handle)
-                    || WindowFinder.Describe(Window.Handle) is not { } now || !WindowMatch.From(_display["match"] as JsonObject).Matches(now)))
+                    || WindowFinder.Describe(Window.Handle) is not { } now || _rule is null || !_rule.Match.Matches(now)))
                 {
                     Stop($"window of '{Name}' is gone");     // closed, hidden by the sim before it destroys it, or renamed
                 }
 
-                if (_capture is null && WindowFinder.Find(WindowMatch.From(_display["match"] as JsonObject)) is { } found)
+                if (_capture is null && FindWindow() is ({ } found, { } rule))
                 {
-                    Window = ApplyGeometry(found);
+                    (_rule, _crop) = (rule, rule.Frame);
+                    Window = ApplyGeometry(found, rule);
                     var capture = _capture = new WindowCapture(Window.Handle, OnPixels, _settings.Fps) { WantFrame = WantFrame };
                     capture.Closed += () => ThreadPool.QueueUserWorkItem(_ =>
                     {
@@ -153,14 +166,38 @@ public sealed class DisplayCapture : IDisposable
         _capture.Dispose();
         _capture = null;
         Window = null;
+        _rule = null;
         Error = "window not found";
         _slot.Live = false;
         _log?.Invoke($"[{Name}] {why}");
     }
 
-    private WindowInfo ApplyGeometry(WindowInfo w)
+    /// <summary>The configured window first; else the alternative one (a pop-out of another sim).</summary>
+    private (WindowInfo Window, WindowRule Rule)? FindWindow()
     {
-        var size = Pair(_display["client_size"]);
+        var configured = new WindowRule(WindowMatch.From(_display["match"] as JsonObject),
+            _display["crop"] is { } c && c.GetValueKind() == JsonValueKind.Number ? Math.Max(0, (int)c.AsDouble()) : 0,
+            _display["tool_window"] is { } t && t.GetValueKind() == JsonValueKind.True);
+        foreach (var rule in new[] { configured, _alternative() })
+        {
+            if (rule is not null && WindowFinder.Find(rule.Match) is { } found)
+            {
+                return (found, rule);
+            }
+        }
+
+        return null;
+    }
+
+    private WindowInfo ApplyGeometry(WindowInfo w, WindowRule rule)
+    {
+        if (rule.ToolWindow && WindowFinder.SetToolWindow(w.Handle))
+        {
+            _log?.Invoke($"[{Name}] window kept out of Alt+Tab and the taskbar");
+            w = WindowFinder.Describe(w.Handle) ?? w;       // the frame may have changed with the style
+        }
+
+        var size = Pair(_display["client_size"]) is { } configured ? (A: configured.A + 2 * rule.Frame, B: configured.B + 2 * rule.Frame) : ((int A, int B)?)null;
         var position = Pair(_display["position"]);
         if (size is { } s && (w.Client.Width, w.Client.Height) != s)
         {
@@ -207,7 +244,13 @@ public sealed class DisplayCapture : IDisposable
     /// <summary>Under the GPU lock: compare with the last picture and take a copy only if it differs.</summary>
     private Action? OnPixels(CapturedPixels pixels)
     {
-        var (w, h) = (pixels.Width, pixels.Height);
+        var crop = _crop;
+        if (pixels.Width <= 2 * crop || pixels.Height <= 2 * crop)
+        {
+            crop = 0;
+        }
+
+        var (w, h) = (pixels.Width - 2 * crop, pixels.Height - 2 * crop);
         var bytes = w * h * 4;
         if (_size != (w, h))
         {
@@ -216,7 +259,7 @@ public sealed class DisplayCapture : IDisposable
         }
 
         var source = pixels.Span;
-        if (pixels.Stride == w * 4)
+        if (crop == 0 && pixels.Stride == w * 4)
         {
             if (source[..bytes].SequenceEqual(_previous))
             {
@@ -228,11 +271,7 @@ public sealed class DisplayCapture : IDisposable
         }
         else
         {
-            for (var y = 0; y < h; y++)
-            {
-                source.Slice(y * pixels.Stride, w * 4).CopyTo(_current.AsSpan(y * w * 4));
-            }
-
+            CopyInside(source, pixels.Stride, crop, w, h, _current);
             if (_current.AsSpan().SequenceEqual(_previous))
             {
                 _unchanged++;
@@ -254,6 +293,16 @@ public sealed class DisplayCapture : IDisposable
                 EncodeAndPublish(picture, w, h);
             }
         };
+    }
+
+    /// <summary>The width x height BGRA picture inside a frame of <paramref name="crop"/> pixels, row by row, into a
+    /// packed buffer (stride width x 4).</summary>
+    public static void CopyInside(ReadOnlySpan<byte> source, int stride, int crop, int width, int height, Span<byte> destination)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            source.Slice((y + crop) * stride + crop * 4, width * 4).CopyTo(destination[(y * width * 4)..]);
+        }
     }
 
     private void EncodeAndPublish(byte[] picture, int w, int h)

@@ -43,6 +43,32 @@ thing changed; this file says why things are the way they are.
 - Never end a process that holds window captures on the sim with Task Manager: it was followed twice by AMD "video
   engine timeout" driver resets. Stop the DMC through its tray menu, `GlassLink.exe --quit` or `POST /shutdown`.
 
+## X-Plane 12 and the ToLiss A321 (measured 2 Oct 2026, X-Plane 12.4.4, ToLiss A321 1.7.2)
+
+- **Data and commands** go through X-Plane's own web API (`http://localhost:8086/api/v3`, on by default): datarefs
+  and commands of X-Plane and of the aircraft's plugins, looked up by name (`?filter[name]=`), ids valid for one
+  X-Plane session. On the home screen, without a flight, dataref lookups answer 404; `/api/capabilities` answers
+  from the start. While a flight loads, requests can time out for a few seconds.
+- **Pop-outs.** With the ISCS options "Use popout windows for popups" and "Save popup config on quit", the ToLiss
+  opens its displays as ordinary Windows windows (class `X-System`, process `X-Plane.exe`), titled "ToLiss Captain
+  Left DU" (PFD), "ToLiss Captain Right DU" (ND), "ToLiss Copilot Left DU" (FO ND), "ToLiss Copilot Right DU" (FO
+  PFD), "ToLiss Upper ECAM", "ToLiss Lower ECAM". `AirbusFBW/PopUpPFD1`, `PopUpND1`, `PopUpPFD2`, `PopUpND2`,
+  `PopUpEWD`, `PopUpSD` toggle one (state in `AirbusFBW/PopUpStateArray`, entries 2, 4, 3, 5, 6, 7);
+  `toliss_airbus/reinstatePopups` brings back every pop-out of the last flight, which nothing does by itself after
+  loading. No command or dataref turns a popup inside X-Plane into a window of its own: that is the button at the
+  right end of the popup's title bar (the red dot on the left closes it), once.
+- **Windows.** X-Plane accepts a new size and an off-screen position for them, and the ToLiss draws sharp at any size.
+  X-Plane draws a 15 px frame (grey, 73,80,88) inside the client area on every side, so the DMC makes the window
+  798 x 798 and crops it to 768 x 768. They keep `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE` (out of Alt+Tab and the
+  taskbar, never focused) and are captured off-screen at about 30 frames a second each. A pop-out reopened by
+  command is a new window at its own size and position, so size, parking and style are applied again.
+- **Never send a close message to an X-Plane window**: X-Plane takes WM_CLOSE to any of its windows, a pop-out too,
+  as "quit X-Plane" and exits at once. A ToLiss pop-out is closed with its toggle command.
+- **Brightness.** The pop-outs dim with the cockpit knobs themselves (`AirbusFBW/DUBrightness`, 0..1, entries 0 to 5:
+  captain PFD, captain ND, FO PFD, FO ND, upper and lower ECAM), so the DMC does not dim the DUs.
+- XTextureExtractor (a GPL plugin that reads the displays from the cockpit panel texture) hangs X-Plane 12.4.4 while
+  it searches the textures; a plugin of GlassLink's own would have to find the panel without that search.
+
 ## Capture and encode (DMC)
 
 - Only the client area is copied from the GPU; a frame nobody wants is refused before any copy. All captures share

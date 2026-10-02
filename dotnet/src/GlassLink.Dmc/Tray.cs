@@ -20,15 +20,20 @@ public sealed record Summary(Health Level, string Sim, string Displays, string D
 {
     public static Summary Of(DmcRuntime dmc)
     {
-        var simWindow = GlassLink.Sim.PopoutProcedure.SimMainWindow() is not null;
-        var (simLevel, sim) = !simWindow ? (Health.Attention, "Sim not running")
-            : !dmc.Sim.Connected ? (Health.Attention, "Sim starting")
-            : !dmc.Camera.InCockpit ? (Health.Attention, "Sim: not in cockpit")
-            : (Health.Good, $"Sim: {dmc.Camera.Title}");
+        var xplane = dmc.XPlane.Connected;
+        var simWindow = xplane || GlassLink.Sim.PopoutProcedure.SimMainWindow() is not null;
+        var (simLevel, sim) = xplane
+            ? dmc.XPlane.AircraftPath.Length == 0 ? (Health.Attention, "X-Plane: no aircraft loaded")
+              : dmc.XPlaneProfile is null ? (Health.Attention, $"X-Plane: no profile for {dmc.XPlane.AircraftName}")
+              : (Health.Good, $"X-Plane: {dmc.XPlane.AircraftName}")
+            : !simWindow ? (Health.Attention, "Sim not running")            // general: which sim comes next is not known
+            : !dmc.Sim.Connected ? (Health.Attention, "MSFS starting")
+            : !dmc.Camera.InCockpit ? (Health.Attention, "MSFS: not in cockpit")
+            : (Health.Good, $"MSFS: {dmc.Camera.Title}");
 
         var all = dmc.Displays.All;
         var found = all.Count(e => e.Capture.HasWindow);
-        var popout = dmc.Auto?.State.Status;
+        var popout = dmc.PopoutState?.Status;
         var displayLevel = found == all.Count || !simWindow ? Health.Good : popout == "gave_up" ? Health.Broken : Health.Attention;
         var displays = $"Displays {found}/{all.Count}" + (found < all.Count && popout == "running" ? " · popping out" : found < all.Count && popout == "gave_up" ? " · gave up" : "");
 
@@ -86,7 +91,7 @@ public sealed class Tray : IDisposable
         [
             new ToolStripMenuItem($"GlassLink DMC {dmc.Version}") { Enabled = false }, _update, _sim, _displays, _dus, new ToolStripSeparator(),
             new ToolStripMenuItem("Open status page", null, (_, _) => OpenStatusPage()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) },
-            new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.Auto?.Retry()),
+            new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.RetryPopout()),
             _autostart, _withSim, new ToolStripSeparator(),
             new ToolStripMenuItem("Quit", null, (_, _) => quit()),
         ]);
@@ -144,7 +149,7 @@ public sealed class Tray : IDisposable
     public static void RenderPreview(string file, Palette palette)
     {
         using var menu = new ContextMenuStrip();
-        var lines = new[] { (Health.Good, "Sim: FenixA320 CFM SL"), (Health.Attention, "Displays 4/6 · popping out"), (Health.Broken, "DUs 1/2 · DU2 disconnected") };
+        var lines = new[] { (Health.Good, "MSFS: FenixA320 CFM SL"), (Health.Attention, "Displays 4/6 · popping out"), (Health.Broken, "DUs 1/2 · DU2 disconnected") };
         menu.Items.Add(new ToolStripMenuItem("GlassLink DMC 0.5.0") { Enabled = false });
         foreach (var (level, text) in lines)
         {

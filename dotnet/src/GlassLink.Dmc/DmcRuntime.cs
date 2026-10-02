@@ -27,10 +27,15 @@ public sealed class DmcRuntime : IDisposable
         Sim = new SimConnectClient(log: Log);
         Camera = new SimCamera(Sim);
         Brightness = new BrightnessLink(Config, Sim, Camera);
-        Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log);
+        XPlane = new XPlaneClient(Log);
+        Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log)
+        {
+            Alternative = name => XPlaneProfile?.Rule(name),     // the same display names find the X-Plane aircraft's pop-outs
+        };
         Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
         Dus.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
-        Dus.SimBrightness = display => BrightnessEnabled ? Brightness.For(display) : null;
+        // X-Plane's aircraft dim their pop-outs themselves (the ToLiss does, measured 2 Oct 2026): nothing to add on the DU
+        Dus.SimBrightness = display => BrightnessEnabled && !XPlane.Connected ? Brightness.For(display) : null;
         // The size of the picture a display really publishes (after max_size); its configured client_size before the
         // first frame (#27).
         Dus.DisplaySize = display => Displays.Slot(display) is { Width: > 0, Height: > 0 } slot ? (slot.Width, slot.Height)
@@ -68,6 +73,43 @@ public sealed class DmcRuntime : IDisposable
 
     public AutoPopout? Auto { get; private set; }
 
+    public XPlaneClient XPlane { get; }
+
+    public XPlanePopout? XPlaneAuto { get; private set; }
+
+    /// <summary>The profile of the aircraft loaded in X-Plane; null without X-Plane, an aircraft or a profile for it.</summary>
+    public XPlaneProfile? XPlaneProfile => XPlane.Connected ? XPlaneProfiles.Select(XPlane.AircraftPath) : null;
+
+    /// <summary>The automatic pop-out of the sim that runs: X-Plane's while X-Plane answers, else the MSFS one.</summary>
+    public AutoPopoutState? PopoutState => XPlane.Connected ? XPlaneAuto?.State : Auto?.State;
+
+    /// <summary>Closes a display's pop-out so it is popped out afresh. X-Plane's are closed with the aircraft's own
+    /// command: X-Plane would take a close message to the window as "quit X-Plane". False if it could not be closed.</summary>
+    public bool ClosePopout(string name, WindowInfo window)
+    {
+        if (string.Equals(window.Process, XPlaneClient.Process, StringComparison.OrdinalIgnoreCase))
+        {
+            if (XPlaneProfile?.Displays.GetValueOrDefault(name) is not { } display || !XPlane.Command(display.Command))
+            {
+                return false;
+            }
+        }
+        else if (!WindowFinder.Close(window.Handle))
+        {
+            return false;
+        }
+
+        RetryPopout(name);
+        return true;
+    }
+
+    /// <summary>Forget earlier failed pop-outs (one display, or all) and try again, in whichever sim runs.</summary>
+    public void RetryPopout(string? name = null)
+    {
+        Auto?.Retry(name);
+        XPlaneAuto?.Retry(name);
+    }
+
     public Learner Learner { get; }
 
     public Advisor Advisor { get; }
@@ -88,12 +130,14 @@ public sealed class DmcRuntime : IDisposable
     {
         Log($"GlassLink DMC {Version} ({Build}), configuration {ConfigPath}");
         Sim.Start();
+        XPlane.Start();
         Displays.StartAll();
         Dus.Start();
         Updater.Start();
         if (PopoutSettings.From(Config.Root).Auto)
         {
             Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
+            XPlaneAuto = new XPlanePopout(XPlane, Displays.MissingDisplays, Log);
         }
     }
 
@@ -189,9 +233,11 @@ public sealed class DmcRuntime : IDisposable
         Log("stopping");
         Learner.CancelAndWait();                             // a Learn in progress brings the user's view back first (#39)
         Auto?.Dispose();                                     // and a running pop-out stops after its current display
+        XPlaneAuto?.Dispose();
         Dus.Dispose();                                       // the panels fall back to NOT ASSIGNED
         Displays.Dispose();                                  // capture sessions are closed one by one, never killed
         Sim.Dispose();
+        XPlane.Dispose();
         Updater.Dispose();
     }
 

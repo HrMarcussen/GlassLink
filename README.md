@@ -5,8 +5,9 @@
 GlassLink puts a flight simulator's glass-cockpit displays on real screens in a home cockpit. A service on the sim
 PC, the **DMC**, captures the aircraft's displays (PFD, ND, ECAM, ...) and streams them over USB to small
 **DU** modules, each of which drives a panel or monitor. No GPU ports, no extra PCs, one USB cable per DU. Built for
-an Airbus home cockpit on MSFS 2024 with the Fenix A320 and the FSLabs A321; the capture side works with any
-aircraft, the automatic pop-out needs a profile per aircraft (built in for those two, learned for others).
+an Airbus home cockpit on MSFS 2024 with the Fenix A320 and the FSLabs A321, and on X-Plane 12 with the ToLiss A321;
+the capture side works with any aircraft, the automatic pop-out needs a profile per aircraft (built in for those,
+learned for other MSFS aircraft).
 
 | Term | In the aircraft | Here |
 |---|---|---|
@@ -25,6 +26,8 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 - **Pops the displays out by itself** once you are in the cockpit: camera reset, Right-Alt + click on each display,
   windows renamed, sized to the DU and parked off-screen, then your own camera view back. Up to six displays
   (captain and first officer side), dark ones too: a cold and dark cockpit at the gate pops out like a ready one. New aircraft: press **Learn** on a display and click it once.
+  In **X-Plane 12** the ToLiss opens its displays by command, so nothing moves: GlassLink asks it for the pop-outs
+  over X-Plane's own web API, keeps them out of Alt+Tab and the taskbar, and crops X-Plane's frame off.
 - **Any number of DUs**, each assigned to a display on the status page; a DU is known by its serial number, so any
   unit can take any place in the cockpit.
 - **Several displays on one DU**: for a monitor behind a MIP with two cut-outs, place the displays in a layout on the
@@ -32,7 +35,7 @@ the rendered pop-out windows gives an exact copy for any aircraft.
   DU draws straight into its frame buffer.
 - **HDMI modes** per DU: 768x768 (the square 8.8" panels), 1024x768, 800x600, 1280x720, 1920x1080 at 30 Hz.
 - **Brightness follows the cockpit knobs** (read through SimConnect), times a trim per DU; the DU dims in its JPEG
-  decoder, at no cost.
+  decoder, at no cost. Aircraft that dim their pop-outs themselves (the FSLabs, the ToLiss) are left to it.
 - **Updates itself** from GitHub Releases on your click (checked against the release's checksums), and **updates
   the DUs' firmware** over USB from the status page, with rollback if a new image does not come up.
 - **Status page** in its own window and on any device in the LAN (read-only from other devices unless allowed),
@@ -61,7 +64,8 @@ what helps.
 
 ## Requirements
 
-- Windows 10 1903 or later, or Windows 11, and MSFS 2024 (MSFS 2020 is untested).
+- Windows 10 1903 or later, or Windows 11, and MSFS 2024 (MSFS 2020 is untested) or X-Plane 12.1.4 or later (its
+  web API on, which is X-Plane's default).
 - Nothing else for a release: it includes Microsoft's `SimConnect.dll` (unmodified, see
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). A checkout does not: put a copy in `dotnet\lib\` (ignored by
   git) or `%LOCALAPPDATA%\GlassLink\`, or install the MSFS SDK. Without it the DMC still streams, but pops nothing
@@ -80,6 +84,9 @@ what helps.
 3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, GlassLink pops the
    displays out (about 20 s for four, do not touch mouse or keyboard meanwhile) and the DUs show them.
 4. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
+5. X-Plane 12 with the ToLiss, once: in the ToLiss menu (ISCS) switch on "Use popout windows for popups" and "Save
+   popup config on quit", then click each display in the cockpit and pop its popup out with the button at the right
+   end of its title bar. From then on GlassLink opens them by itself, within a minute of loading a flight.
 
 <p align="center"><img src="docs/images/status-setup.png" width="100%" alt="The status page's Setup tab for the FSLabs: each of the six displays has a click point (captain seat, or FO seat for the FO PFD) and an open window, its size of 768 by 768, where it is parked off-screen, and Learn again; below, the key that brings back your own camera after a pop-out."></p>
 
@@ -109,6 +116,7 @@ the same way: [pi/SETUP.md](pi/SETUP.md). Allow the port in the firewall when th
 | `displays.<name>.match` | which window is the display: `process`, `class`, `title` (substring), `title_exact`, `title_regex` |
 | `displays.<name>.client_size`, `position` | the size the sim renders the pop-out at (whole 16-pixel blocks) and where it is parked |
 | `displays.<name>.max_size`, `fps`, `quality` | per display: a smaller picture, other limits |
+| `displays.<name>.crop`, `tool_window` | a frame the window draws around the display, cut off (the window is made that much larger), and keeping the window out of Alt+Tab and the taskbar. The built-in X-Plane profiles set both for their pop-outs themselves |
 | `modules.<serial>` | per DU: `display`, `label`, `brightness` (trim), `screen` (HDMI mode 0-4), `tiles` (several displays: `{display: {x, y}}`); `rotation` is stored but not drawn by the DU yet |
 | `popout` | `auto`, `aircraft`, `zoom`, `grace_s`, `retry_s`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
 | `brightness` | `enabled`, `source` |

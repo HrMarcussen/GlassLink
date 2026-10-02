@@ -369,7 +369,7 @@
     const br = s.brightness || {}; const pr = s.process || {}; const fi = s.firmware_image || {};
     const rows = [
       ['DMC version', esc(`${s.version}${s.build ? ' (' + s.build + ')' : ''}${s.engine ? ' · ' + s.engine : ''}`)],
-      ['Simulator', esc(s.sim ? (s.sim.connected ? `connected${s.sim.fps ? ' · ' + s.sim.fps + ' frames a second' : ''}${s.sim.in_cockpit ? '' : ' · not in the cockpit'}` : 'not running') : (br.running ? 'connected' : 'not running'))],
+      ['Simulator', esc(s.sim ? (s.sim.connected ? `${s.sim.name ? s.sim.name + ' ' : ''}connected${s.sim.fps ? ' · ' + s.sim.fps + ' frames a second' : ''}${s.sim.in_cockpit ? '' : s.sim.name === 'X-Plane' ? ' · no aircraft loaded' : ' · not in the cockpit'}` : 'not running') : (br.running ? 'connected' : 'not running'))],
       ['Process', esc(`priority ${pr.priority || '-'} · CPUs ${(pr.affinity || []).join(', ') || 'all'}`)],
       ['Auto pop-out', esc(`${(s.popout || {}).status || '-'} · ${(s.popout || {}).detail || ''}`)],
       ['Brightness link', esc(!br.enabled ? 'off' : br.standdown ? `standing down: ${br.standdown}` : `${br.running ? 'running' : (br.error || 'waiting for the sim')} via ${br.source || '-'}${br.aircraft ? ' · ' + br.aircraft : ''}`)],
@@ -727,13 +727,15 @@
     const disp = Object.values(s.displays || {}), found = disp.filter(d => d.window && d.window.hwnd).length;
     const simUp = found > 0 || br.running || (po.status && po.status !== 'off' && !/sim not running|SimConnect not available/.test(po.detail || ''));
     const notCockpit = s.sim && 'in_cockpit' in s.sim ? !!(s.sim.connected && !s.sim.in_cockpit) : /^not in cockpit/.test(po.detail || '');
+    const simName = (s.sim && s.sim.name) || 'Sim';
     const knobs = !br.enabled ? '' : br.standdown ? `brightness: dimmed by the aircraft (${br.standdown})`
       : br.running ? (Object.keys(br.map || {}).length ? 'brightness knobs linked' : `no brightness profile for ${br.aircraft || 'this aircraft'}`)
       : `brightness link: ${br.error || 'waiting'}`;
     const knobsBad = br.enabled && simUp && !br.standdown && !(br.running && Object.keys(br.map || {}).length);
     if (!simUp) setPill('#st-sim', 'bad', 'Sim not running', 'The DMC waits and pops the displays out when the sim is in the cockpit');
-    else if (notCockpit) setPill('#st-sim', 'warn', 'Sim: not in cockpit', po.detail);
-    else setPill('#st-sim', knobsBad ? 'warn' : 'ok', `Sim: ${br.aircraft || 'running'}${knobsBad ? ' · brightness link' : ''}`, knobs);
+    // the running sim by name ("MSFS: ...", "X-Plane: ..."); "Sim not running" stays general
+    else if (notCockpit) setPill('#st-sim', 'warn', `${simName}: ${s.sim && s.sim.name === 'X-Plane' ? 'no aircraft loaded' : 'not in cockpit'}`, po.detail);
+    else setPill('#st-sim', knobsBad ? 'warn' : 'ok', `${simName}: ${br.aircraft || 'running'}${knobsBad ? ' · brightness link' : ''}`, knobs);
 
     const total = disp.length;
     const busy = po.status === 'running' ? ' · popping out' : po.status === 'gave_up' ? ' · gave up' : '';

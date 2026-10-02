@@ -9,6 +9,44 @@ public class SimTests
     private static JsonObject Config(string json) => (JsonObject)JsonNode.Parse(json)!;
 
     [Fact]
+    public void The_toliss_in_x_plane_is_known_by_its_folder_and_finds_its_pop_outs_by_title()
+    {
+        var profile = XPlaneProfiles.Select("Aircraft/ToLissA321_V1p7p2/a321.acf")!;
+        Assert.Equal("ToLiss", profile.Key);
+        Assert.Equal(["ecam_lower", "ecam_upper", "fo_nd", "fo_pfd", "nd", "pfd"], profile.Displays.Keys.Order());
+        Assert.Null(XPlaneProfiles.Select("Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf"));
+        Assert.Null(XPlaneProfiles.Select(""));
+
+        var rule = profile.Rule("pfd")!;
+        Assert.Equal((15, true), (rule.Frame, rule.ToolWindow));
+        var popout = new WindowInfo(1, "ToLiss Captain Left DU", "X-System", "X-Plane.exe", false, default, default, default);
+        Assert.True(rule.Match.Matches(popout));
+        Assert.False(profile.Rule("nd")!.Match.Matches(popout));                // another display's window
+        Assert.False(rule.Match.Matches(popout with { Process = "FlightSimulator2024.exe" }));
+        Assert.Null(profile.Rule("mcdu"));                                       // not a ToLiss display GlassLink knows
+    }
+
+    [Fact]
+    public void A_cropped_picture_is_what_lies_inside_the_frame()
+    {
+        const int w = 6, h = 5, stride = w * 4 + 8, crop = 1;        // a stride wider than the row, as a capture can have
+        var source = new byte[stride * h];
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                source[y * stride + x * 4] = (byte)(10 * y + x);             // blue channel = row and column
+            }
+        }
+
+        var inside = new byte[(w - 2 * crop) * (h - 2 * crop) * 4];
+        GlassLink.Capture.DisplayCapture.CopyInside(source, stride, crop, w - 2 * crop, h - 2 * crop, inside);
+        Assert.Equal(11, inside[0]);                                     // row 1, column 1
+        Assert.Equal(14, inside[3 * 4]);                                 // the last column inside: 4
+        Assert.Equal(31, inside[2 * (w - 2) * 4]);                       // the last row inside: 3
+    }
+
+    [Fact]
     public void The_built_in_fenix_profile_knows_all_six_displays_and_their_views()
     {
         var profile = Profiles.Select(Config("{}"), "FenixA320 CFM SL")!;

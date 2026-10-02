@@ -121,8 +121,18 @@ public static class WindowFinder
     /// <summary>Names a window (GlassLink:pfd), which is how it is found again after a DMC restart.</summary>
     public static void SetTitle(nint hwnd, string title) => Native.SetWindowText(hwnd, title);
 
-    /// <summary>Asks a window to close, as its close button would.</summary>
-    public static void Close(nint hwnd) => Native.PostMessage(hwnd, 0x0010, 0, 0);
+    /// <summary>Asks a window to close, as its close button would. Never an X-Plane window: X-Plane takes a close message
+    /// to any of its windows, a pop-out too, as "quit X-Plane" and exits at once (2 Oct 2026). False if refused.</summary>
+    public static bool Close(nint hwnd)
+    {
+        if (Describe(hwnd) is { } w && string.Equals(w.Process, "X-Plane.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        Native.PostMessage(hwnd, 0x0010, 0, 0);
+        return true;
+    }
 
     /// <summary>The window's picture as BGRA pixels (PrintWindow, works for DirectX windows); null if it cannot be read.</summary>
     public static unsafe (byte[] Pixels, int Width, int Height)? Grab(nint hwnd)
@@ -239,6 +249,22 @@ public static class WindowFinder
         return true;
     }
 
+    /// <summary>A tool window that never takes the focus: left out of Alt+Tab and the taskbar, for the pop-outs of a sim
+    /// that shows them as ordinary windows (X-Plane). True if this changed it.</summary>
+    public static bool SetToolWindow(nint hwnd)
+    {
+        var style = Native.GetWindowLongPtr(hwnd, Native.GWL_EXSTYLE);
+        var wanted = (style | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE) & ~Native.WS_EX_APPWINDOW;
+        if (wanted == style)
+        {
+            return false;
+        }
+
+        Native.SetWindowLongPtr(hwnd, Native.GWL_EXSTYLE, wanted);
+        Native.SetWindowPos(hwnd, 0, 0, 0, 0, 0, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOSIZE | Native.SWP_NOMOVE | Native.SWP_FRAMECHANGED);
+        return true;
+    }
+
     /// <summary>
     /// Where the client area lies inside a captured frame. A capture delivers either the DWM frame rectangle or the
     /// GetWindowRect rectangle (which includes the invisible resize borders); take the one whose size matches.
@@ -288,9 +314,9 @@ public static class WindowFinder
 
     private static class Native
     {
-        public const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOZORDER = 4, SWP_NOACTIVATE = 0x10;
+        public const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOZORDER = 4, SWP_NOACTIVATE = 0x10, SWP_FRAMECHANGED = 0x20;
         public const int GWL_EXSTYLE = -20, DWMWA_EXTENDED_FRAME_BOUNDS = 9, DWMWA_CLOAKED = 14;
-        public const long WS_EX_NOACTIVATE = 0x08000000;
+        public const long WS_EX_NOACTIVATE = 0x08000000, WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000;
 
         public delegate bool EnumProc(nint hwnd, nint lParam);
 

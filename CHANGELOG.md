@@ -17,11 +17,25 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- **X-Plane 12 with the ToLiss A321** (and the rest of the ToLiss family by its folder name): the six displays pop
+  out by themselves, without moving the camera or clicking in the cockpit. GlassLink talks to X-Plane through its own
+  web API, asks the ToLiss to bring back the last flight's pop-outs (or opens a missing one by its command), and finds
+  them by their window titles under the same display names as in MSFS, so the DUs keep their assignments. The
+  windows are kept out of Alt+Tab and the taskbar, made 798 x 798 and cropped by X-Plane's 15 px frame to 768 x 768,
+  and parked off-screen. The ToLiss dims its pop-outs itself, so the DUs are not dimmed on top. Once per ToLiss:
+  switch on "Use popout windows for popups" and "Save popup config on quit" in its ISCS and pop each display out.
+  "Close window" closes an X-Plane pop-out with the aircraft's command: X-Plane takes a close message to any of its
+  windows as "quit X-Plane" and exits at once, so GlassLink never sends one to X-Plane.
+- A display can be cropped (`"crop": <pixels>`) and kept out of Alt+Tab and the taskbar (`"tool_window": true`).
+
 ### Changed
 - The README has pictures: a banner, a "how it works" diagram and the DU's own screens, made from HTML sources in
   `docs/images/src/` by `tools/render-images.ps1` (also one for viewing a display on a phone, tablet or Raspberry Pi),
   and screenshots of the status page's Displays, Display units and
   Setup tabs.
+- The top bar and the tray name the sim that runs: "MSFS: Fenix A320…", "X-Plane: ToLiSs A321…"; "Sim not running"
+  while there is none.
 
 ### Fixed
 - The PFD check before a pop-out took a blue screen without ground under it for a PFD (the FSLabs' EFB tablet, lit

@@ -35,6 +35,10 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
     /// <summary>Told when a display was removed, so DUs that showed it can be unassigned.</summary>
     public Action<string> Removed { get; set; } = _ => { };
 
+    /// <summary>Another window a display may be while its configured one is not there: the pop-out of the X-Plane
+    /// aircraft profile for that display name. Set before <see cref="StartAll"/>.</summary>
+    public Func<string, WindowRule?> Alternative { get; set; } = _ => null;
+
     [GeneratedRegex("^[a-z][a-z0-9_]{0,23}$")]
     private static partial Regex NameRule();
 
@@ -72,6 +76,9 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
             return name.Length > 0 ? _slots.GetValueOrDefault(name) : null;
         }
     }
+
+    /// <summary>Displays that have no window right now.</summary>
+    public IReadOnlyList<string> MissingDisplays() => All.Where(e => !e.Capture.HasWindow).Select(e => e.Name).ToList();
 
     /// <summary>Sim displays (windows of the simulator) that have no window right now.</summary>
     public IReadOnlyList<string> MissingSimDisplays() =>
@@ -258,7 +265,8 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
                 old.Capture.Dispose();                       // never two captures of one display: a leftover one would outlive the DMC
             }
 
-            _entries[name] = new DisplayEntry(name, slot, new DisplayCapture(name, display, capture, slot, () => shownOnDu(name) || slot.Clients > 0, log));
+            _entries[name] = new DisplayEntry(name, slot, new DisplayCapture(name, display, capture, slot, () => shownOnDu(name) || slot.Clients > 0, log,
+                () => Alternative(name)));
         }
     }
 
