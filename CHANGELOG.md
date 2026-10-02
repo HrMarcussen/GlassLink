@@ -17,6 +17,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-02
+
+In short: X-Plane 12 with the ToLiss joins MSFS 2024: its displays pop out by command, without moving the camera, and
+the DUs keep their assignments in either sim. The MSFS pop-out copes better with aircraft that are still starting up
+or cold and dark, and the README has pictures. The DU firmware is unchanged (0.7.0): the DUs need no update.
+
 ### Added
 - **X-Plane 12 with the ToLiss A321** (and the rest of the ToLiss family by its folder name): the six displays pop
   out by themselves, without moving the camera or clicking in the cockpit. GlassLink talks to X-Plane through its own
@@ -35,8 +41,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 ### Changed
 - The README has pictures: a banner, a "how it works" diagram and the DU's own screens, made from HTML sources in
   `docs/images/src/` by `tools/render-images.ps1` (also one for viewing a display on a phone, tablet or Raspberry Pi),
-  and screenshots of the status page's Displays, Display units and
-  Setup tabs.
+  and screenshots of the status page's Displays, Display units and Setup tabs. "What it does" leads with the two
+  sims; the brightness link (the Fenix's knobs) is no longer listed as a main feature.
+- Troubleshooting: what to do when a ToLiss display does not get a window in X-Plane.
 - The top bar and the tray name the sim that runs: "MSFS: Fenix A320…", "X-Plane: ToLiSs A321…"; "Sim not running"
   while there is none.
 

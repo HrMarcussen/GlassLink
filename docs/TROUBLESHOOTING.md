@@ -64,12 +64,25 @@ hand or by another tool do not have that mark; the Setup tab lists them and can 
 The display is already popped out somewhere, often off-screen from an earlier session: the sim opens each display
 once. The Setup tab shows "pop-out windows not made by GlassLink" with a button to close them.
 
+## X-Plane: a ToLiss display does not get a window
+
+- The status page says "open inside X-Plane, not as a window of its own": the popup is open, but inside X-Plane's
+  screen. Pop it out once with the button at the right end of its title bar (the red dot on the left closes it).
+  With the ISCS options "Use popout windows for popups" and "Save popup config on quit" on (ToLiss ISCS, Settings
+  tab, "User interface"; each ToLiss aircraft has its own), the aircraft remembers it and GlassLink opens it as a
+  window from then on.
+- The status page says "Sim not running" while X-Plane runs: GlassLink talks to X-Plane through its web API
+  (`localhost:8086`), which needs X-Plane 12.1.4 or later and is switched off by X-Plane's network setting "Disable
+  incoming traffic" and by the command-line option `--no_web_server`.
+- A close message sent to an X-Plane pop-out by another program (a window tool, a script) makes X-Plane quit at once.
+  GlassLink's "Close window" closes a ToLiss pop-out with the aircraft's own command instead.
+
 ## The pop-outs do not dim with the cockpit knobs
 
 In current sim and Fenix versions a pop-out is only on or off under the brightness knob, never dimmed; GlassLink
 reads the knobs over SimConnect and dims the DU. Exception: with the Fenix EFB setting *Home Cockpit Mode* on, the
 pop-outs do dim themselves, and GlassLink stands down ("dimmed by the aircraft" on the System tab). The FSLabs always
-dims its pop-outs itself, so GlassLink never dims for it.
+dims its pop-outs itself, so GlassLink never dims for it, and so does the ToLiss in X-Plane.
 
 ## Blue screens or sim crashes while testing
 

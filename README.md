@@ -23,19 +23,19 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 
 ## What it does
 
-- **Pops the displays out by itself** once you are in the cockpit: camera reset, Right-Alt + click on each display,
-  windows renamed, sized to the DU and parked off-screen, then your own camera view back. Up to six displays
-  (captain and first officer side), dark ones too: a cold and dark cockpit at the gate pops out like a ready one. New aircraft: press **Learn** on a display and click it once.
-  In **X-Plane 12** the ToLiss opens its displays by command, so nothing moves: GlassLink asks it for the pop-outs
-  over X-Plane's own web API, keeps them out of Alt+Tab and the taskbar, and crops X-Plane's frame off.
+- **MSFS 2024 and X-Plane 12**: the Fenix A320 and the FSLabs A321 in MSFS, the ToLiss A321 and A339 (and the rest of
+  the ToLiss family) in X-Plane, built in. GlassLink sees which sim runs; the displays and the DUs' assignments are
+  the same in both, so a DU that shows the captain's PFD shows it in either sim.
+- **Pops the displays out by itself**, up to six (captain and first officer side), dark ones too: a cold and dark
+  cockpit at the gate pops out like a ready one. In MSFS: camera reset, Right-Alt + click on each display, then your
+  own camera view back; a new aircraft needs **Learn** once per display. In X-Plane the ToLiss opens its displays by
+  command, so nothing moves at all. Either way the windows are sized to the DU and parked off-screen.
 - **Any number of DUs**, each assigned to a display on the status page; a DU is known by its serial number, so any
   unit can take any place in the cockpit.
 - **Several displays on one DU**: for a monitor behind a MIP with two cut-outs, place the displays in a layout on the
   status page and line them up with test cards. The DMC sends them as one picture as wide as the screen, which the
   DU draws straight into its frame buffer.
 - **HDMI modes** per DU: 768x768 (the square 8.8" panels), 1024x768, 800x600, 1280x720, 1920x1080 at 30 Hz.
-- **Brightness follows the cockpit knobs** (read through SimConnect), times a trim per DU; the DU dims in its JPEG
-  decoder, at no cost. Aircraft that dim their pop-outs themselves (the FSLabs, the ToLiss) are left to it.
 - **Updates itself** from GitHub Releases on your click (checked against the release's checksums), and **updates
   the DUs' firmware** over USB from the status page, with rollback if a new image does not come up.
 - **Status page** in its own window and on any device in the LAN (read-only from other devices unless allowed),
@@ -69,7 +69,7 @@ what helps.
 - Nothing else for a release: it includes Microsoft's `SimConnect.dll` (unmodified, see
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). A checkout does not: put a copy in `dotnet\lib\` (ignored by
   git) or `%LOCALAPPDATA%\GlassLink\`, or install the MSFS SDK. Without it the DMC still streams, but pops nothing
-  out and does not follow the brightness knobs.
+  out in MSFS and does not follow the Fenix's brightness knobs. X-Plane does not need it.
 - Graphics driver: no driver-level frame generation for the sim (AMD Fluid Motion Frames / HYPR-RX, NVIDIA Smooth
   Motion). It leaves pop-out windows with about 13 frames a second. See [Troubleshooting](docs/TROUBLESHOOTING.md).
 - DUs: see [Hardware](docs/hardware.md).
@@ -119,7 +119,7 @@ the same way: [pi/SETUP.md](pi/SETUP.md). Allow the port in the firewall when th
 | `displays.<name>.crop`, `tool_window` | a frame the window draws around the display, cut off (the window is made that much larger), and keeping the window out of Alt+Tab and the taskbar. The built-in X-Plane profiles set both for their pop-outs themselves |
 | `modules.<serial>` | per DU: `display`, `label`, `brightness` (trim), `screen` (HDMI mode 0-4), `tiles` (several displays: `{display: {x, y}}`); `rotation` is stored but not drawn by the DU yet |
 | `popout` | `auto`, `aircraft`, `zoom`, `grace_s`, `retry_s`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
-| `brightness` | `enabled`, `source` |
+| `brightness` | `enabled`, `source`: the DUs follow the cockpit's display brightness knobs where the pop-outs do not dim themselves (the Fenix, through SimConnect); the FSLabs and the ToLiss dim their own |
 | `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours |
 
 ## HTTP API

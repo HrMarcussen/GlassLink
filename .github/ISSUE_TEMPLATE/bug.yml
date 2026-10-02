@@ -18,14 +18,14 @@ body:
     attributes:
       label: Versions
       description: GlassLink version (System tab) and each DU's firmware (Display units tab)
-      placeholder: "GlassLink 0.8.0, DU firmware 0.7.0"
+      placeholder: "GlassLink 0.9.0, DU firmware 0.7.0"
     validations:
       required: true
   - type: input
     id: setup
     attributes:
       label: Sim, aircraft and DU hardware
-      placeholder: "MSFS 2024, Fenix A320, ESP32-P4-NANO + LT8912B, 768x768 panel"
+      placeholder: "MSFS 2024, Fenix A320 (or X-Plane 12.4, ToLiss A321), ESP32-P4-NANO + LT8912B, 768x768 panel"
   - type: textarea
     id: log
     attributes:
