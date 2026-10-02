@@ -277,10 +277,20 @@
   // is rebuilt only when its content changes and never while it is open (a refresh would close it under the finger).
   const duName = (m, serial) => m.label || serial.slice(0, 8);
   const tiled = (m) => !!(m.settings && m.settings.tiles);
-  function renderPick(card, name) {
+  // The viewers of a display ("in the viewer on iPhone and this PC"): web pages and streams on the network, named by
+  // the DMC from their user agent.
+  function viewerText(viewers) {
+    if (!viewers || !viewers.length) return '';
+    const names = [...new Set(viewers)];
+    const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return `in the viewer on <b>${esc(list)}</b>`;
+  }
+  function renderPick(card, name, viewers) {
     const alive = Object.entries(modsNow).filter(([, m]) => m.alive).sort((a, b) => duName(a[1], a[0]).localeCompare(duName(b[1], b[0])));
     const on = alive.filter(([, m]) => showsOf(m).includes(name));
-    const where = on.length ? `Shown on <b>${on.map(([s, m]) => esc(duName(m, s))).join(', ')}</b>` : '<span class="dim">Not shown on a DU</span>';
+    const seen = viewerText(viewers);
+    const where = on.length ? `Shown on <b>${on.map(([s, m]) => esc(duName(m, s))).join(', ')}</b>${seen ? ' · ' + seen : ''}`
+      : seen ? `Shown ${seen}` : '<span class="dim">Not shown on a DU</span>';
     const pick = card.querySelector('.pick');
     const what = (m) => tiled(m) ? `shows ${showsOf(m).map(nice).join(' + ')}` : m.display ? 'now shows ' + nice(m.display) : 'free';
     const sig = where + '|' + alive.map(([s, m]) => `${s}:${m.label}:${showsOf(m).join('+')}`).join(',');
@@ -339,12 +349,12 @@
         : (!s.in_use ? `<span class="pill" title="No DU or viewer is using this display, so the DMC only takes a preview picture ${s.capture_fps} time(s) a second to save CPU. Assign a DU to it and it runs at full rate.">not in use · preview ${s.capture_fps}/s</span>`
            : (s.fps > 0 ? `<span class="pill ok" title="Changed frames sent per second. A picture that is not changing sends nothing, so this is low when the display is still and rises to the aircraft's own rate (Fenix: about 20) when it moves.">in use · ${s.fps} fps</span>`
               : `<span class="pill ok" title="In use; the picture is not changing right now, so nothing needs to be sent.">in use · still picture</span>`)));
-      renderPick(card, name);
+      renderPick(card, name, s.viewers);
       setHTML(card.querySelector('.win'), found ? `${esc(s.window.title)} <span class="dim">(${esc(s.window.hwnd)})</span>` : '<span class="dim">waiting for pop-out</span>');
       card.querySelector('.size').textContent = `${s.size[0]}x${s.size[1]}`;
       card.querySelector('.backend').textContent = s.backend || '-';
       card.querySelector('.frames').textContent = `${c.received || 0} in / ${c.published || 0} sent / ${c.unchanged || 0} unchanged`;
-      card.querySelector('.users').textContent = `${s.du_assigned || 0} DU · ${s.clients || 0} viewer`;
+      card.querySelector('.users').textContent = `${s.du_assigned || 0} DU · ${s.clients || 0} viewer${(s.viewers || []).length ? ' (' + s.viewers.join(', ') + ')' : ''}`;
       const img = card.querySelector('img');
       if (!found) { img.removeAttribute('src'); lastSeq[name] = null; }
       else if (lastSeq[name] !== s.seq) {              // load the new picture off-screen, then swap: no flicker, no jump

@@ -62,7 +62,8 @@ public sealed class FrameSlot(string name) : IFrameSource
     }
 
     private readonly Queue<long> _times = new();
-    private int _clients;
+    private readonly Dictionary<long, string> _viewers = [];
+    private long _nextViewer;
 
     public int Width { get; private set; }
 
@@ -71,11 +72,52 @@ public sealed class FrameSlot(string name) : IFrameSource
     public DateTime? LastPublished { get; private set; }
 
     /// <summary>Viewers on the network (WebSocket, MJPEG) that are looking at this display right now.</summary>
-    public int Clients => Volatile.Read(ref _clients);
+    public int Clients
+    {
+        get
+        {
+            lock (_viewers)
+            {
+                return _viewers.Count;
+            }
+        }
+    }
 
-    public void AddClient() => Interlocked.Increment(ref _clients);
+    /// <summary>What the viewers are ("iPhone", "this PC"), for the status page to say where the display is shown.</summary>
+    public IReadOnlyList<string> Viewers
+    {
+        get
+        {
+            lock (_viewers)
+            {
+                return [.. _viewers.Values];
+            }
+        }
+    }
 
-    public void RemoveClient() => Interlocked.Decrement(ref _clients);
+    /// <summary>A viewer starts looking; dispose the result when it stops.</summary>
+    public IDisposable AddViewer(string device)
+    {
+        long id;
+        lock (_viewers)
+        {
+            id = ++_nextViewer;
+            _viewers[id] = device;
+        }
+
+        return new ViewerLease(this, id);
+    }
+
+    private sealed class ViewerLease(FrameSlot slot, long id) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (slot._viewers)
+            {
+                slot._viewers.Remove(id);
+            }
+        }
+    }
 
     // The raw picture next to the JPEG, for a band that puts several displays into one picture (it would otherwise
     // decode our JPEG and encode it a second time). Kept only while someone wants it, in one buffer that is reused.

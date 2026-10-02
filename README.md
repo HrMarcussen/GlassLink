@@ -103,7 +103,8 @@ The configuration is `%LOCALAPPDATA%\GlassLink\config.json` for an installed cop
 
 Any browser in the LAN: `http://<sim-pc>:8765/view/pfd` (click for full screen; `?rotate=90`, `?mode=mjpeg`,
 `?fps=1` for a frame counter). A phone gets a lighter stream by itself. A Raspberry Pi with a screen can show a display
-the same way: [pi/SETUP.md](pi/SETUP.md). Allow the port in the firewall when the installer offers it.
+the same way: [pi/SETUP.md](pi/SETUP.md). Allow the port in the firewall when the installer offers it. The status
+page says where each display is shown, on DUs and in viewers: "Shown on DU1 · in the viewer on iPhone".
 
 ## Configuration
 

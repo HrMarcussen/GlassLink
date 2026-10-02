@@ -17,6 +17,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- A display's card on the status page also says where it is shown in a viewer: "Shown on DU1 · in the viewer on
+  iPhone", or "Shown in the viewer on this PC" without a DU. The DMC names each viewer from its browser (iPhone,
+  iPad, Android phone or tablet, Raspberry Pi, the Pi viewer, Windows PC, Mac, VLC; "this PC" for one on the sim
+  PC); `/status` lists them per display as `viewers`.
+
 ## [0.9.0] - 2026-10-02
 
 In short: X-Plane 12 with the ToLiss joins MSFS 2024: its displays pop out by command, without moving the camera, and

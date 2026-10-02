@@ -314,6 +314,7 @@ public static partial class Api
                 ["backend"] = "wgc",
                 ["error"] = window is null ? e.Capture.Error : "",
                 ["clients"] = e.Slot.Clients,
+                ["viewers"] = new JsonArray([.. e.Slot.Viewers.Select(v => (JsonNode)v)]),
                 ["du_assigned"] = dmc.Dus.Status().Count(d => d.Alive && Shows(d).Contains(e.Name)),
                 ["client_size"] = dmc.Dus.DisplaySize(e.Name) is { } cs ? new JsonArray(cs.Width, cs.Height) : new JsonArray(768, 768),
                 ["capture_fps"] = e.Capture.CurrentFps,
@@ -433,7 +434,7 @@ public static partial class Api
         var quality = int.TryParse(http.Request.Query["quality"], out var q) ? Math.Clamp(q, 20, 100) : 0;
         using var lighter = Transcoder.Wanted(max, quality) ? new Transcoder(max, quality) : null;
         using var socket = await http.WebSockets.AcceptWebSocketAsync();
-        slot.AddClient();
+        var viewer = slot.AddViewer(ViewerOf(http));
         try
         {
             var hello = new JsonObject { ["type"] = "hello", ["name"] = name, ["size"] = new JsonArray(slot.Width, slot.Height), ["version"] = dmc.Version };
@@ -479,9 +480,12 @@ public static partial class Api
         }
         finally
         {
-            slot.RemoveClient();
+            viewer.Dispose();
         }
     }
+
+    private static string ViewerOf(HttpContext http) =>
+        ViewerNames.Describe(http.Request.Headers.UserAgent.ToString(), http.Connection.RemoteIpAddress is { } ip && System.Net.IPAddress.IsLoopback(ip));
 
     private static async Task Mjpeg(DmcRuntime dmc, string name, HttpContext http)
     {
@@ -494,7 +498,7 @@ public static partial class Api
         const string boundary = "glasslinkframe";
         http.Response.ContentType = $"multipart/x-mixed-replace; boundary={boundary}";
         http.Response.Headers.CacheControl = "no-cache, no-store";
-        slot.AddClient();
+        var viewer = slot.AddViewer(ViewerOf(http));
         try
         {
             uint last = 0;
@@ -518,7 +522,7 @@ public static partial class Api
         }
         finally
         {
-            slot.RemoveClient();
+            viewer.Dispose();
         }
     }
 

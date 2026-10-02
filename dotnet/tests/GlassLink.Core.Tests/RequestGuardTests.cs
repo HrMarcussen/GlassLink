@@ -56,3 +56,35 @@ public class RequestGuardTests
         Assert.Null(Check("POST", "192.168.1.10:8765", "application/json", "http://192.168.1.10:8765", "192.168.1.20", lan: true));
     }
 }
+
+public class ViewerTests
+{
+    [Theory]
+    [InlineData("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1", "iPhone")]
+    [InlineData("Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36", "Android phone")]
+    [InlineData("Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/140.0 Safari/537.36", "Android tablet")]
+    [InlineData("Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 Chrome/138.0 Safari/537.36", "Raspberry Pi")]
+    [InlineData("Python/3.11 websockets/13.1", "Pi viewer")]
+    [InlineData("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36 Edg/140.0", "Windows PC")]
+    [InlineData("VLC/3.0.21 LibVLC/3.0.21", "VLC")]
+    [InlineData("", "a device")]
+    public void A_viewer_is_named_by_its_user_agent(string userAgent, string name) =>
+        Assert.Equal(name, ViewerNames.Describe(userAgent, local: false));
+
+    [Fact]
+    public void A_viewer_on_the_sim_pc_is_this_pc_and_leaves_when_done()
+    {
+        Assert.Equal("this PC", ViewerNames.Describe("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", local: true));
+        var slot = new GlassLink.Core.Du.FrameSlot("pfd");
+        var phone = slot.AddViewer("iPhone");
+        using (slot.AddViewer("this PC"))
+        {
+            Assert.Equal(["iPhone", "this PC"], slot.Viewers.Order());
+            Assert.Equal(2, slot.Clients);
+        }
+
+        phone.Dispose();
+        Assert.Empty(slot.Viewers);
+        Assert.Equal(0, slot.Clients);
+    }
+}
