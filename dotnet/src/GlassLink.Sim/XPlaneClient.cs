@@ -27,7 +27,8 @@ public sealed class XPlaneClient : IDisposable
     public XPlaneClient(Action<string>? log = null, int port = 8086)
     {
         _log = log;
-        _http = new HttpClient { BaseAddress = new Uri($"http://localhost:{port}/api/v3/"), Timeout = TimeSpan.FromSeconds(2) };
+        // 127.0.0.1, not localhost: X-Plane listens on IPv4 only, and "localhost" would try IPv6 first on every request
+        _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/api/v3/"), Timeout = TimeSpan.FromSeconds(2) };
         _timer = new Timer(_ => Poll(), null, Timeout.Infinite, Timeout.Infinite);
     }
 

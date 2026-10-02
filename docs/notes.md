@@ -64,6 +64,16 @@ thing changed; this file says why things are the way they are.
   command is a new window at its own size and position, so size, parking and style are applied again.
 - **Never send a close message to an X-Plane window**: X-Plane takes WM_CLOSE to any of its windows, a pop-out too,
   as "quit X-Plane" and exits at once. A ToLiss pop-out is closed with its toggle command.
+- **The A339** (1.1) has the same window titles, commands and state entries as the A321; its ISCS options start off
+  (Settings tab, "User interface"). `AirbusFBW/PopupType` is not the pop-out option (popups opened inside X-Plane
+  with 0 and with 1).
+- **Frame rate.** X-Plane hands a pop-out window to the capture about 28 times a second (while it runs at 50-55).
+  With the aircraft turning (`tools/xplane-turn.ps1`: heading written 30 times a second through the API, with
+  `sim/operation/override/override_planepath` on, because the parked A339 ignores heading writes otherwise) the
+  A339's PFD and ND changed 24-26 times a second and the DUs showed 24-26 fps: every changed picture. Without the
+  override, X-Plane's physics fights the writes and the PFD changes unevenly (7-19). The number of open pop-outs made
+  no difference. A flight can be loaded through the API (12.4.0+): `POST /api/v3/flight` with `ramp_start`
+  (`airport_id`, `ramp`) and `aircraft.path`; the request may time out while X-Plane starts loading it.
 - **Brightness.** The pop-outs dim with the cockpit knobs themselves (`AirbusFBW/DUBrightness`, 0..1, entries 0 to 5:
   captain PFD, captain ND, FO PFD, FO ND, upper and lower ECAM), so the DMC does not dim the DUs.
 - XTextureExtractor (a GPL plugin that reads the displays from the cockpit panel texture) hangs X-Plane 12.4.4 while

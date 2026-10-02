@@ -27,8 +27,8 @@ public static class XPlaneProfiles
     public const string WindowClass = "X-System";
 
     /// <summary>
-    /// The ToLiss Airbus family (A319, A320neo, A321, A339, A340). Measured 2 Oct 2026 with the A321 1.7.2 on X-Plane
-    /// 12.4: with the ISCS options "Use popout windows for popups" and "Save popup config on quit" its popups are
+    /// The ToLiss Airbus family (A319, A320neo, A321, A339, A340). Measured 2 Oct 2026 with the A321 1.7.2 and the A339
+    /// 1.1 on X-Plane 12.4 (the same window titles and commands in both): with the ISCS options "Use popout windows for popups" and "Save popup config on quit" its popups are
     /// ordinary windows; AirbusFBW/PopUp* toggles one, toliss_airbus/reinstatePopups brings back every one that was
     /// popped out at the end of the last flight. The windows are drawn sharp at any size, inside a 15 px X-Plane frame,
     /// and they dim with the cockpit's brightness knobs themselves.

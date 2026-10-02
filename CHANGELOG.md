@@ -27,6 +27,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   switch on "Use popout windows for popups" and "Save popup config on quit" in its ISCS and pop each display out.
   "Close window" closes an X-Plane pop-out with the aircraft's command: X-Plane takes a close message to any of its
   windows as "quit X-Plane" and exits at once, so GlassLink never sends one to X-Plane.
+  Tested with the A321 and the A339 (the same window titles and commands): the PFD and ND reach 24-26 frames a second
+  on the DUs while the aircraft turns (X-Plane updates a pop-out window about 28 times a second).
+- `tools/xplane-turn.ps1`: turns the aircraft in X-Plane through its web API, for frame-rate tests.
 - A display can be cropped (`"crop": <pixels>`) and kept out of Alt+Tab and the taskbar (`"tool_window": true`).
 
 ### Changed

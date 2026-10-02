@@ -55,7 +55,7 @@ ESP32-P4-NANO):
 
 | Setup | Frames per second |
 |---|---|
-| 768x768 panel, any brightness | 60 (the panel's refresh; the Fenix draws its displays at about 20) |
+| 768x768 panel, any brightness | 60 (the panel's refresh; the Fenix draws its displays at about 20, the ToLiss in X-Plane 12 at about 25) |
 | 1080p monitor, PFD + ND side by side (two 768x768) | 26-30 for both |
 | 1080p monitor, one display as large as 1056x1056 | about 22 |
 
@@ -144,7 +144,7 @@ The status page uses these; they are also handy for scripts. Changes (POST, DELE
 | `dotnet/` | the DMC: `GlassLink.exe` and its libraries, the bench tool, tests ([dotnet/README.md](dotnet/README.md)) |
 | `firmware/` | the DU firmware, ESP-IDF 5.5 for the ESP32-P4 ([firmware/README.md](firmware/README.md)) |
 | `web/` | the status page and viewer the DMC serves, and their font |
-| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `build-release.ps1`; `render-images.ps1` (this page's drawn pictures, from `docs/images/src/`; the `status-*.png` ones are screenshots) |
+| `tools/` | measuring and test scripts (Python): `sim_fps.py`, `content_fps.py`, `du_multi_test.py`, `du_cycle_test.py`, `load_test.py`, `test_pattern.py`, `measure_latency.py`, `stop_server.py`; `xplane-turn.ps1` (turns the aircraft in X-Plane for a frame-rate test); `build-release.ps1`; `render-images.ps1` (this page's drawn pictures, from `docs/images/src/`; the `status-*.png` ones are screenshots) |
 | `installer/` | Inno Setup script |
 | `pi/` | the network viewer for a Raspberry Pi |
 | `docs/` | [USB protocol](docs/usb-protocol.md), [hardware](docs/hardware.md), [troubleshooting](docs/TROUBLESHOOTING.md), [design notes and findings](docs/notes.md), [panel data](docs/panel-DBC088HXN60L050A.md) |
