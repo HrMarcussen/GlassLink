@@ -19,7 +19,7 @@ learned for other MSFS aircraft).
 Why pixels: re-rendering a PFD from simulator variables means rewriting the aircraft's display software. Capturing
 the rendered pop-out windows gives an exact copy for any aircraft.
 
-<p align="center"><img src="docs/images/status-displays.png" width="100%" alt="The status page's Displays tab with the FSLabs A321 loaded: six live previews (Captain PFD and ND, upper and lower ECAM, FO PFD and ND), the captain's PFD and ND in use on DU1 and DU2 at 19.5 and 12.5 frames a second, the others with a Put on a DU menu."></p>
+<p align="center"><img src="docs/images/status-displays.png" width="100%" alt="The status page's Displays tab with the Fenix A320 loaded in MSFS: six live previews (Captain PFD and ND, upper and lower ECAM, FO ND and PFD), the captain's PFD and ND shown on DU1 and DU2, the others with a Put on a DU menu."></p>
 
 ## What it does
 
@@ -88,7 +88,7 @@ what helps.
    popup config on quit", then click each display in the cockpit and pop its popup out with the button at the right
    end of its title bar. From then on GlassLink opens them by itself, within a minute of loading a flight.
 
-<p align="center"><img src="docs/images/status-setup.png" width="100%" alt="The status page's Setup tab for the FSLabs: each of the six displays has a click point (captain seat, or FO seat for the FO PFD) and an open window, its size of 768 by 768, where it is parked off-screen, and Learn again; below, the key that brings back your own camera after a pop-out."></p>
+<p align="center"><img src="docs/images/status-setup.png" width="100%" alt="The status page's Setup tab for the Fenix: each of the six displays has a click point (captain seat, or FO seat for the FO PFD) and an open window, its size of 768 by 768, where it is parked off-screen, and Learn again; below, the key that brings back your own camera after a pop-out."></p>
 
 Stop GlassLink with **Quit** in its tray menu. Never end it with Task Manager while the sim runs: ending a process
 that holds window captures can upset the graphics driver.
