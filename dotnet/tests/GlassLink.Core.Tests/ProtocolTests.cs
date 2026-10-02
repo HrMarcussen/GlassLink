@@ -5,7 +5,7 @@ namespace GlassLink.Core.Tests;
 public class ProtocolTests
 {
     [Fact]
-    public void Header_is_16_bytes_little_endian_as_in_the_python_reference()
+    public void Header_is_16_bytes_little_endian_as_in_the_protocol_document()
     {
         var packed = Wire.Pack(MessageType.Frame, [1, 2, 3], seq: 0x01020304, arg: 7);
         // struct.pack("<2sBBIII", b"XD", 1, 0x01, 3, 0x01020304, 7) + b"\x01\x02\x03"

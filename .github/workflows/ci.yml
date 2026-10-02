@@ -1,5 +1,5 @@
 # Build and test on every push and pull request. Each job runs only when its part changed, and a newer push cancels
-# a running check of the same branch: the repository is private, so Actions minutes count (Windows minutes double).
+# a running check of the same branch. The python job compiles the Python tools and the Pi viewer (the DMC is .NET).
 name: CI
 
 on:
