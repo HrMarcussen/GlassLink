@@ -108,15 +108,49 @@ public static class WindowFinder
     /// for a while (found 21 Sept 2026: such a zombie still has its title and counts as visible).</summary>
     public static bool IsCloaked(nint hwnd) => Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
 
-    /// <summary>Makes the client area width x height and optionally moves the window, without activating it.</summary>
+    /// <summary>Makes the client area width x height and optionally parks the window (see <see cref="OffScreen"/>),
+    /// without activating it.</summary>
     public static void SetClientSize(WindowInfo w, int width, int height, int? x, int? y)
     {
+        var (cx, cy) = (width + w.Window.Width - w.Client.Width, height + w.Window.Height - w.Client.Height);
         var flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | (x is null || y is null ? Native.SWP_NOMOVE : 0);
-        Native.SetWindowPos(w.Handle, 0, x ?? 0, y ?? 0, width + w.Window.Width - w.Client.Width, height + w.Window.Height - w.Client.Height, flags);
+        var (px, py) = x is { } ax && y is { } ay ? OffScreen(ax, ay, cx, cy, Monitors()) : (0, 0);
+        Native.SetWindowPos(w.Handle, 0, px, py, cx, cy, flags);
     }
 
-    public static void Move(nint hwnd, int x, int y) =>
-        Native.SetWindowPos(hwnd, 0, x, y, 0, 0, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOSIZE);
+    /// <summary>Parks a window at x, y (see <see cref="OffScreen"/>), without activating it.</summary>
+    public static void Move(nint hwnd, int x, int y)
+    {
+        var size = Native.GetWindowRect(hwnd, out var r) ? (r.Width, r.Height) : (0, 0);
+        var (px, py) = OffScreen(x, y, size.Item1, size.Item2, Monitors());
+        Native.SetWindowPos(hwnd, 0, px, py, 0, 0, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | Native.SWP_NOSIZE);
+    }
+
+    /// <summary>
+    /// Where a parked window really goes: its configured place, unless that lies on one of the screens. Then it moves
+    /// right of all of them, keeping its distance to the default parking area (x 2600, made for a 2560-wide screen), so
+    /// a wider or added monitor never shows a pop-out (found 7 Oct 2026 with a 3840-wide screen). Parked windows may
+    /// overlap each other: the capture reads each window on its own.
+    /// </summary>
+    public static (int X, int Y) OffScreen(int x, int y, int width, int height, IReadOnlyList<Rect> monitors)
+    {
+        var box = new Rect(x, y, x + Math.Max(1, width), y + Math.Max(1, height));
+        if (monitors.Count == 0 || !monitors.Any(m => m.Left < box.Right && box.Left < m.Right && m.Top < box.Bottom && box.Top < m.Bottom))
+        {
+            return (x, y);
+        }
+
+        var right = monitors.Max(m => m.Right) + 40;
+        return (Math.Max(x + right - 2600, right), y);
+    }
+
+    /// <summary>The monitors, in physical pixels.</summary>
+    public static List<Rect> Monitors()
+    {
+        var found = new List<Rect>();
+        Native.EnumDisplayMonitors(0, 0, (nint monitor, nint dc, ref Rect r, nint data) => { found.Add(r); return true; }, 0);
+        return found;
+    }
 
     /// <summary>Names a window (GlassLink:pfd), which is how it is found again after a DMC restart.</summary>
     public static void SetTitle(nint hwnd, string title) => Native.SetWindowText(hwnd, title);
@@ -319,6 +353,10 @@ public static class WindowFinder
         public const long WS_EX_NOACTIVATE = 0x08000000, WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000;
 
         public delegate bool EnumProc(nint hwnd, nint lParam);
+
+        public delegate bool MonitorEnumProc(nint monitor, nint dc, ref Rect rect, nint data);
+
+        [DllImport("user32.dll")] public static extern bool EnumDisplayMonitors(nint dc, nint clip, MonitorEnumProc callback, nint data);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct Point

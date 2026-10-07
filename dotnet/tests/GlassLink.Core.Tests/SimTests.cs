@@ -27,6 +27,18 @@ public class SimTests
     }
 
     [Fact]
+    public void A_parked_window_never_lands_on_a_screen()
+    {
+        Rect[] qhd = [new(0, 0, 2560, 1440)], uhd = [new(0, 0, 3840, 2160)], two = [new(-1920, 0, 0, 1080), new(0, 0, 3840, 2160)];
+        Assert.Equal((2600, 0), WindowFinder.OffScreen(2600, 0, 770, 800, qhd));           // already off the 2560 screen: as configured
+        Assert.Equal((3880, 0), WindowFinder.OffScreen(2600, 0, 770, 800, uhd));           // on the 3840 screen: right of it
+        Assert.Equal((4680, 820), WindowFinder.OffScreen(3400, 820, 770, 800, uhd));       // keeps its distance to the others
+        Assert.Equal((5000, 0), WindowFinder.OffScreen(5000, 0, 770, 800, uhd));
+        Assert.Equal((3880, 0), WindowFinder.OffScreen(100, 0, 770, 800, two));            // a place on a screen: right of all screens
+        Assert.Equal((2600, 0), WindowFinder.OffScreen(2600, 0, 770, 800, []));            // no monitors known: as configured
+    }
+
+    [Fact]
     public void A_cropped_picture_is_what_lies_inside_the_frame()
     {
         const int w = 6, h = 5, stride = w * 4 + 8, crop = 1;        // a stride wider than the row, as a capture can have

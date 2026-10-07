@@ -23,6 +23,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   iPad, Android phone or tablet, Raspberry Pi, the Pi viewer, Windows PC, Mac, VLC; "this PC" for one on the sim
   PC); `/status` lists them per display as `viewers`.
 
+### Fixed
+- Pop-outs are parked off-screen on any screen size: the default places (from x 2600) were made for a 2560-wide
+  screen, so on a 4K screen four of the six pop-outs landed on the visible desktop. A parked window that would lie
+  on a screen now goes right of all screens, keeping its distance to the others.
+
 ## [0.9.0] - 2026-10-02
 
 In short: X-Plane 12 with the ToLiss joins MSFS 2024: its displays pop out by command, without moving the camera, and
