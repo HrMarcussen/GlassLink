@@ -119,11 +119,18 @@ public sealed class DmcRuntime : IDisposable
 
     public bool BrightnessEnabled => Config.Read(root => (root["brightness"] as JsonObject)?["enabled"] is not { } e || e.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
-    /// <summary>The DU firmware image to install: named in the configuration, else the one built in this checkout,
-    /// else the one shipped next to GlassLink.exe (an installed copy).</summary>
-    public string FirmwareImagePath => Config.Read(root => (root["firmware"] as JsonObject)?["image"].Text())
-                                       ?? new[] { Path.Combine(Root, "firmware", "build", "glasslink_du.bin"), Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin") }
-                                           .FirstOrDefault(File.Exists) ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
+    /// <summary>The DU firmware image to install: an installed copy's own; in a checkout the one named in the
+    /// configuration, else the one built in this checkout, else one next to GlassLink.exe.</summary>
+    /// <remarks>An installed copy takes only the image installed with it: its configuration folder can be written by any
+    /// program the user runs, the install folder cannot (SECURITY.md). A checkout takes its own build, or firmware.image.</remarks>
+    public string FirmwareImagePath => Installed
+        ? Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin")
+        : Config.Read(root => (root["firmware"] as JsonObject)?["image"].Text())
+          ?? new[] { Path.Combine(Root, "firmware", "build", "glasslink_du.bin"), Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin") }
+              .FirstOrDefault(File.Exists) ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
+
+    /// <summary>Installed by the setup program (its uninstaller is next to GlassLink.exe), not run from a checkout.</summary>
+    public static bool Installed => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
 
     public void Start()
     {
@@ -242,7 +249,8 @@ public sealed class DmcRuntime : IDisposable
 
     private string? ReadText(string name)
     {
-        foreach (var folder in new[] { Root, AppContext.BaseDirectory })
+        // an installed copy: only its install folder (VERSION decides what the DUs are offered, see FirmwareImagePath)
+        foreach (var folder in Installed ? [AppContext.BaseDirectory] : new[] { Root, AppContext.BaseDirectory })
         {
             var path = Path.Combine(folder, name);
             if (File.Exists(path))

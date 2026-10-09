@@ -8,7 +8,9 @@ What matters most here:
 - **The DMC's HTTP server** (port 8765): the status page and API on the sim PC. Changes are accepted only from the PC
   itself unless `server.allow_lan_control` is set, only as JSON, and only for this PC's own host names (against
   cross-site requests and DNS rebinding). A way around any of that is a vulnerability.
-- **Firmware updates over USB**: a DU installs what the DMC sends it. The DMC takes the image that ships with it.
+- **Firmware updates over USB**: a DU installs what the DMC sends it. An installed DMC takes only the image installed
+  with it (and its version from the install folder), never one named in its configuration folder, which any program
+  the user runs can write to.
 - **Releases and updates**: installers are published on GitHub Releases with SHA-256 checksums (code signing is being
   set up). The DMC installs an update only on the user's click, only if its SHA-256 matches the release's
   SHA256SUMS.txt, and, when GlassLink itself is signed, only if the update is validly signed by the same publisher. A
