@@ -148,7 +148,7 @@ public class DuManagerTests
         Assert.Equal((381, 0, 384, 384), (BitConverter.ToUInt16(layout, 8), BitConverter.ToUInt16(layout, 10), BitConverter.ToUInt16(layout, 12), BitConverter.ToUInt16(layout, 14)));   // the position as given, the size up to whole 16-pixel blocks
         Assert.Contains("ecam_upper", manager.Status().Single().LayoutProblem);                     // not a display here: left out, reported
         Assert.Empty(dus[0].Of(MessageType.SetMode));
-        var afterLayout = dus[0].Received.SkipWhile(m => !(m.Type == MessageType.SetLayout && m.Payload.Length > 0)).ToList();
+        var afterLayout = dus[0].All().SkipWhile(m => !(m.Type == MessageType.SetLayout && m.Payload.Length > 0)).ToList();
         Assert.DoesNotContain(afterLayout, m => m.Type == MessageType.SetAssigned && m.Arg == 0);  // no NOT ASSIGNED flash when switching to tiles
 
         displays["nd"].Publish(new byte[] { 2 });

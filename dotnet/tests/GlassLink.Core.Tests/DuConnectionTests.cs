@@ -111,6 +111,15 @@ internal sealed class FakeDu : IDuTransport
         }
     }
 
+    /// <summary>A copy of everything received so far, taken under the lock the connection's writer holds.</summary>
+    public List<Message> All()
+    {
+        lock (Received)
+        {
+            return [.. Received];
+        }
+    }
+
     public void Dispose()
     {
     }
@@ -325,7 +334,7 @@ public class DuConnectionTests
         publisher.Join();
         Assert.True(conn.Alive, conn.Error);
         var inTiles = false;
-        foreach (var m in du.Received.ToList())
+        foreach (var m in du.All())
         {
             if (m.Type == MessageType.SetLayout)
             {
