@@ -127,12 +127,19 @@ public sealed class DisplayCapture : IDisposable
                     var capture = _capture = new WindowCapture(Window.Handle, OnPixels, _settings.Fps) { WantFrame = WantFrame };
                     capture.Closed += () => ThreadPool.QueueUserWorkItem(_ =>
                     {
-                        lock (_gate)
+                        try
                         {
-                            if (ReferenceEquals(_capture, capture))   // not a late Closed from a capture Watch has replaced already
+                            lock (_gate)
                             {
-                                Stop($"window of '{Name}' was closed");
+                                if (!_disposed && ReferenceEquals(_capture, capture))   // not a late Closed from a capture Watch has replaced already
+                                {
+                                    Stop($"window of '{Name}' was closed");
+                                }
                             }
+                        }
+                        catch (Exception ex)                 // on a pool thread an exception would end the DMC with its captures open
+                        {
+                            _log?.Invoke($"[{Name}] stopping the capture: {ex.GetType().Name}: {ex.Message}");
                         }
                     });
                     Error = "";

@@ -73,7 +73,17 @@ public sealed class BandComposer : IFrameSource, IDisposable
     /// <summary>Milliseconds per band (drawing the changed displays and encoding), smoothed.</summary>
     public double ComposeMs => Volatile.Read(ref _composeMs);
 
-    private void Wake() => _wake.Set();
+    private void Wake()
+    {
+        try
+        {
+            _wake.Set();
+        }
+        catch (ObjectDisposedException)
+        {
+            // a display that published while the band was being disposed (it unsubscribes first, a racing call can remain)
+        }
+    }
 
     private void Run()
     {
@@ -114,8 +124,17 @@ public sealed class BandComposer : IFrameSource, IDisposable
                 continue;
             }
 
-            var jpeg = _encoder.Encode(_canvas, _width, _height, _width * 4);
-            _slot.Publish(jpeg, _width, _height);
+            try
+            {
+                var jpeg = _encoder.Encode(_canvas, _width, _height, _width * 4);
+                _slot.Publish(jpeg, _width, _height);
+            }
+            catch (Exception) when (!_stop)
+            {
+                // an exception on this thread would end the DMC with every capture session open (the AMD driver resets
+                // seen when such a process dies): this band skips the picture, the next change tries again
+            }
+
             last = startedMs;                                        // the interval counts from the start: composing takes time too
             _composeMs = _composeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
         }
