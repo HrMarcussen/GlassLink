@@ -33,6 +33,8 @@ public sealed class DuManager : IDisposable
     /// connection still reporting the old mode is only "not restarted yet", a new one is a refusal.</summary>
     private readonly Dictionary<string, (DuConnection Conn, int Mode)> _modeSent = [];
     private readonly HashSet<string> _cards = [];
+    /// <summary>How the last update of each DU ended, kept after its connection (the DU restarts into the new firmware).</summary>
+    private readonly Dictionary<string, OtaStatus> _otaLast = [];
     private readonly Dictionary<string, List<(string Display, DuConnection.Tile Tile)>> _layouts = [];
     private readonly Dictionary<string, string> _layoutProblems = [];
     /// <summary>Per DU: the band that carries its tiles, and what it was made for (tiles and displays).</summary>
@@ -107,6 +109,32 @@ public sealed class DuManager : IDisposable
                 {
                     deadBands.Add(band.Band);        // nobody to send it to: stop composing (a new one comes with the DU)
                 }
+
+                if (conn.Ota.State is OtaState.Ok or OtaState.Error)
+                {
+                    // an update ends with the DU restarting, which ends this connection: the outcome stays on the page
+                    _otaLast[serial] = conn.Ota.State == OtaState.Ok ? conn.Ota with { Message = "installed, the DU restarted" } : conn.Ota;
+                }
+            }
+        }
+
+        // The dead ones are closed before a replugged or restarted DU is opened again: its old handle could still hold
+        // the device (review L3)
+        foreach (var conn in dead)
+        {
+            conn.Dispose();
+        }
+
+        foreach (var band in deadBands)
+        {
+            (band as IDisposable)?.Dispose();
+        }
+
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
             }
 
             foreach (var path in paths)
@@ -145,16 +173,6 @@ public sealed class DuManager : IDisposable
                 conn.Label = Settings(serial).Label;          // shown on the DU's own screens (#81)
                 SyncScreen(serial, conn);
             }
-        }
-
-        foreach (var conn in dead)
-        {
-            conn.Dispose();
-        }
-
-        foreach (var band in deadBands)
-        {
-            (band as IDisposable)?.Dispose();
         }
     }
 
@@ -565,12 +583,15 @@ public sealed class DuManager : IDisposable
     /// <summary>Forgets a DU that is not connected. A connected one would only come back at the next scan.</summary>
     public bool Forget(string serial)
     {
+        serial = serial.ToLowerInvariant();                  // serials are kept in lower case (review S11d)
         lock (_gate)
         {
             if (_connections.TryGetValue(serial, out var conn) && conn.Alive)
             {
                 return false;
             }
+
+            _otaLast.Remove(serial);
         }
 
         _config.Update(root => (root["modules"] as JsonObject)?.Remove(serial));
@@ -623,7 +644,8 @@ public sealed class DuManager : IDisposable
                 var c = _connections.GetValueOrDefault(serial);
                 return new DuStatus(serial, s.Label, s.Display, s.Brightness, c?.Alive ?? false, c?.Error ?? _openErrors.GetValueOrDefault(serial, ""),
                     c?.Info, c?.Stats, c?.FramesSent ?? 0, c?.PingMs, _brightnessSent.TryGetValue(serial, out var b) ? b : null,
-                    _brightnessSim.GetValueOrDefault(serial), c?.Ota ?? new OtaStatus(OtaState.Idle, 0, ""), c?.HealthReasons ?? [],
+                    _brightnessSim.GetValueOrDefault(serial),
+                    c?.Ota is { State: not OtaState.Idle } ota ? ota : _otaLast.GetValueOrDefault(serial) ?? new OtaStatus(OtaState.Idle, 0, ""), c?.HealthReasons ?? [],
                     s.Screen, s.Tiles, c?.Layout.Count > 0 ? _layouts.GetValueOrDefault(serial) ?? [] : [], c?.Cards ?? false, _layoutProblems.GetValueOrDefault(serial, ""));
             }).ToList();
         }
@@ -633,16 +655,22 @@ public sealed class DuManager : IDisposable
     {
         _scanTimer?.Dispose();
         _brightnessTimer?.Dispose();
+        List<DuConnection> connections;
         lock (_gate)
         {
             _disposed = true;
-            foreach (var conn in _connections.Values)
-            {
-                conn.SayBye();                      // the panels show "waiting for the DMC", not a frozen last picture (#81)
-                conn.Dispose();
-            }
-
+            connections = [.. _connections.Values];
             _connections.Clear();
+        }
+
+        foreach (var conn in connections)                    // outside the gate: a goodbye can wait behind a frame (#28)
+        {
+            conn.SayBye();                          // the panels show "waiting for the DMC", not a frozen last picture (#81)
+            conn.Dispose();
+        }
+
+        lock (_gate)
+        {
             _layouts.Clear();
             _layoutProblems.Clear();
             foreach (var serial in _bands.Keys.ToList())

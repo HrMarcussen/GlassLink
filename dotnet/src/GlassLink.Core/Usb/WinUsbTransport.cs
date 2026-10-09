@@ -181,9 +181,20 @@ public sealed class WinUsbTransport : IDuTransport
         }
 
         _closing = true;
-        Native.WinUsb_AbortPipe(_usb, _pipeIn);           // the pending read returns at once ...
-        Native.WinUsb_AbortPipe(_usb, _pipeOut);          // ... and so does a write that is still timing out
-        _reader.Join(1000);                              // the reader sees _closing
+        Native.WinUsb_AbortPipe(_usb, _pipeOut);          // a write that is still timing out returns at once
+        // The pending read returns at once too; but a reader that passed its _closing check just before can start a new
+        // read after one abort, so it is aborted until the reader has gone (review L6)
+        for (var i = 0; i < 10 && _reader.IsAlive; i++)
+        {
+            Native.WinUsb_AbortPipe(_usb, _pipeIn);
+            _reader.Join(100);
+        }
+
+        if (_reader.IsAlive)
+        {
+            return;                                      // freeing the handles under a read in progress would crash: kept
+        }
+
         lock (_writeLock)                                // and no write is running: only now may the handles go (#31)
         {
             Native.WinUsb_Free(_usb);
@@ -193,16 +204,24 @@ public sealed class WinUsbTransport : IDuTransport
         _chunks.Dispose();
     }
 
+    /// <summary>A policy that does not take is an error: without the zero-length packet every message of n x 512 bytes
+    /// would stall, without the timeout a write to a hung DU would wait for ever (review L7).</summary>
     private void SetPolicy(byte pipe, uint policy, uint value)
     {
+        bool ok;
         if (policy is Native.SHORT_PACKET_TERMINATE or Native.AUTO_CLEAR_STALL)
         {
             var flag = (byte)value;
-            Native.WinUsb_SetPipePolicy(_usb, pipe, policy, 1, ref flag);
+            ok = Native.WinUsb_SetPipePolicy(_usb, pipe, policy, 1, ref flag);
         }
         else
         {
-            Native.WinUsb_SetPipePolicy(_usb, pipe, policy, 4, ref value);
+            ok = Native.WinUsb_SetPipePolicy(_usb, pipe, policy, 4, ref value);
+        }
+
+        if (!ok)
+        {
+            throw new IOException($"cannot set WinUSB pipe policy 0x{policy:x} on DU {Serial}: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
         }
     }
 

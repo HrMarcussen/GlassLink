@@ -29,7 +29,7 @@ public class DuManagerTests
         var plugged = new List<string> { Path };
         var manager = new DuManager(config, name => displays.GetValueOrDefault(name), () => plugged.ToList(), _ =>
         {
-            var du = new FakeDu();
+            var du = new FakeDu { OpenedAfterPreviousClosed = dus.Count == 0 || dus[^1].Disposed };
             if (info is not null)
             {
                 du.InfoJson = info;
@@ -275,7 +275,27 @@ public class DuManagerTests
         Until(() => manager.Connection(Serial)?.Alive == false);
         plugged.Clear();
         manager.ScanOnce();
-        Assert.True(manager.Forget(Serial));
+        Assert.True(manager.Forget(Serial.ToUpperInvariant()));     // as typed into a URL: serials are kept in lower case
         Assert.Empty(manager.Status());
+    }
+
+    [Fact]
+    public void An_update_stays_on_the_page_after_the_du_restarted_and_the_old_connection_is_closed_before_the_new_one_opens()
+    {
+        var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"display":"pfd","label":"DU1"}}}""");
+        using var _m = manager;
+        manager.ScanOnce();
+        var image = new byte[40_000];
+        Random.Shared.NextBytes(image);
+        manager.Connection(Serial)!.BeginUpdate(image);
+        Until(() => manager.Connection(Serial)!.Ota.State == OtaState.Ok, 5000);
+
+        dus[0].Unplug();                                             // the DU restarts into the new firmware
+        Until(() => manager.Connection(Serial)?.Alive == false);
+        manager.ScanOnce();                                          // and is back
+        Until(() => dus.Count == 2 && manager.Connection(Serial)?.Alive == true);
+        Assert.True(dus[1].OpenedAfterPreviousClosed);               // the old handle went first (review L3)
+        var ota = manager.Status().Single().Ota;
+        Assert.Equal((OtaState.Ok, "installed, the DU restarted"), (ota.State, ota.Message));     // not lost with the connection (L9)
     }
 }

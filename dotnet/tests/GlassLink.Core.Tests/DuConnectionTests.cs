@@ -120,9 +120,13 @@ internal sealed class FakeDu : IDuTransport
         }
     }
 
-    public void Dispose()
-    {
-    }
+    /// <summary>True once the host closed it (a real transport frees the device then).</summary>
+    public volatile bool Disposed;
+
+    /// <summary>For the manager's tests: the DU's previous connection was closed before this one was opened.</summary>
+    public bool OpenedAfterPreviousClosed = true;
+
+    public void Dispose() => Disposed = true;
 }
 
 public class DuConnectionTests
@@ -397,6 +401,23 @@ public class DuConnectionTests
         Assert.Null(conn.Mode);
         Assert.False(conn.SupportsTiles);
         Assert.Equal(0, conn.Info!.PanelWidth);
+    }
+
+    [Fact]
+    public void A_label_is_cut_to_the_dus_31_bytes_between_letters_not_inside_one()
+    {
+        Assert.Equal(new string('ø', 15), DuConnection.Utf8Prefix(new string('ø', 16), 31));      // 32 bytes: the 16th ø would be cut in half
+        Assert.Equal("DU1", DuConnection.Utf8Prefix("DU1", 31));
+        Assert.Equal(new string('a', 31), DuConnection.Utf8Prefix(new string('a', 40), 31));
+
+        var du = new FakeDu();
+        using var conn = new DuConnection(du);
+        conn.Start();
+        conn.Ident(new string('ø', 16), 5);
+        Until(() => du.Of(MessageType.ShowIdent).Count == 1);
+        var label = du.Of(MessageType.ShowIdent)[0].Payload;
+        Assert.Equal(30, label.Length);
+        Assert.DoesNotContain('�', Encoding.UTF8.GetString(label.Span));
     }
 
     [Fact]

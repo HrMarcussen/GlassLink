@@ -283,7 +283,7 @@ public sealed class DuConnection : IDisposable
         var state = sources.Count == 0 ? 0u : sources.Any(s => s.Live) ? 1u : 2u;
         var names = string.Join(" · ", sources.Select(s => s.Title).Distinct());
         _assignedSentAt = Environment.TickCount64;
-        Send(MessageType.SetAssigned, Encoding.UTF8.GetBytes($"{Label}\n{names}"), arg: state);
+        Send(MessageType.SetAssigned, Encoding.UTF8.GetBytes($"{Utf8Prefix(Label, 31)}\n{names}"), arg: state);
     }
 
     /// <summary>The DMC is quitting: the DU shows "waiting for the DMC" at once and keeps no picture of this session.</summary>
@@ -316,10 +316,26 @@ public sealed class DuConnection : IDisposable
     }
 
     /// <summary>Stamps "IDENT label" on the DU for some seconds; 0 switches it off.</summary>
-    public void Ident(string label, int seconds)
+    public void Ident(string label, int seconds) =>
+        Send(MessageType.ShowIdent, Encoding.UTF8.GetBytes(Utf8Prefix(label ?? "", 31)), arg: (uint)Math.Max(0, seconds));
+
+    /// <summary>The longest start of <paramref name="text"/> that fits in <paramref name="maxBytes"/> bytes of UTF-8. The DU
+    /// keeps 31 bytes of a label; a letter like ø cut in half would show as '?' on its screens.</summary>
+    public static string Utf8Prefix(string text, int maxBytes)
     {
-        var bytes = Encoding.UTF8.GetBytes(label ?? "");
-        Send(MessageType.ShowIdent, bytes.AsSpan(0, Math.Min(bytes.Length, 31)), arg: (uint)Math.Max(0, seconds));
+        var bytes = Encoding.UTF8.GetBytes(text);
+        if (bytes.Length <= maxBytes)
+        {
+            return text;
+        }
+
+        var cut = maxBytes;
+        while (cut > 0 && (bytes[cut] & 0xC0) == 0x80)       // the first byte left out continues a character: leave it all out
+        {
+            cut--;
+        }
+
+        return Encoding.UTF8.GetString(bytes, 0, cut);
     }
 
     public void SetBrightness(int percent) => Send(MessageType.SetBrightness, arg: (uint)Math.Clamp(percent, 0, 100));
