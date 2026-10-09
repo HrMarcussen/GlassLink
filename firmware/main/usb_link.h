@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include "esp_err.h"
 
-/* Start the USB device on the high-speed port with the given serial string (32 hex chars). */
+/* Start the USB device on the high-speed port with the given serial string (24 hex characters). */
 esp_err_t usb_link_start(const char *serial);
 
 /* True while the host has configured the device. */

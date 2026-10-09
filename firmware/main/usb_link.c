@@ -235,7 +235,9 @@ bool usb_link_connected(void)
 /* One reader (the protocol task). Returns what is there (at least one byte) or 0 after the timeout. */
 size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
-    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    /* time since the start, not a deadline: the tick count wraps after 49.7 days, and a deadline past the wrap could
+       make a wait end at once or never (review F10) */
+    TickType_t start = xTaskGetTickCount(), limit = pdMS_TO_TICKS(timeout_ms);
     for (;;) {
         bool mounted = usb_link_connected();
         uint32_t session = usb_link_session();
@@ -251,15 +253,15 @@ size_t usb_link_read(uint8_t *buf, size_t len, uint32_t timeout_ms)
         if (mounted) {
             rx_arm_if_room();                      /* the first transfer of a session, or one we could not start */
         }
-        TickType_t now = xTaskGetTickCount();
+        TickType_t spent = xTaskGetTickCount() - start;
         TickType_t slice = pdMS_TO_TICKS(5);       /* awake at least every 5 ms to see the above */
-        TickType_t wait = now >= deadline ? 0 : (deadline - now < slice ? deadline - now : slice);
+        TickType_t wait = spent >= limit ? 0 : (limit - spent < slice ? limit - spent : slice);
         size_t n = xStreamBufferReceive(s_rx_stream, buf, len, wait);
         if (n) {
             rx_arm_if_room();                      /* room again: take the next transfer */
             return n;
         }
-        if (xTaskGetTickCount() >= deadline) {
+        if (xTaskGetTickCount() - start >= limit) {
             return 0;
         }
     }
@@ -272,7 +274,7 @@ bool usb_link_write(const uint8_t *buf, size_t len, uint32_t timeout_ms)
     if (!usb_link_connected()) {
         return false;
     }
-    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+    TickType_t start = xTaskGetTickCount(), limit = pdMS_TO_TICKS(timeout_ms);   /* wrap-safe, see usb_link_read */
     size_t off = 0;
     bool zlp = len > 0 && len % 512 == 0;
     while (off < len || zlp) {
@@ -286,7 +288,7 @@ bool usb_link_write(const uint8_t *buf, size_t len, uint32_t timeout_ms)
             }
             continue;
         }
-        if (xTaskGetTickCount() >= deadline || !usb_link_connected()) {
+        if (xTaskGetTickCount() - start >= limit || !usb_link_connected()) {
             return false;
         }
         xSemaphoreTake(s_tx_done, pdMS_TO_TICKS(2));

@@ -17,7 +17,7 @@ typedef struct {
     screen_kind_t kind;
     const char *label;      /* the DU's name on the status page ("DU1"); empty when not known yet */
     const char *display;    /* the assigned display ("Captain PFD"); empty when none */
-    const char *serial;     /* 32 hex characters */
+    const char *serial;     /* 24 hex characters */
     const char *fw;         /* this firmware's version */
     int progress;           /* SCREEN_UPDATING: percent done */
     int brightness;         /* 0..100: the screen is dimmed like a picture would be */

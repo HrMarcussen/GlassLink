@@ -44,7 +44,7 @@ static const char *TAG = "main";
  * treated as a broken stream (#16). */
 static uint32_t s_rx_size = 512 * 1024;
 #define RX_BUF_SIZE s_rx_size
-#define XD_MAX_DRAIN (16u * 1024 * 1024)   /* larger than this is not a message but garbage: resync */
+#define XD_MAX_DRAIN XD_MAX_PAYLOAD        /* larger than this is not a message but garbage: resync (protocol: 4 MiB) */
 
 static char s_serial[33];
 static char s_label[32];    /* the DU's name on the status page (SHOW_IDENT, SET_ASSIGNED), kept in NVS for the screens */
@@ -60,7 +60,10 @@ static uint32_t s_last_jpeg_len;
 /* A layout: the screen split into tiles, one display each (an HDMI screen behind a panel with several cutouts).
    Set by SET_LAYOUT, fed by TILE; a tile costs what a frame costs on a single-display DU, whatever the screen size. */
 #define MAX_TILES 6
-typedef struct { uint16_t x, y, w, h; bool on; } tile_t;   /* on = false: the host's rectangle did not fit (#19) */
+/* on = 0: the host's rectangle did not fit (#19). No padding bytes: layouts are compared with memcmp, and a padding
+   byte of stack garbage made an unchanged layout look new (a black flash at every INFO, review F13). */
+typedef struct { uint16_t x, y, w, h, on; } tile_t;
+_Static_assert(sizeof(tile_t) == 10, "tile_t must have no padding: it is compared with memcmp");
 static tile_t s_tiles[MAX_TILES];
 static int s_tile_n;                    /* > 0: tile mode; tile i is the host's tile i (rejected ones keep their slot) */
 static bool s_tile_cards;               /* show the tiles as test cards (for lining them up with the cutouts) */
@@ -88,10 +91,12 @@ static RTC_NOINIT_ATTR uint32_t s_boot_magic, s_boot_count;
 /* ---- serial GUID (NVS) --------------------------------------------------------------------- */
 static void load_or_create_serial(void)
 {
+    /* Without NVS (a flash fault) the serial is still made from the MAC, only not stored: an abort here would restart
+     * the DU for ever with nothing on screen and no USB to update it through (review F14). */
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open("module", NVS_READWRITE, &nvs));
+    bool have = nvs_open("module", NVS_READWRITE, &nvs) == ESP_OK;
     size_t len = sizeof(s_serial);
-    if (nvs_get_str(nvs, "serial", s_serial, &len) != ESP_OK || strlen(s_serial) != 24) {
+    if (!have || nvs_get_str(nvs, "serial", s_serial, &len) != ESP_OK || strlen(s_serial) != 24) {
         /* Derived from the chip's factory MAC, so an NVS erase gives the same serial back (#24). Units that already
          * have a stored serial keep it. */
         uint8_t mac[6] = {0}, digest[16];
@@ -105,11 +110,12 @@ static void load_or_create_serial(void)
         } else {
             for (int i = 0; i < 24; i += 8) snprintf(s_serial + i, 9, "%08lx", (unsigned long)esp_random());
         }
-        ESP_ERROR_CHECK(nvs_set_str(nvs, "serial", s_serial));
-        ESP_ERROR_CHECK(nvs_commit(nvs));
+        if (have && (nvs_set_str(nvs, "serial", s_serial) != ESP_OK || nvs_commit(nvs) != ESP_OK)) {
+            ESP_LOGE(TAG, "the serial could not be stored in NVS");
+        }
         ESP_LOGI(TAG, "generated new serial %s", s_serial);
     }
-    nvs_close(nvs);
+    if (have) nvs_close(nvs);
 }
 
 static int nvs_get_int(const char *key, int def)
@@ -186,9 +192,20 @@ static SemaphoreHandle_t s_tx_mutex;   /* header and payload of one message go o
 
 static bool send_msg(uint8_t type, const void *payload, uint32_t len, uint32_t seq, uint32_t arg)
 {
+    /* One message, one USB transfer (all of the DU's messages are small): it goes out whole or not at all. As two, a
+     * header could be queued while no host reads and its payload time out, and the next host session read that header
+     * with the next message's bytes as its payload, losing the INFO it waits for (review F6). */
+    static uint8_t buf[sizeof(xd_header_t) + 512];    /* under s_tx_mutex */
     xd_header_t h = {{XD_MAGIC0, XD_MAGIC1}, XD_PROTO_VERSION, type, len, seq, arg};
     xSemaphoreTake(s_tx_mutex, portMAX_DELAY);
-    bool ok = usb_link_write((const uint8_t *)&h, sizeof(h), 500) && (!len || usb_link_write(payload, len, 2000));
+    bool ok;
+    if (len <= sizeof(buf) - sizeof(h)) {
+        memcpy(buf, &h, sizeof(h));
+        if (len) memcpy(buf + sizeof(h), payload, len);
+        ok = usb_link_write(buf, sizeof(h) + len, 500);
+    } else {
+        ok = usb_link_write((const uint8_t *)&h, sizeof(h), 500) && usb_link_write(payload, len, 2000);
+    }
     xSemaphoreGive(s_tx_mutex);
     return ok;
 }
@@ -493,6 +510,9 @@ static uint8_t *show_picture(const picture_job_t *job)
             spare = s_last_jpeg;                           /* kept for redraws by swapping buffers, not copying */
             s_last_jpeg = payload;
             s_last_jpeg_len = h->length;
+        } else if (err != ESP_ERR_INVALID_SIZE && s_last_jpeg_len) {
+            /* a decode that failed half-way may have written into the screen: the last good picture again (F8) */
+            display_show_jpeg(s_last_jpeg, s_last_jpeg_len, NULL);
         }
         xSemaphoreGive(s_frame_mutex);
         if (err == ESP_OK) {
@@ -535,6 +555,10 @@ static uint8_t *show_picture(const picture_job_t *job)
         }
         if (s_tile_jpeg[i] && h->length <= s_tile_jpeg_cap[i]) { memcpy(s_tile_jpeg[i], payload, h->length); s_tile_jpeg_len[i] = h->length; }
         else s_tile_jpeg_len[i] = 0;
+    } else if (err != ESP_ERR_INVALID_SIZE && !s_tile_cards && s_tile_jpeg_len[i]) {
+        /* a band is decoded straight into the screen: one that failed half-way left a torn picture until the display
+           changes again, which a still display may not do for a long time (review F8) */
+        display_show_jpeg_at(s_tile_jpeg[i], s_tile_jpeg_len[i], s_tiles[i].x, s_tiles[i].y, s_tiles[i].w, s_tiles[i].h, NULL);
     }
     bool cards = s_tile_cards;
     xSemaphoreGive(s_frame_mutex);
@@ -999,8 +1023,12 @@ void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
+        err = nvs_flash_erase();
+        if (err == ESP_OK) err = nvs_flash_init();
+    }
+    if (err != ESP_OK) {
+        /* not erased: units from before #24 keep a stored serial there. The DU runs on its defaults instead (F14). */
+        ESP_LOGE(TAG, "NVS not available (%s): settings are not kept", esp_err_to_name(err));
     }
     load_or_create_serial();
     nvs_load_label();

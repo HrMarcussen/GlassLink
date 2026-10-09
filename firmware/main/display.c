@@ -67,6 +67,8 @@ static volatile int s_csc_used = -1;            /* the scale the wrapper applied
 static bool s_csc_works = true;                 /* cleared if a dimmed decode came out without the wrapper having run */
 static void *s_fb[2];               /* the DPI panel's two frame buffers */
 static int s_front;                 /* index of the one on screen; full-size pictures are decoded into the other and flipped */
+static uint32_t s_frame_w, s_frame_h;   /* the size of the last whole-screen picture (FRAME) */
+static bool s_surround_dirty;           /* something else was drawn since the last clear: a smaller FRAME clears first */
 /* PSRAM cache line: a buffer the decoder writes must start and end on one */
 #define CACHE_ALIGN CONFIG_CACHE_L2_CACHE_LINE_SIZE
 static char s_overlay1[40], s_overlay2[40];   /* banner stamped on every frame while non-empty (IDENT) */
@@ -377,9 +379,18 @@ esp_err_t display_init(int mode, int dsivar)
     if (!s_draw_done) s_draw_done = xSemaphoreCreateBinary();
     if (!s_draw_lock) s_draw_lock = xSemaphoreCreateMutex();
     if (!s_fb_free) s_fb_free = xSemaphoreCreateBinary();
-    ESP_RETURN_ON_ERROR(make_panel(mode, dsivar), TAG, "panel");
-    esp_lcd_dpi_panel_event_callbacks_t cbs = {.on_color_trans_done = on_draw_done, .on_frame_buf_complete = on_fb_complete};
-    ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_register_event_callbacks(s_panel, &cbs, NULL), TAG, "callbacks");
+    esp_err_t perr = make_panel(mode, dsivar);
+    if (perr == ESP_OK) {
+        esp_lcd_dpi_panel_event_callbacks_t cbs = {.on_color_trans_done = on_draw_done, .on_frame_buf_complete = on_fb_complete};
+        perr = esp_lcd_dpi_panel_register_event_callbacks(s_panel, &cbs, NULL);
+    }
+    if (perr != ESP_OK) {
+        /* a half-made panel (the bridge did not answer, say) is no panel: the DU runs headless instead of trying
+           every draw and timing out five times a second (review F9) */
+        s_panel = NULL;
+        ESP_LOGE(TAG, "display not started: %s", esp_err_to_name(perr));
+        return perr;
+    }
 
     jpeg_decode_engine_cfg_t eng = {.intr_priority = 0, .timeout_ms = 200};
     ESP_RETURN_ON_ERROR(jpeg_new_decoder_engine(&eng, &s_jpeg), TAG, "jpeg engine");
@@ -433,7 +444,10 @@ void display_fill(uint32_t rgb)
         xSemaphoreTake(s_draw_lock, portMAX_DELAY);
         esp_err_t err = ppa_do_fill(s_ppa_fill, &f);
         xSemaphoreGive(s_draw_lock);
-        if (err == ESP_OK) return;
+        if (err == ESP_OK) {
+            s_surround_dirty = false;
+            return;
+        }
         ESP_LOGW(TAG, "PPA fill failed (%s): filling on the CPU from now on", esp_err_to_name(err));
         s_ppa_fill = NULL;
     }
@@ -442,7 +456,9 @@ void display_fill(uint32_t rgb)
     for (size_t i = 0; i + 2 < s_rgb_size; i += 3) {
         s_rgb[i] = b; s_rgb[i + 1] = g; s_rgb[i + 2] = r;   /* frame buffer byte order is B,G,R */
     }
-    draw_sync(0, 0, s_info.width, s_info.height, s_rgb);
+    if (draw_sync(0, 0, s_info.width, s_info.height, s_rgb) == ESP_OK) {
+        s_surround_dirty = false;
+    }
 }
 
 bool display_ready(void)
@@ -461,6 +477,7 @@ esp_err_t display_show_rgb(const uint8_t *rgb, int w, int h)
         return ESP_ERR_INVALID_SIZE;
     }
     int x = (s_info.width - w) / 2, y = (s_info.height - h) / 2;
+    s_surround_dirty = true;
     return draw_sync(x, y, w, h, rgb);
 }
 
@@ -623,6 +640,18 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
 
 esp_err_t display_show_jpeg(const uint8_t *jpeg, size_t len, uint32_t *decode_ms)
 {
+    /* A picture smaller than the screen leaves the rest as it is. When its size changes (the display resized, another
+     * one assigned) or something else was drawn meanwhile (the DU's own screens, tiles), the surround is cleared first:
+     * the old picture's edges stayed around the new one (review F5). */
+    jpeg_decode_picture_info_t pic;
+    if (s_jpeg && jpeg_decoder_get_info(jpeg, len, &pic) == ESP_OK) {
+        bool smaller = pic.width < (uint32_t)s_info.width || pic.height < (uint32_t)s_info.height;
+        if (smaller && (s_surround_dirty || pic.width != s_frame_w || pic.height != s_frame_h)) {
+            display_fill(0x000000);
+        }
+        s_frame_w = pic.width;
+        s_frame_h = pic.height;
+    }
     return show_jpeg(jpeg, len, 0, 0, s_info.width, s_info.height, true, decode_ms);
 }
 
@@ -631,6 +660,7 @@ esp_err_t display_show_jpeg_at(const uint8_t *jpeg, size_t len, int x, int y, in
     if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > s_info.width || y + h > s_info.height) {
         return ESP_ERR_INVALID_ARG;
     }
+    s_surround_dirty = true;
     return show_jpeg(jpeg, len, x, y, w, h, false, decode_ms);
 }
 
@@ -639,5 +669,6 @@ esp_err_t display_show_rgb_at(const uint8_t *rgb, int w, int h, int x, int y)
     if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > s_info.width || y + h > s_info.height) {
         return ESP_ERR_INVALID_ARG;
     }
+    s_surround_dirty = true;
     return draw_sync(x, y, w, h, rgb);
 }
