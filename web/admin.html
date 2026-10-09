@@ -448,7 +448,7 @@
             ${canLayout && (info.caps || []).includes('tiles') ? `<br><button class="layout-btn small" title="more than one display on this DU's screen, each in its own place">${tiled(x) ? 'Layout…' : 'Multiple displays…'}</button>` : ''}</td>
         <td><input type="range" class="brightness" min="0" max="100" value="${(x.settings && x.settings.brightness) ?? 100}" title="upper limit for this DU; the cockpit's brightness knob works below it" aria-label="brightness limit"><br><span class="dim small bval"></span></td>
         <td class="stats"></td>
-        <td>${info.fw ? info.fw : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
+        <td>${info.fw ? esc(info.fw) : '<span class="dim">-</span>'}${x.fw_outdated ? ' ' + pill('update available', 'warn') : ''}<br><span class="dim small otamsg"></span></td>
         <td>${x.alive ? `<button class="ident primary${x.ident_active ? ' on' : ''}" title="shows this DU's label on its own panel, so you can see which one it is">${x.ident_active ? 'Stop identify' : 'Identify'}</button>
             ${x.fw_outdated ? `<button class="update">Update to ${esc((fwImage && fwImage.version) || fwVersion)}</button>` : ''}` : ''}
           <details class="more" ${openMore.has(serial) ? 'open' : ''}><summary>More</summary><div class="box">
@@ -502,7 +502,8 @@
     const info = x.info || {}; const st = x.settings || {};
     const tiles = st.tiles || (x.display ? { [x.display]: { x: 0, y: 0 } } : {});     // no layout yet: the single display is the first tile
     const screen = st.screen ?? '';
-    const panel = info.panel || [768, 768];
+    // what the DU reports goes into attributes and styles: numbers only (a DU is a USB device, not a trusted party)
+    const panel = Array.isArray(info.panel) && info.panel.length === 2 ? info.panel.map(v => Number(v) || 768) : [768, 768];
     const sizes = {}; for (const n of displaysOrder) { const d = displaysNow[n] || {}; sizes[n] = d.client_size || d.size || [768, 768]; }
     const key = JSON.stringify([screen, tiles, panel, x.cards, sizes, displaysOrder, info.caps, x.layout_problem]);
     if (el.dataset.key === key) return;

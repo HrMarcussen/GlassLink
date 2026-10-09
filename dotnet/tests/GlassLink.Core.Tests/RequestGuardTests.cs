@@ -8,11 +8,17 @@ public class RequestGuardTests
 {
     private static readonly IReadOnlySet<string> Names = new HashSet<string> { "localhost", "127.0.0.1", "::1", "simpc", "192.168.1.10" };
 
-    private static string? Check(string method, string host, string? contentType = null, string? origin = null, string remote = "127.0.0.1", bool lan = false)
+    private static string? Check(string method, string host, string? contentType = null, string? origin = null, string remote = "127.0.0.1", bool lan = false,
+        bool socket = false)
     {
         var http = new DefaultHttpContext();
         http.Request.Method = method;
         http.Request.Host = new HostString(host);
+        if (socket)
+        {
+            (http.Request.Headers.Connection, http.Request.Headers.Upgrade) = ("Upgrade", "websocket");
+        }
+
         if (contentType is not null)
         {
             http.Request.ContentType = contentType;
@@ -44,6 +50,41 @@ public class RequestGuardTests
         Assert.NotNull(Check("POST", "localhost:8765", "application/json", "https://evil.example"));      // after a preflight that would fail anyway
         Assert.NotNull(Check("GET", "evil.example:8765"));                                                // DNS rebinding
         Assert.NotNull(Check("GET", "localhost:8765", origin: "https://evil.example"));                   // the viewer socket from another site
+        Assert.NotNull(Check("GET", "localhost:8765", origin: "null", socket: true));                     // a sandboxed frame on any site
+        Assert.NotNull(Check("POST", "localhost:8765", "application/json", "null"));
+        Assert.Null(Check("GET", "localhost:8765", origin: "null"));                                      // reading: the browser keeps the answer from it
+        Assert.Null(Check("GET", "localhost:8765", origin: "http://localhost:8765", socket: true));       // the page's own viewer
+    }
+
+    [Fact]
+    public async Task Refusals_are_logged_once_per_source_and_kind_bounded_and_without_forged_lines()
+    {
+        var lines = new List<string>();
+        var guard = RequestGuard.Middleware(() => false, lines.Add)(_ => Task.CompletedTask);
+        async Task Send(string host, string path, string remote)
+        {
+            var http = new DefaultHttpContext();
+            (http.Request.Method, http.Request.Host, http.Request.Path) = ("GET", new HostString(host), path);
+            http.Connection.RemoteIpAddress = IPAddress.Parse(remote);
+            http.Response.Body = new MemoryStream();
+            await guard(http);
+            Assert.Equal(403, http.Response.StatusCode);
+        }
+
+        for (var i = 0; i < 50; i++)
+        {
+            await Send($"evil{i}.example", $"/random/{i}", "192.168.1.20");             // one scanner, many paths and names
+        }
+
+        Assert.Single(lines);
+        for (var i = 0; i < 300; i++)
+        {
+            await Send("evil.example", "/x", $"10.0.{i / 250}.{i % 250 + 1}");           // many sources
+        }
+
+        Assert.Equal(RequestGuard.MaxLogged + 1, lines.Count);          // capped, with one line saying so
+        Assert.DoesNotContain(lines, l => l.Contains('\n') || l.Contains('\r'));
+        Assert.Equal("a?b", RequestGuard.Printable("a\nb"));
     }
 
     [Fact]

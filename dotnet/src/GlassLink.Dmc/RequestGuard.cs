@@ -19,6 +19,17 @@ public static class RequestGuard
 {
     private static readonly HashSet<string> Mutating = new(StringComparer.OrdinalIgnoreCase) { "POST", "PUT", "PATCH", "DELETE" };
 
+    /// <summary>At most this many refusals are logged per DMC run.</summary>
+    public const int MaxLogged = 100;
+
+    /// <summary>A log line from what a client sent: no line breaks or other control characters (no forged log lines), at
+    /// most 300 characters.</summary>
+    public static string Printable(string text)
+    {
+        var clean = new string([.. text.Select(c => char.IsControl(c) ? '?' : c)]);
+        return clean.Length <= 300 ? clean : clean[..300] + "...";
+    }
+
     public static Func<RequestDelegate, RequestDelegate> Middleware(Func<bool> allowLanControl, Action<string> log)
     {
         var names = LocalNames();
@@ -41,9 +52,16 @@ public static class RequestGuard
 
             lock (logged)
             {
-                if (logged.Add(reason + http.Request.Path))  // once per kind and path: a scanner cannot flood the log
+                // once per source and kind of refusal, and never more than MaxLogged lines: neither a scanner nor random
+                // paths can grow the log or this set without end
+                var key = $"{http.Connection.RemoteIpAddress}|{reason.Split(':', '\'')[0]}";
+                if (logged.Count < MaxLogged && logged.Add(key))
                 {
-                    log($"refused {http.Request.Method} {http.Request.Path} from {http.Connection.RemoteIpAddress}: {reason}");
+                    log(Printable($"refused {http.Request.Method} {http.Request.Path} from {http.Connection.RemoteIpAddress}: {reason}"));
+                    if (logged.Count == MaxLogged)
+                    {
+                        log("refused requests: further ones are not logged");
+                    }
                 }
             }
 
@@ -62,13 +80,18 @@ public static class RequestGuard
             return $"this DMC answers only to its own names and addresses, not '{request.Host.Host}'";
         }
 
-        if (request.Headers.Origin is { Count: > 0 } origins && origins.ToString() is { Length: > 0 } origin && origin != "null"
-            && (!Uri.TryCreate(origin, UriKind.Absolute, out var o) || !string.Equals(o.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase)))
+        // "null" is what a sandboxed frame or a local file sends: harmless for reading (the browser keeps the answer from
+        // the page), but a WebSocket is not bound by that, so a page on any site could watch the live displays through one
+        var mutating = Mutating.Contains(request.Method);
+        var socket = request.Headers.Upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
+        if (request.Headers.Origin is { Count: > 0 } origins && origins.ToString() is { Length: > 0 } origin
+            && (origin == "null" ? mutating || socket
+                : !Uri.TryCreate(origin, UriKind.Absolute, out var o) || !string.Equals(o.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase)))
         {
             return "requests from other web sites are refused";
         }
 
-        if (!Mutating.Contains(request.Method))
+        if (!mutating)
         {
             return null;
         }
