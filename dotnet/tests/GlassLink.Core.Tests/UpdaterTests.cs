@@ -166,6 +166,7 @@ public class UpdaterTests
         Assert.Equal(Setup, File.ReadAllBytes(launched[0].File));
         Assert.Contains("/update=1", launched[0].Args);
         Assert.Contains("/SILENT", launched[0].Args);
+        Assert.DoesNotContain("/withsim", launched[0].Args);        // this test run was not started by the sim
         Assert.False(launched[0].Writable);                          // checked and started without a moment to swap it
 
         var tampered = GoodSums().Replace(GoodSums()[..8], "deadbeef");
@@ -184,6 +185,20 @@ public class UpdaterTests
         Until(() => signed.State == "idle" && signed.Error.Length > 0, () => $"state {signed.State} error '{signed.Error}'");
         Assert.Contains("not validly signed", signed.Error);
         Assert.Empty(never);
+    }
+
+    [Fact]
+    public async Task A_dmc_the_sim_started_is_started_again_with_the_sim_after_an_update()
+    {
+        var args = "";
+        var updater = new Updater("0.6.2", Config(), _ => { }, new FakeGitHub(r => Answer(r, GoodSums())), AppDir(true),
+            (_, a) => { args = a; return true; }, () => null, Directory.CreateTempSubdirectory("glasslink-update-download").FullName)
+        { StartedWithSim = true };
+        using var _u = updater;
+        await updater.CheckAsync();
+        Assert.True(updater.BeginInstall());
+        Until(() => args.Length > 0);
+        Assert.Contains("/withsim=1", args);                         // the setup program starts it with --with-sim (review S11e)
     }
 
     [Fact]

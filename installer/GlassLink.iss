@@ -61,8 +61,9 @@ Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""GlassLink D
 Filename: "{app}\GlassLink.exe"; Parameters: "--add-sim-entry"; Flags: runhidden runasoriginaluser; Tasks: withsim
 ; as the user who runs the setup, not with the setup's administrator rights
 Filename: "{app}\GlassLink.exe"; Description: "Start the GlassLink DMC now"; Flags: nowait postinstall skipifsilent runasoriginaluser
-; an update started from the DMC's status page (/update=1) is silent: start the new DMC again when it is done (#76)
-Filename: "{app}\GlassLink.exe"; Flags: nowait runasoriginaluser; Check: IsUpdate
+; an update started from the DMC's status page (/update=1) is silent: start the new DMC again when it is done (#76),
+; with --with-sim if the sim had started the old one (/withsim=1), so it still stops with the sim
+Filename: "{app}\GlassLink.exe"; Parameters: "{code:RestartArgs}"; Flags: nowait runasoriginaluser; Check: IsUpdate
 
 [UninstallRun]
 Filename: "{app}\GlassLink.exe"; Parameters: "--quit"; Flags: runhidden; RunOnceId: "quit"
@@ -75,6 +76,14 @@ Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""GlassLin
 function IsUpdate: Boolean;
 begin
   Result := ExpandConstant('{param:update|0}') = '1';
+end;
+
+function RestartArgs(Param: String): String;
+begin
+  if ExpandConstant('{param:withsim|0}') = '1' then
+    Result := '--with-sim'
+  else
+    Result := '';
 end;
 
 // "Start with Windows" may have been switched on from the tray, not by the installer's task: remove it either way (#46).

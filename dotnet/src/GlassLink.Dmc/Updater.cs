@@ -61,6 +61,9 @@ public sealed class Updater : IDisposable
     /// <summary>How long "starting" may last: the setup program stops this DMC when it installs, so a DMC still running
     /// after this time means the setup program was closed or failed before it got there.</summary>
     public TimeSpan StartTimeout { get; init; } = TimeSpan.FromMinutes(3);
+
+    /// <summary>This DMC was started by the sim ("Start and stop with the simulator"): the updated one is started so too.</summary>
+    public bool StartedWithSim { get; init; } = Environment.GetCommandLineArgs().Contains(SimLaunch.WithSimFlag);
     private readonly Func<string, string, bool> _launch;
     private readonly Func<string?> _ownSigner;
     private System.Threading.Timer? _timer;
@@ -247,7 +250,8 @@ public sealed class Updater : IDisposable
 
             State = "starting";
             _log($"update: starting the setup program of GlassLink {release.Version}");
-            if (!_launch(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART /update=1"))
+            // a DMC the sim started (exe.xml) is started again the same way, or it would no longer stop with the sim (review S11e)
+            if (!_launch(file, $"/SILENT /SUPPRESSMSGBOXES /NORESTART /update=1{(StartedWithSim ? " /withsim=1" : "")}"))
             {
                 Error = "the installation was cancelled at the Windows prompt";
                 State = "idle";
