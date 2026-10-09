@@ -17,6 +17,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-09
+
+In short: a code review by seven reviewers, and a second round that checked each of their findings against the code,
+with the fixes tested on the DUs and in both sims. Released DU firmware is now signed and installs only signed updates
+over USB. The status page says where a display is shown in a viewer, and an update's outcome stays on it after the DU
+restarts. Tested before release: MSFS 2024 with the Fenix (all six displays popped out on the first try, the DUs at
+17-19 frames a second while the aircraft turned, every picture the Fenix drew) and X-Plane 12.4.4 with the ToLiss A339
+(all six reopened by command, the DUs at 20-22 frames a second).
+
 ### Added
 - A display's card on the status page also says where it is shown in a viewer: "Shown on DU1 · in the viewer on
   iPhone", or "Shown in the viewer on this PC" without a DU. The DMC names each viewer from its browser (iPhone,
