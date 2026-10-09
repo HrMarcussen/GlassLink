@@ -50,14 +50,16 @@ the rendered pop-out windows gives an exact copy for any aircraft.
 
 <p align="center"><img src="docs/images/du-screens.png" width="100%" alt="Three DU screens: Captain PFD waiting for the sim; Identify with a large DU1 and a blue border; a firmware update at 64 percent."></p>
 
-What a DU achieves (DMC and firmware 0.6.0, PFD-like frames of about 140 KB, measured on a Waveshare
-ESP32-P4-NANO):
+What a DU achieves (firmware 0.9.0, PFD-like frames of about 140 KB, measured 9 Oct 2026 on a Waveshare
+ESP32-P4-NANO; dimmed pictures as fast as bright ones):
 
 | Setup | Frames per second |
 |---|---|
-| 768x768 panel, any brightness | 60 (the panel's refresh; the Fenix draws its displays at about 20, the ToLiss in X-Plane 12 at about 25) |
-| 1080p monitor, PFD + ND side by side (two 768x768) | 26-30 for both |
-| 1080p monitor, one display as large as 1056x1056 | about 22 |
+| 768x768 panel | 60 (the panel's refresh; the Fenix draws its displays at about 20, the ToLiss in X-Plane 12 at about 25) |
+| 1024x768 screen (a 15" 4:3 panel), one picture filling it | 60 |
+| 1080p monitor, PFD + ND side by side (two 768x768) | 30 for both (1080p runs at 30 Hz on this board) |
+| 1080p monitor, one display as large as 1056x1056 | about 27 |
+| 1080p monitor, one picture filling it | about 26 |
 
 A DU that shows fewer than 20 frames a second while its displays change faster is reported on the status page with
 what helps.

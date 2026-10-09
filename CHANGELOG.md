@@ -87,6 +87,35 @@ Found by a code review on 9 Oct 2026, each one checked against the code (and on 
   says, not 1903); the USB protocol's INFO example and SET_ROTATION (stored, not applied) match the firmware; the
   Python DMC was retired in 0.8.0. `config.example.json` lost three settings nothing read.
 
+The review's remaining findings, checked by a second set of reviewers against the code (9 Oct 2026):
+- A graphics driver reset can stop a capture's frames without any error, which froze the display silently. The
+  graphics device is now checked once a second and before a new capture gets it, an error in a frame marks the capture
+  for a restart, and a picture that failed to encode no longer counts as the last one sent (the same picture again
+  was taken as "unchanged" until the instrument moved).
+- After a fatal error the DMC closes its captures (at most 3 s) before it stops, instead of ending with them open.
+- A capture whose window closed while it was being set up kept its frame pool; a hand-written `title_regex` that is no
+  regular expression threw on every look (it now matches nothing, and the status page says why); pop-outs are parked
+  again when a screen is added or changed.
+- The MSFS pop-out no longer clicks while the view is still moving after the 12 s wait (the click would hit another
+  instrument and its window would be taken for the display), nor when another window came to the front just before
+  the click.
+- A variable the sim refuses (a misspelt one, one this aircraft lacks) is logged once instead of silently never
+  getting a value. Reading the aircraft's own dimming setting while the aircraft saves it no longer switches the DU's
+  dimming on for 5 s (dimming twice).
+- An update's outcome stays on the status page after the DU restarted into the new firmware, with the version it now
+  runs (it was lost with the connection; "updated ? → ?" when caught at all).
+- A replugged or restarted DU is opened only after its old connection is closed; a quitting DMC says goodbye to the
+  DUs outside its lock; closing a connection waits for the reader to leave WinUSB before freeing it; a WinUSB setting
+  that does not take is an error instead of being ignored.
+- A DU label with letters like æøå is cut to the DU's 31 bytes between letters, not inside one.
+- An unplugged DU set up only with tiles is listed (it vanished from the page); forgetting a DU works whatever the case
+  of the serial.
+- The status page: changes must be addressed to localhost or one of the PC's addresses, not to a name (another
+  device on the network could answer for the name and serve a page under it); the page cannot be shown inside another
+  site's frame; a display called "constructor" no longer confuses it; display names in its requests are encoded.
+- A DMC that the simulator started is started with `--with-sim` again after a self-update, so it still stops with the
+  simulator.
+
 ## [0.9.0] - 2026-10-02
 
 In short: X-Plane 12 with the ToLiss joins MSFS 2024: its displays pop out by command, without moving the camera, and
