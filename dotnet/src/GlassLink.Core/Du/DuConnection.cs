@@ -23,6 +23,9 @@ internal static class DuJson
 /// <summary>What a DU says about itself (INFO message).</summary>
 public sealed record DuInfo(string Firmware, string Build, string Hardware, int PanelWidth, int PanelHeight, string Slot, long UptimeSeconds)
 {
+    /// <summary>The DU runs released firmware, which installs only updates signed with the release key ("signed": 1).</summary>
+    public bool SignedUpdates { get; init; }
+
     public static DuInfo? From(JsonElement? json)
     {
         if (json is not { ValueKind: JsonValueKind.Object } j)
@@ -36,7 +39,10 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
             (w, h) = (DuJson.Int(p[0]), DuJson.Int(p[1]));
         }
 
-        return new DuInfo(DuJson.Str(j, "fw"), DuJson.Str(j, "build"), DuJson.Str(j, "hw"), w, h, DuJson.Str(j, "slot"), (long)DuJson.Num(j, "uptime_s"));
+        return new DuInfo(DuJson.Str(j, "fw"), DuJson.Str(j, "build"), DuJson.Str(j, "hw"), w, h, DuJson.Str(j, "slot"), (long)DuJson.Num(j, "uptime_s"))
+        {
+            SignedUpdates = DuJson.Num(j, "signed") == 1,
+        };
     }
 }
 
@@ -758,7 +764,7 @@ public sealed class DuConnection : IDisposable
     {
         1 => "the DU could not start the update",
         2 => "flash write failed on the DU",
-        3 => "the DU rejected the image",
+        3 => "the DU rejected the image (not signed with the key of the firmware it runs, or damaged)",
         4 => "checksum mismatch",
         5 => "size mismatch",
         6 => "the DU timed out waiting for data",

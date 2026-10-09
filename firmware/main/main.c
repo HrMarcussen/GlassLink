@@ -39,6 +39,13 @@ static const char *TAG = "main";
 #define FW_BUILD "nogit"
 #endif
 #define HW_NAME "p4-nano+lt8912b"
+/* A released build (sdkconfig.release) takes updates over USB only when they are signed with the release key; INFO
+ * says so ("signed"), so the DMC can tell before it sends an image that would be refused. */
+#ifdef CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT
+#define SIGNED_UPDATES 1
+#else
+#define SIGNED_UPDATES 0
+#endif
 /* One JPEG frame: 768x768 q85 is 30-60 KB; a busy 1920x1080 frame can pass 512 KB, so 1080p gets 1 MB (INFO
  * reports it as max_frame, and the host sends nothing larger). A header that announces more is drained, not
  * treated as a broken stream (#16). */
@@ -226,10 +233,10 @@ static void send_info(void)
     display_info_t di = display_get_info();
     char buf[400];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"display_error\":\"%s\"}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"display_error\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
                      esp_timer_get_time() < s_ident_until_us ? 1 : 0, s_tile_n, (unsigned long)RX_BUF_SIZE, MAX_TILES,
-                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, s_display_error);
+                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, s_display_error);
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }

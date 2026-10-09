@@ -205,7 +205,15 @@ public sealed class DmcRuntime : IDisposable
 
                 try
                 {
-                    du.BeginUpdate(Firmware.Load(FirmwareImagePath).Data);
+                    var image = Firmware.Load(FirmwareImagePath);
+                    if (du.Info?.SignedUpdates == true && !image.Signed)
+                    {
+                        // the DU would refuse it at the end of the transfer: said before, and how to go on instead
+                        throw new DisplayException("this DU runs released firmware, which installs only images signed for GlassLink releases; "
+                            + "this one is not signed (a development build): flash it over the DU's USB-C port (firmware/README.md)");
+                    }
+
+                    du.BeginUpdate(image.Data);
                 }
                 catch (InvalidDataException ex)
                 {

@@ -438,7 +438,7 @@
       const x = m[serial];
       const alive = x.alive ? pill('connected', 'ok') : pill(x.error || 'not connected', 'bad');
       const info = x.info || {};
-      const facts = esc(info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''} · serial ${serial}` : `serial ${serial}`);
+      const facts = esc(info.fw ? `firmware ${info.fw}${info.build ? ' (' + info.build + ')' : ''} · ${info.hw || ''} · panel ${(info.panel || []).join('x')}${info.slot ? ' · slot ' + info.slot : ''}${info.signed === 1 ? ' · takes signed releases only' : ''} · serial ${serial}` : `serial ${serial}`);
       const canLayout = (info.caps || []).includes('tiles') || (info.caps || []).includes('mode');
       return `<tr data-serial="${esc(serial)}">
         <td><input type="text" class="label" value="${esc(x.label || '')}" maxlength="32" placeholder="name this DU" size="12" aria-label="label of this display unit"><br><span class="dim small"><code>${esc(serial.slice(0, 8))}</code></span></td>

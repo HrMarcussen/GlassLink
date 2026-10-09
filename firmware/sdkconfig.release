@@ -1,0 +1,12 @@
+# Released DU firmware: on top of sdkconfig.defaults. Built by the release workflow with
+#   idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
+# and signed there afterwards (espsecure sign_data, the key is the release environment's FIRMWARE_SIGNING_KEY).
+#
+# A DU running such a build installs an update over USB only if it is signed with the same key (ESP-IDF's "signed
+# app images without hardware secure boot": the key of the running app's first signature, so one key for good). The
+# bootloader and the chip's eFuses are not touched: a DU can always be flashed over its USB-C serial port.
+# Builds from sdkconfig.defaults alone (development, your own) check nothing.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n

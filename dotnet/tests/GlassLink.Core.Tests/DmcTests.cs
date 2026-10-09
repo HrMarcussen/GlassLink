@@ -271,4 +271,32 @@ public class RegistryAndFirmwareTests
         Assert.True(Firmware.IsOutdated("1.0.0-rc2", "1.0.1"));
         Assert.Throws<InvalidDataException>(() => Firmware.Load(Path.Combine(Path.GetTempPath(), "no-such-image.bin")));
     }
+
+    [Fact]
+    public void A_signed_release_image_is_told_from_a_development_build_and_so_is_a_du_that_takes_only_signed_ones()
+    {
+        // an application image as the DMC checks it: header, descriptor with the project name
+        var app = new byte[10_000];
+        app[0] = 0xE9;
+        BitConverter.GetBytes(0xABCD5432u).CopyTo(app, 32);
+        System.Text.Encoding.ASCII.GetBytes("0.10.0").CopyTo(app, 32 + 16);
+        System.Text.Encoding.ASCII.GetBytes(Firmware.ProjectName).CopyTo(app, 32 + 48);
+        // espsecure sign_data --version 2: padded to whole 4 KB, then a sector that starts with magic 0xE7, version 2
+        var signed = new byte[12_288 + 4096];
+        app.CopyTo(signed, 0);
+        (signed[12_288], signed[12_289]) = (0xE7, 0x02);
+
+        var folder = Directory.CreateTempSubdirectory("glasslink-firmware").FullName;
+        File.WriteAllBytes(Path.Combine(folder, "dev.bin"), app);
+        File.WriteAllBytes(Path.Combine(folder, "release.bin"), signed);
+        Assert.False(Firmware.Load(Path.Combine(folder, "dev.bin")).Signed);
+        Assert.True(Firmware.Load(Path.Combine(folder, "release.bin")).Signed);
+        Directory.Delete(folder, true);
+
+        // INFO of a released build (sdkconfig.release) says it checks; older and development builds say nothing or 0
+        DuInfo Info(string json) => DuInfo.From(System.Text.Json.JsonDocument.Parse(json).RootElement)!;
+        Assert.True(Info("""{"fw":"0.10.0","signed":1}""").SignedUpdates);
+        Assert.False(Info("""{"fw":"0.10.0","signed":0}""").SignedUpdates);
+        Assert.False(Info("""{"fw":"0.9.0"}""").SignedUpdates);
+    }
 }

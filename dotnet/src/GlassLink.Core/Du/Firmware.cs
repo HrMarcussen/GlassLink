@@ -4,7 +4,11 @@ using System.Text;
 
 namespace GlassLink.Core.Du;
 
-public sealed record FirmwareImage(byte[] Data, string Version, string Project, int Size, uint Crc32, string Path, DateTime Modified);
+public sealed record FirmwareImage(byte[] Data, string Version, string Project, int Size, uint Crc32, string Path, DateTime Modified)
+{
+    /// <summary>Signed by the release workflow: a DU running released firmware takes nothing else.</summary>
+    public bool Signed { get; init; }
+}
 
 /// <summary>DU firmware images: reads the ESP-IDF application descriptor so that only a real DU image is ever sent.</summary>
 public static class Firmware
@@ -51,8 +55,16 @@ public static class Firmware
             throw new InvalidDataException($"image is for project '{project}', expected '{ProjectName}'");
         }
 
-        return new FirmwareImage(data, Text(16, 32), project, data.Length, Crc32.HashToUInt32(data), path, File.GetLastWriteTime(path));
+        return new FirmwareImage(data, Text(16, 32), project, data.Length, Crc32.HashToUInt32(data), path, File.GetLastWriteTime(path))
+        {
+            Signed = IsSigned(data),
+        };
     }
+
+    /// <summary>The image ends in an ESP-IDF signature sector (espsecure sign_data --version 2): the image padded to whole
+    /// 4 KB, then a 4 KB sector starting with the signature block's magic 0xE7 and version 2 (RSA-3072).</summary>
+    public static bool IsSigned(ReadOnlySpan<byte> data) =>
+        data.Length >= 2 * 4096 && data.Length % 4096 == 0 && data[^4096] == 0xE7 && data[^4095] == 0x02;
 
     /// <summary>"0.5.0" -> comparable; anything that is not a digit is ignored ("0.5.0-dirty" = 0.5.0).</summary>
     /// <summary>The leading number of each dot-separated part: "1.0.0-rc2" is 1.0.0 (the digits after the dash must not
