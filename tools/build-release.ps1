@@ -2,13 +2,15 @@
 # the DU firmware image, config.example.json), the same as a zip, and - when Inno Setup 6 is installed - the
 # installer dist\GlassLink-<version>-setup.exe from installer\GlassLink.iss.
 #
-#   tools\build-release.ps1 [-NoInstaller] [-Stage all|publish|package]
+#   tools\build-release.ps1 [-NoInstaller] [-Stage all|publish|package] [-Strict]
 #
 # -Stage publish builds only the folder, -Stage package makes the zip and the installer from it: the release workflow
 # signs GlassLink.exe in between (.github/workflows/release.yml, docs/releasing.md). The running DMC is asked to stop
-# first (its files are in use otherwise); start it again afterwards.
-param([switch]$NoInstaller, [ValidateSet('all', 'publish', 'package')] [string]$Stage = 'all')
+# first (its files are in use otherwise); start it again afterwards. -Strict (the release workflow on a tag) stops
+# instead of warning when SimConnect.dll, the DU firmware image or Inno Setup is missing.
+param([switch]$NoInstaller, [ValidateSet('all', 'publish', 'package')] [string]$Stage = 'all', [switch]$Strict)
 $ErrorActionPreference = 'Stop'
+function Missing([string]$what) { if ($Strict) { throw $what } else { Write-Warning $what } }
 $root = Split-Path $PSScriptRoot -Parent
 $version = (Get-Content "$root\VERSION" -Raw).Trim()
 $build = (git -C $root describe --always --dirty --abbrev=7 --exclude '*').Trim()
@@ -32,7 +34,7 @@ if (-not (Test-Path "$out\SimConnect.dll")) {
     $sdkDll = @("$root\dotnet\lib\SimConnect.dll", "$root\..\build-deps\GlassLink\SimConnect.dll") + (@($env:MSFS2024_SDK, $env:MSFS_SDK) | Where-Object { $_ } | ForEach-Object { Join-Path $_ "SimConnect SDK\lib\SimConnect.dll" }) |
         Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($sdkDll) { Copy-Item $sdkDll $out }
-    else { Write-Warning "no SimConnect.dll (dotnet\lib or the MSFS SDK): clone build-deps next to this checkout, or users of this release must install the SDK" }
+    else { Missing "no SimConnect.dll (dotnet\lib or the MSFS SDK): clone build-deps next to this checkout, or users of this release must install the SDK" }
 }
 Set-Content "$out\BUILD" $build -Encoding ascii
 Copy-Item "$root\CHANGELOG.md", "$root\LICENSE", "$root\THIRD-PARTY-NOTICES.md" $out
@@ -40,7 +42,7 @@ if (Test-Path "$root\firmware\build\glasslink_du.bin") {
     New-Item -ItemType Directory -Force "$out\firmware" | Out-Null
     Copy-Item "$root\firmware\build\glasslink_du.bin" "$out\firmware\"
 } else {
-    Write-Warning "firmware\build\glasslink_du.bin not found: the release cannot update DUs"
+    Missing "firmware\build\glasslink_du.bin not found: the release cannot update DUs"
 }
 Write-Host "built $out ($build)"
 }
@@ -59,5 +61,5 @@ if ($iscc) {
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
     Write-Host "built $root\dist\GlassLink-$version-setup.exe"
 } else {
-    Write-Host "Inno Setup 6 not found (winget install JRSoftware.InnoSetup): only the zip was built"
+    Missing "Inno Setup 6 not found (winget install JRSoftware.InnoSetup): only the zip was built"
 }

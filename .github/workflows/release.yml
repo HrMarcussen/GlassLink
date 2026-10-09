@@ -13,7 +13,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read                  # only the job that publishes may write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -26,8 +26,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0            # git describe for the build id
+          persist-credentials: false
       - name: Build (ESP-IDF 5.5.5, ESP32-P4)
-        uses: espressif/esp-idf-ci-action@v1
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d   # v1 (its branch, 8 Nov 2024): the image goes into the release
         with:
           esp_idf_version: v5.5.5
           target: esp32p4
@@ -37,22 +38,29 @@ jobs:
           name: firmware
           path: firmware/build/glasslink_du.bin
           if-no-files-found: error
+          retention-days: 1         # only for the next job
 
   windows:
     needs: firmware
     runs-on: windows-latest
     environment: release            # signing secrets live here; a required reviewer approves every run
+    permissions:
+      contents: write               # publishes the GitHub Release
+    env:
+      REF_TYPE: ${{ github.ref_type }}
+      REF_NAME: ${{ github.ref_name }}   # through the environment, never pasted into a script: a tag name may hold quotes
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false   # nothing here pushes; the release is published with gh and its own token
       - name: The tag is the version
         id: version
         shell: pwsh
         run: |
           $v = (Get-Content VERSION -Raw).Trim()
-          if ('${{ github.ref_type }}' -eq 'tag' -and '${{ github.ref_name }}' -ne "v$v") {
-              throw "tag ${{ github.ref_name }} but VERSION says $v"
+          if ($env:REF_TYPE -eq 'tag' -and $env:REF_NAME -ne "v$v") {
+              throw "tag $env:REF_NAME but VERSION says $v"
           }
           "version=$v" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-dotnet@v6
@@ -70,10 +78,14 @@ jobs:
           destination: dotnet/lib
       - name: Inno Setup
         shell: pwsh
-        run: choco install innosetup -y --no-progress
+        run: |
+          # the runner image has it (6.7.1 on 2 Oct 2026); installed at a fixed version only when it is missing
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --version 6.7.1 -y --no-progress }
+      - name: Test
+        run: dotnet test dotnet/GlassLink.slnx -c Release
       - name: Build
         shell: pwsh
-        run: ./tools/build-release.ps1 -Stage publish
+        run: ./tools/build-release.ps1 -Stage publish -Strict:($env:REF_TYPE -eq 'tag')   # a tag's release must have SimConnect.dll and the firmware
       - name: Sign GlassLink.exe
         uses: HrMarcussen/release-tools/actions/sign@v1
         with:
@@ -84,7 +96,7 @@ jobs:
       - name: Zip and installer
         shell: pwsh
         run: |
-          ./tools/build-release.ps1 -Stage package
+          ./tools/build-release.ps1 -Stage package -Strict:($env:REF_TYPE -eq 'tag')
           Copy-Item firmware/build/glasslink_du.bin "dist/glasslink_du-${{ steps.version.outputs.version }}.bin"
       - name: Sign the installer
         uses: HrMarcussen/release-tools/actions/sign@v1
@@ -101,6 +113,7 @@ jobs:
             dist/GlassLink-${{ steps.version.outputs.version }}-win-x64.zip
             dist/glasslink_du-${{ steps.version.outputs.version }}.bin
           if-no-files-found: error
+          retention-days: 7         # a dry run's files; a tag's are kept by the release
       - id: notes
         if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)
         uses: HrMarcussen/release-tools/actions/changelog-notes@v1

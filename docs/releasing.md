@@ -8,8 +8,8 @@ The shared steps come from [release-tools](https://github.com/HrMarcussen/releas
 1. Move the "Unreleased" part of `CHANGELOG.md` into a section `## [x.y.z] - <date>` (with a short summary line).
 2. Raise `VERSION` to x.y.z, and `FIRMWARE_VERSION` too if anything under `firmware/` changed since the last release.
 3. Commit, tag `vx.y.z`, push the commit and the tag.
-4. Actions, Release: approve the run (the `release` environment asks). It builds the firmware, the DMC and the
-   installer, signs GlassLink.exe and the installer, and publishes the GitHub Release with:
+4. Actions, Release: approve the run (the `release` environment asks). It builds the firmware, runs the tests,
+   builds the DMC and the installer, signs GlassLink.exe and the installer, and publishes the GitHub Release with:
    - `GlassLink-x.y.z-setup.exe`, the installer
    - `GlassLink-x.y.z-win-x64.zip`, the same without an installer
    - `glasslink_du-x.y.z.bin`, the DU firmware (the installer contains it too)
@@ -20,7 +20,8 @@ The shared steps come from [release-tools](https://github.com/HrMarcussen/releas
 6. Update the DUs from the status page of an updated DMC.
 
 A **dry run** (same build, nothing published, the files kept as a workflow artifact for a week): Actions, Release,
-Run workflow, on `main`.
+Run workflow, on `main`. A dry run without `BUILD_DEPS_TOKEN` builds without `SimConnect.dll` and says so; a tag's
+run stops instead (`build-release.ps1 -Strict`), as it does without the firmware image or Inno Setup.
 
 ## One-time setup
 
