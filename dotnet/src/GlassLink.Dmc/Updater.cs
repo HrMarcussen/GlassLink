@@ -16,19 +16,23 @@ public sealed record ReleaseAsset(string Name, string Url, long Size);
 /// <summary>One GitHub Release as the update check sees it.</summary>
 public sealed record Release(string Version, string Tag, string PageUrl, string Notes, DateTimeOffset? Published, ReleaseAsset? Installer, ReleaseAsset? Sums)
 {
-    /// <summary>From GitHub's release JSON; null when it is not a release (no tag).</summary>
-    public static Release? From(JsonNode? json)
+    /// <summary>From GitHub's release JSON; null when it is not a release (no tag, or not an object at all). Assets count only
+    /// when their download address starts with <paramref name="downloadPrefix"/> (this repository's release downloads),
+    /// and their names are bare file names.</summary>
+    public static Release? From(JsonNode? json, string downloadPrefix = "https://")
     {
-        if (json?["tag_name"].Text() is not { Length: > 0 } tag)
+        if (json is not JsonObject o || o["tag_name"].Text() is not { Length: > 0 } tag)
         {
             return null;
         }
 
-        var assets = (json["assets"] as JsonArray ?? []).OfType<JsonObject>()
-            .Select(a => new ReleaseAsset(a["name"].Text() ?? "", a["browser_download_url"].Text() ?? "", (long)(a["size"]?.AsDouble() ?? 0)))
-            .Where(a => a.Name.Length > 0 && a.Url.StartsWith("https://", StringComparison.Ordinal)).ToList();
-        return new Release(tag.TrimStart('v', 'V'), tag, json["html_url"].Text() ?? "", json["body"].Text() ?? "",
-            DateTimeOffset.TryParse(json["published_at"].Text(), out var p) ? p : null,
+        var assets = (o["assets"] as JsonArray ?? []).OfType<JsonObject>()
+            .Select(a => new ReleaseAsset(a["name"].Text() ?? "", a["browser_download_url"].Text() ?? "", (long)a["size"].Number(0)))
+            .Where(a => a.Name.Length > 0 && a.Name == Path.GetFileName(a.Name) && a.Name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+                        && a.Url.StartsWith("https://", StringComparison.Ordinal) && a.Url.StartsWith(downloadPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return new Release(tag.TrimStart('v', 'V'), tag, o["html_url"].Text() ?? "", o["body"].Text() ?? "",
+            DateTimeOffset.TryParse(o["published_at"].Text(), out var p) ? p : null,
             assets.FirstOrDefault(a => a.Name.EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase)),
             assets.FirstOrDefault(a => a.Name.Equals("SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase)));
     }
@@ -52,6 +56,11 @@ public sealed class Updater : IDisposable
     private readonly Action<string> _log;
     private readonly HttpClient _http;
     private readonly string _appDir;
+    private readonly string _downloadFolder;
+
+    /// <summary>How long "starting" may last: the setup program stops this DMC when it installs, so a DMC still running
+    /// after this time means the setup program was closed or failed before it got there.</summary>
+    public TimeSpan StartTimeout { get; init; } = TimeSpan.FromMinutes(3);
     private readonly Func<string, string, bool> _launch;
     private readonly Func<string?> _ownSigner;
     private System.Threading.Timer? _timer;
@@ -59,10 +68,11 @@ public sealed class Updater : IDisposable
     private int _busy;                                       // 1 while checking or installing
 
     public Updater(string currentVersion, ConfigFile config, Action<string> log, HttpMessageHandler? handler = null, string? appDir = null,
-        Func<string, string, bool>? launch = null, Func<string?>? ownSigner = null)
+        Func<string, string, bool>? launch = null, Func<string?>? ownSigner = null, string? downloadFolder = null)
     {
         (_current, _config, _log) = (currentVersion, config, log);
         _appDir = appDir ?? AppContext.BaseDirectory;
+        _downloadFolder = downloadFolder ?? Path.Combine(Path.GetTempPath(), "GlassLink-update");
         _launch = launch ?? LaunchInstaller;
         _ownSigner = ownSigner ?? (() => Authenticode.SignerOf(Environment.ProcessPath ?? ""));
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
@@ -85,6 +95,9 @@ public sealed class Updater : IDisposable
     public bool Enabled => _config.Read(root => (root["updates"] as JsonObject)?["check"] is not { } c || c.GetValueKind() != System.Text.Json.JsonValueKind.False);
 
     public string Repository => _config.Read(root => (root["updates"] as JsonObject)?["repository"].Text()) is { Length: > 0 } r ? r : DefaultRepository;
+
+    /// <summary>Where this repository's release files are downloaded from: nothing else is fetched or run.</summary>
+    public string DownloadPrefix => $"https://github.com/{Repository}/releases/download/";
 
     /// <summary>Installed by the setup program (it leaves its uninstaller next to GlassLink.exe), not run from a checkout.</summary>
     public bool Installed => File.Exists(Path.Combine(_appDir, "unins000.exe"));
@@ -128,7 +141,7 @@ public sealed class Updater : IDisposable
                     break;
                 case HttpStatusCode.OK:
                     var was = Latest?.Version;
-                    Latest = Release.From(JsonNode.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false)));
+                    Latest = Release.From(JsonNode.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false)), DownloadPrefix);
                     _etag = response.Headers.ETag?.ToString();
                     Error = Latest is null ? "GitHub's answer was not a release" : "";
                     if (Available && Latest!.Version != was)
@@ -178,8 +191,9 @@ public sealed class Updater : IDisposable
     {
         var release = Latest!;
         var installer = release.Installer!;
-        var folder = Path.Combine(Path.GetTempPath(), "GlassLink-update");
-        var file = Path.Combine(folder, installer.Name);
+        var folder = _downloadFolder;
+        var file = Path.Combine(folder, Path.GetFileName(installer.Name));
+        FileStream? locked = null;
         try
         {
             (State, Progress, Error) = ("downloading", 0, "");
@@ -213,12 +227,10 @@ public sealed class Updater : IDisposable
             }
 
             State = "verifying";
-            string actual;
-            await using (var downloaded = File.OpenRead(file))
-            {
-                actual = Convert.ToHexString(await SHA256.HashDataAsync(downloaded).ConfigureAwait(false));
-            }
-
+            // From the checksum until the setup program has started, the file stays open for reading only and shared for
+            // reading only: no other program can change, rename or replace what was checked (it then runs elevated).
+            locked = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var actual = Convert.ToHexString(await SHA256.HashDataAsync(locked).ConfigureAwait(false));
             if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException("the download does not match the release's checksum");
@@ -240,16 +252,30 @@ public sealed class Updater : IDisposable
                 Error = "the installation was cancelled at the Windows prompt";
                 State = "idle";
             }
+            else
+            {
+                _ = Task.Delay(StartTimeout).ContinueWith(_ =>
+                {
+                    if (State == "starting")                     // still here: the setup program never got to stop this DMC
+                    {
+                        (Error, State) = ("the setup program did not finish the update: try Install again", "idle");
+                        _log($"update: {Error}");
+                    }
+                }, TaskScheduler.Default);
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
             Error = ex is HttpRequestException or TaskCanceledException ? "the download failed: no connection to GitHub" : ex.Message;
             _log($"update: {Error}");
             State = "idle";
+            locked?.Dispose();
+            locked = null;
             TryDelete(file);
         }
         finally
         {
+            locked?.Dispose();
             Interlocked.Exchange(ref _busy, 0);
         }
     }
