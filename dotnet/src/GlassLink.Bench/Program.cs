@@ -1,7 +1,8 @@
 // Bench tool for the DU layer: talks to real DUs over WinUSB without the rest of the DMC.
 //
 //   GlassLink.Bench list
-//   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>] [--brightness 0..100]   a moving test picture to the DUs
+//   GlassLink.Bench stream [--seconds 20] [--fps 30] [--size 768x768] [--only <serial prefix>] [--brightness 0..100] [--knob 0..100]
+//        a moving test picture to the DUs; --knob switches the brightness between 100 and that value every 50 ms meanwhile
 //   GlassLink.Bench tiles --serial <prefix> --layout 0,0,640,640;640,0,640,640 [--cards] [--seconds 20] [--fps 30]
 //        a layout of tiles on one DU (its HDMI mode must fit: see mode), then test pictures to every tile; --cards shows
 //        the tiles as test cards instead
@@ -338,6 +339,11 @@ switch (command)
             targets.ForEach(c => c.SetBrightness(bright));         // below 100 the DU dims every picture: part of what is measured
         }
 
+        // --knob <n>: the brightness goes between 100 and n every 50 ms while pictures stream, as a cockpit knob turned
+        // during decodes (a change in the middle of one switched the DU's free dimming off for good, review 9 Oct 2026)
+        using var knob = Option("--knob", -1) is var low and >= 0
+            ? new Timer(_ => targets.ForEach(c => c.SetBrightness(Environment.TickCount64 / 50 % 2 == 0 ? 100 : low)), null, 0, 50)
+            : null;
         Stream(targets, Option("--seconds", 20), Option("--fps", 30), int.Parse(size[0]), int.Parse(size[1]));
         break;
     }

@@ -272,8 +272,13 @@ static void ota_fail(uint32_t code)
     send_msg(XD_T_OTA_RESULT, NULL, 0, 0, code);
 }
 
+static void confirm_app(const char *why);
+
 static void ota_begin(uint32_t size)
 {
+    /* the host talks to this image, which is enough to keep it: an unconfirmed image cannot start another update
+     * (ESP_ERR_OTA_ROLLBACK_INVALID_STATE), and a second update in its first minute would fail */
+    confirm_app("the host started an update");
     if (s_ota.active) esp_ota_abort(s_ota.h);
     s_ota.active = false;
     s_ota.part = esp_ota_get_next_update_partition(NULL);
@@ -290,7 +295,8 @@ static void ota_begin(uint32_t size)
     send_msg(XD_T_OTA_PROGRESS, NULL, 0, 0, 0);
 }
 
-/* This image works with the host: cancel the rollback. Called after the first picture shown, or after a minute up. */
+/* This image works with the host: cancel the rollback. Called after the first picture shown, at the start of an update,
+ * or after a minute up once a host has talked to it. */
 static void confirm_app(const char *why)
 {
     if (s_app_confirmed) return;
@@ -497,7 +503,11 @@ static uint8_t *show_picture(const picture_job_t *job)
             confirm_app("a picture was shown");
         } else {
             s_dropped++;
-            send_log(2, "decode failed seq %lu: %s", (unsigned long)h->seq, esp_err_to_name(err));
+            static int64_t last_log_us;            /* a picture that never fits fails at the frame rate: one line a second */
+            if (esp_timer_get_time() - last_log_us > 1000000) {
+                last_log_us = esp_timer_get_time();
+                send_log(2, "decode failed seq %lu: %s", (unsigned long)h->seq, esp_err_to_name(err));
+            }
         }
         return spare;
     }
@@ -558,8 +568,11 @@ static void picture_task(void *arg)
     }
 }
 
+static bool s_host_seen;               /* a host has sent a valid message to this image: its USB works */
+
 static void handle_message(const xd_header_t *h, const uint8_t *payload)
 {
+    s_host_seen = true;
     switch (h->type) {
     case XD_T_FRAME:
     case XD_T_TILE:
@@ -727,6 +740,11 @@ static void protocol_task(void *arg)
         if (connected && (!was_connected || session != last_session)) {
             ESP_LOGI(TAG, "usb configured");
             s_last_stats_us = esp_timer_get_time();
+            if (s_ota.active) {
+                ota_fail(6);                /* an update from the old session cannot continue: give the slot back now, not
+                                               after 15 s in which the new host's layout would be dropped (review 9 Oct 2026) */
+            }
+            s_last_seq = 0;                 /* a new host counts its pictures from the start */
             wait_pictures();                /* the old session's last pictures first */
             forget_pictures(true);          /* a new host session starts without the old one's layout (#17) or pictures (#81) */
             s_assign = 0;
@@ -741,8 +759,14 @@ static void protocol_task(void *arg)
         if (s_ota.active && esp_timer_get_time() - s_ota.last_us > 15000000) {
             ota_fail(6);                     /* the host went away mid-update (also unplugged): give the flash slot back */
         }
-        if (!s_app_confirmed && esp_timer_get_time() > 60000000) {
-            confirm_app("a minute without a crash");
+        /* A minute without a crash confirms a new image only once a host has talked to it: an image whose USB does not
+         * work (a host cannot bind it) must still roll back at the next restart, not need a serial cable (review 9 Oct
+         * 2026). The crash counter starts again after a stable minute, also on an image confirmed long ago. */
+        if (esp_timer_get_time() > 60000000) {
+            if (!s_app_confirmed && s_host_seen) {
+                confirm_app("a minute without a crash, with a host");
+            }
+            s_boot_count = 0;
         }
         if (!connected) {
             vTaskDelay(pdMS_TO_TICKS(50));

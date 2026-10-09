@@ -63,7 +63,7 @@ static uint8_t s_lut[256];          /* brightness lookup (CPU fallback), rebuilt
 static ppa_client_handle_t s_ppa;
 static ppa_client_handle_t s_ppa_fill;          /* clears the screen in one pass (#75) */
 static volatile int s_csc_scale = 256;          /* brightness in 1/256: the conversion matrix is multiplied by it */
-static volatile bool s_csc_dimmed;              /* set by the wrapper when it applied s_csc_scale to a decode */
+static volatile int s_csc_used = -1;            /* the scale the wrapper applied to the last decode; -1 = it did not run */
 static bool s_csc_works = true;                 /* cleared if a dimmed decode came out without the wrapper having run */
 static void *s_fb[2];               /* the DPI panel's two frame buffers */
 static int s_front;                 /* index of the one on screen; full-size pictures are decoded into the other and flipped */
@@ -320,13 +320,16 @@ esp_err_t __real_dma2d_configure_color_space_conversion(dma2d_channel_handle_t c
 esp_err_t IRAM_ATTR __wrap_dma2d_configure_color_space_conversion(dma2d_channel_handle_t chan, const dma2d_csc_config_t *config)
 {
     esp_err_t err = __real_dma2d_configure_color_space_conversion(chan, config);
-    int k = s_csc_scale;
-    if (err != ESP_OK || k >= 256 || !config) return err;
+    if (err != ESP_OK || !config) return err;
     static const int bt601[3][4] = DMA2D_COLOR_SPACE_CONV_PARAM_YUV2RGB_BT601;
     static const int bt709[3][4] = DMA2D_COLOR_SPACE_CONV_PARAM_YUV2RGB_BT709;
     const int (*m)[4] = config->rx_csc_option == DMA2D_CSC_RX_YUV420_TO_RGB888_601 ? bt601
                       : config->rx_csc_option == DMA2D_CSC_RX_YUV420_TO_RGB888_709 ? bt709 : NULL;
     if (!m) return err;
+    /* read once: SET_BRIGHTNESS may change it at any moment (the protocol task); what counts is what this decode got */
+    int k = s_csc_scale;
+    s_csc_used = k < 256 ? k : 256;
+    if (k >= 256) return err;
     volatile dma2d_color_param_reg_t *regs[3] = {&DMA2D.in_channel[0].in_color_param_group.param_h,
                                                  &DMA2D.in_channel[0].in_color_param_group.param_m,
                                                  &DMA2D.in_channel[0].in_color_param_group.param_l};
@@ -339,7 +342,6 @@ esp_err_t IRAM_ATTR __wrap_dma2d_configure_color_space_conversion(dma2d_channel_
         regs[i]->val[0] = r.val[0];
         regs[i]->val[1] = r.val[1];
     }
-    s_csc_dimmed = true;
     return err;
 }
 
@@ -581,7 +583,7 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
     }
     int64_t t0 = esp_timer_get_time();
     uint32_t out_len = 0;
-    s_csc_dimmed = false;
+    s_csc_used = -1;
     ESP_RETURN_ON_ERROR(jpeg_decoder_process(s_jpeg, &cfg, jpeg, len, out, out_size, &out_len), TAG, "jpeg decode");
     if (stride != pic.width) {
         /* rows come out padded to whole MCUs: pack them so every later step sees pic.width pixels per row (a width
@@ -590,12 +592,16 @@ static esp_err_t show_jpeg(const uint8_t *jpeg, size_t len, int at_x, int at_y, 
             memmove(out + (size_t)y * pic.width * 3, out + (size_t)y * stride * 3, (size_t)pic.width * 3);
         }
     }
-    if (s_brightness < 100 && !s_csc_dimmed) {
-        if (s_csc_works && s_csc_scale < 256) {
-            s_csc_works = false;        /* the wrapper did not run (another IDF version?): the PPA from now on */
-            s_csc_scale = 256;
-            ESP_LOGW(TAG, "dimming in the decoder did not take effect: PPA dimming from now on");
-        }
+    /* Only a decode the wrapper never saw means it does not work (another IDF version?). A decode that ran at full scale
+     * while the brightness changed meanwhile is dimmed once here; the next decode takes the new scale (review 9 Oct 2026:
+     * a knob turned during a decode switched the free dimming off until the next restart, +15 ms per picture). */
+    int used = s_csc_used;
+    if (used < 0 && s_brightness < 100 && s_csc_works) {
+        s_csc_works = false;            /* the PPA from now on */
+        s_csc_scale = 256;
+        ESP_LOGW(TAG, "dimming in the decoder did not take effect: PPA dimming from now on");
+    }
+    if (s_brightness < 100 && (used < 0 || used >= 256)) {
         dim(out, out_size, pic.width, pic.height);
     }
     uint8_t *shown = out;               /* the buffer that goes to the panel */
