@@ -115,6 +115,14 @@ The review's remaining findings, checked by a second set of reviewers against th
   site's frame; a display called "constructor" no longer confuses it; display names in its requests are encoded.
 - A DMC that the simulator started is started with `--with-sim` again after a self-update, so it still stops with the
   simulator.
+- **[DU firmware]** Each message to the PC goes out as one USB transfer. A DU left alone between two DMC sessions
+  could keep half a message, so the next session lost the DU's INFO and waited 2 s for it (measured on both DUs:
+  INFO after about 2050 ms with 2 resyncs, now 16-31 ms with none). `GlassLink.Bench list` shows both numbers.
+- **[DU firmware]** A layout the DMC sends again unchanged (after every INFO) could count as new because of a padding
+  byte, with a black flash. A picture smaller than the screen clears the old picture's edges when its size changes or
+  something else was drawn. A picture whose decode fails half-way is followed by the last good one, not left torn. A
+  display that does not start leaves the DU running without one instead of timing out five times a second. An NVS
+  fault no longer restarts the DU for ever. USB timeouts no longer misbehave after 49.7 days up.
 
 ## [0.9.0] - 2026-10-02
 

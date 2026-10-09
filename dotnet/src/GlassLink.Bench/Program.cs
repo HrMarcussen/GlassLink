@@ -274,14 +274,24 @@ if (connections.Count == 0)
     return 1;
 }
 
-var deadline = Environment.TickCount64 + 4000;
+// how long each DU took to answer with INFO, and whether its stream had to be resynced: a DU that was left with half a
+// message from an earlier session shows both (review F6)
+var opened = Environment.TickCount64;
+var infoMs = new Dictionary<DuConnection, long>();
+var deadline = opened + 4000;
 while (connections.Any(c => c.Info is null) && Environment.TickCount64 < deadline)
 {
-    Thread.Sleep(50);
+    foreach (var c in connections.Where(c => c.Info is not null && !infoMs.ContainsKey(c)))
+    {
+        infoMs[c] = Environment.TickCount64 - opened;
+    }
+
+    Thread.Sleep(10);
 }
 
 foreach (var c in connections)
 {
+    infoMs.TryAdd(c, Environment.TickCount64 - opened);
     c.Ping();
 }
 
@@ -289,7 +299,7 @@ Thread.Sleep(300);
 foreach (var c in connections)
 {
     Console.WriteLine(c.Info is { } i
-        ? $"{c.Serial}  fw {i.Firmware} ({i.Build})  {i.Hardware}  {i.PanelWidth}x{i.PanelHeight}  {i.Slot}  up {i.UptimeSeconds} s  ping {c.PingMs:0.0} ms"
+        ? $"{c.Serial}  fw {i.Firmware} ({i.Build})  {i.Hardware}  {i.PanelWidth}x{i.PanelHeight}  {i.Slot}  up {i.UptimeSeconds} s  ping {c.PingMs:0.0} ms  info after {infoMs[c]} ms  resyncs {c.Resyncs}"
         : $"{c.Serial}  no INFO answer");
 }
 
