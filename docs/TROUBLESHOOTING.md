@@ -103,6 +103,8 @@ addresses. Any other name could be a web page that points its own domain at the 
 your own for the sim PC (a hosts-file entry, a router alias) is refused.
 
 **What to do.** Open the page with the computer name (`http://<computer name>:8765/view/pfd`) or the PC's IP address.
+Changes (assigning a DU, Learn, settings) are taken only through `localhost` or an address, never a name: on the
+sim PC use `http://localhost:8765/` (the tray menu does).
 
 ## Windows shows an old name for a DU
 

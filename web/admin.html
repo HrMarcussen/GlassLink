@@ -257,8 +257,8 @@
   // What a builder calls the displays; anything else keeps its own name. Also the order of a cockpit, left to right.
   const NICE = { pfd: 'Captain PFD', nd: 'Captain ND', ecam_upper: 'Upper ECAM', ecam_lower: 'Lower ECAM', fo_nd: 'FO ND', fo_pfd: 'FO PFD' };
   const COCKPIT = ['pfd', 'nd', 'ecam_upper', 'ecam_lower', 'fo_nd', 'fo_pfd'];
-  const nice = (name) => NICE[name] || name;
-  const titled = (name) => NICE[name] ? `${NICE[name]}<span class="idname">${esc(name)}</span>` : esc(name);
+  const nice = (name) => Object.hasOwn(NICE, name) ? NICE[name] : name;     // own keys only: a display may be called "constructor"
+  const titled = (name) => Object.hasOwn(NICE, name) ? `${NICE[name]}<span class="idname">${esc(name)}</span>` : esc(name);
   const cockpitOrder = (names) => [...names].sort((a, b) => ((COCKPIT.indexOf(a) + 1) || 99) - ((COCKPIT.indexOf(b) + 1) || 99) || a.localeCompare(b));
   let modsNow = {};                               // the DUs as of the last refresh (who shows what)
   let displaysNow = {};                           // the displays as of the last refresh (their picture sizes)
@@ -510,9 +510,10 @@
     const hadFocus = ae && el.contains(ae) ? (ae.dataset.display ? `.tile[data-display="${CSS.escape(ae.dataset.display)}"]` : null) : null;
     el.dataset.key = key;
     const count = Object.keys(tiles).length;
-    const outside = (n) => { const t = tiles[n]; const sz = sizes[n]; return t && (t.x + sz[0] > panel[0] || t.y + sz[1] > panel[1]); };
+    const tileOf = (n) => Object.hasOwn(tiles, n) ? tiles[n] : undefined;
+    const outside = (n) => { const t = tileOf(n); const sz = sizes[n]; return t && (t.x + sz[0] > panel[0] || t.y + sz[1] > panel[1]); };
     const rows = displaysOrder.map(n => {
-      const t = tiles[n]; const sz = sizes[n];
+      const t = tileOf(n); const sz = sizes[n];
       return `<tr data-display="${esc(n)}"><td><label><input type="checkbox" class="on" ${t ? 'checked' : ''} ${!t && count >= MAX_TILES ? 'disabled title="at most 6 displays on one DU"' : ''}> ${esc(nice(n))}</label></td>
         <td class="dim small">${sz[0]}x${sz[1]}</td>
         <td><label>x <input type="number" class="tx" min="0" max="${panel[0]}" step="1" value="${t ? t.x : 0}" ${t ? '' : 'disabled'} aria-label="${esc(nice(n))}: x position"></label></td>
@@ -524,7 +525,7 @@
         <button class="apply-screen" hidden>Apply</button>
         <span class="hint">The DU restarts into the mode; the picture comes back after a few seconds.</span></div>` : ''}
       <div class="preview" style="aspect-ratio:${panel[0]} / ${panel[1]}" aria-label="the DU's screen, ${panel[0]} x ${panel[1]}, with its tiles">
-        ${displaysOrder.map(n => { const t = tiles[n]; const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'} ${outside(n) ? 'outside' : ''}" role="button" tabindex="${t ? 0 : -1}" data-display="${esc(n)}"
+        ${displaysOrder.map(n => { const t = tileOf(n); const sz = sizes[n]; return `<div class="tile ${t ? '' : 'off'} ${outside(n) ? 'outside' : ''}" role="button" tabindex="${t ? 0 : -1}" data-display="${esc(n)}"
           aria-label="${esc(nice(n))} at ${t ? t.x : 0}, ${t ? t.y : 0}${outside(n) ? ', outside the screen' : ''}: arrow keys move it (Shift: 8 px)"
           style="left:${(t ? t.x : 0) / panel[0] * 100}%;top:${(t ? t.y : 0) / panel[1] * 100}%;width:${sz[0] / panel[0] * 100}%;height:${sz[1] / panel[1] * 100}%">${esc(nice(n))}<br><span class="pos">${t ? t.x : 0}, ${t ? t.y : 0}</span>${outside(n) ? '<br>⚠ outside' : ''}</div>`; }).join('')}
       </div>
@@ -614,23 +615,23 @@
       const name = tr.dataset.name; const v = (c) => tr.querySelector(c).value;
       tr.querySelectorAll('input').forEach(i => i.addEventListener('input', () => tr.classList.add('dirty')));   // Save appears when there is something to save
       tr.querySelector('.save').onclick = () => {
-        api(`/displays/${name}`, 'POST', { client_size: [v('.w'), v('.h')], position: [v('.x'), v('.y')], fps: v('.fps') || null })
+        api(`/displays/${encodeURIComponent(name)}`, 'POST', { client_size: [v('.w'), v('.h')], position: [v('.x'), v('.y')], fps: v('.fps') || null })
           .then(() => { tr.classList.remove('dirty'); editorKey = ''; refresh(); }).catch(() => {}); };
       tr.querySelector('.cancel').onclick = () => { tr.classList.remove('dirty'); editorKey = ''; refresh(); };
       tr.querySelector('.remove').onclick = () => {
         if (confirm(`Remove ${nice(name)}? A DU that shows it becomes unassigned. Its pop-out window stays open in the sim.`))
-          api(`/displays/${name}`, 'DELETE').then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
+          api(`/displays/${encodeURIComponent(name)}`, 'DELETE').then(() => { editorKey = ''; refresh(); }).catch(() => {}); };
       const lb = tr.querySelector('.learn');
       if (lb) lb.onclick = () => {
         if (confirm(`Learn where ${nice(name)} is?\n\nThe DMC switches the cockpit camera to the captain seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
-          api(`/displays/${name}/learn`, 'POST', { view: 'standard' }).then(() => refresh()).catch(() => {}); };
+          api(`/displays/${encodeURIComponent(name)}/learn`, 'POST', { view: 'standard' }).then(() => refresh()).catch(() => {}); };
       const cw = tr.querySelector('.closewin');
       if (cw) cw.onclick = () => {
-        api(`/displays/${name}/close`, 'POST').then(r => { if (r && r.closed === false) alert(`${name} has no pop-out window right now.`); refresh(); }).catch(() => {}); };
+        api(`/displays/${encodeURIComponent(name)}/close`, 'POST').then(r => { if (r && r.closed === false) alert(`${name} has no pop-out window right now.`); refresh(); }).catch(() => {}); };
       const lm = tr.querySelector('.learnmine');
       if (lm) lm.onclick = () => {
         if (confirm(`Learn where ${nice(name)} is, from the FO seat?\n\nThe DMC switches the sim to the copilot seat view. When the banner says so, Right-Alt + click the ${nice(name)} once. Your view comes back afterwards.`))
-          api(`/displays/${name}/learn`, 'POST', { view: 'copilot' }).then(() => refresh()).catch(() => {}); };
+          api(`/displays/${encodeURIComponent(name)}/learn`, 'POST', { view: 'copilot' }).then(() => refresh()).catch(() => {}); };
     });
   }
   // A finished learn run stays for 30 s (or until dismissed), then the banner goes (#10).
@@ -827,8 +828,8 @@
         const ib = tr.querySelector('.ident');
         if (ib) { ib.textContent = x.ident_active ? 'Stop identify' : 'Identify'; ib.classList.toggle('on', !!x.ident_active); }
         const om = tr.querySelector('.otamsg'); const o = x.ota || {};
-        if (om) om.textContent = o.state === 'running' ? `updating to ${o.version || '?'}: ${Math.round((o.progress || 0) * 100)}% (${o.message || ''})`
-          : o.state === 'ok' ? `updated ${o.from || '?'} → ${o.version || '?'}` : o.state === 'error' ? `update failed: ${o.message}` : '';
+        if (om) om.textContent = o.state === 'running' ? `updating: ${Math.round((o.progress || 0) * 100)}% (${o.message || ''})`
+          : o.state === 'ok' ? `updated: ${o.message || ''}${x.alive && x.info && x.info.fw ? ` · runs ${x.info.fw}` : ''}` : o.state === 'error' ? `update failed: ${o.message}` : '';
         tr.querySelectorAll('.update').forEach(ub => { ub.disabled = o.state === 'running'; });
         const pm = tr.querySelector('.pingms');
         if (pm) pm.textContent = x.ping_ms != null ? x.ping_ms + ' ms' : '';

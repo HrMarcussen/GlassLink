@@ -112,7 +112,8 @@ public static partial class Api
             return Json(Modules(dmc)[serial]?.DeepClone() ?? new JsonObject());
         }));
         app.MapDelete("/modules/{serial}", (string serial) =>
-            dmc.Dus.Forget(serial) ? Json(new JsonObject { ["forgotten"] = true }) : Plain(409, "module is connected; unplug it first"));
+            !SerialPattern().IsMatch(serial.ToLowerInvariant()) ? Plain(400, "a DU serial is 8 to 64 hexadecimal characters")
+            : dmc.Dus.Forget(serial) ? Json(new JsonObject { ["forgotten"] = true }) : Plain(409, "module is connected; unplug it first"));
 
         // -- displays (editor), pop-outs, learning ------------------------------------------------------------
         app.MapGet("/displays", () =>
@@ -328,13 +329,17 @@ public static partial class Api
         return result;
     }
 
+    /// <summary>Whether the page lists a DU: connected, or set up (a display, tiles or a label), so a missing one shows
+    /// as missing and can be forgotten. A DU with only tiles was left out (review T3).</summary>
+    public static bool Listed(DuStatus d) => d.Alive || d.Display.Length > 0 || d.Label.Length > 0 || d.Tiles.Count > 0;
+
     private static JsonObject Modules(DmcRuntime dmc)
     {
         var result = new JsonObject();
         foreach (var d in dmc.Dus.Status())
         {
             var conn = dmc.Dus.Connection(d.Serial);
-            if (!d.Alive && d.Display.Length == 0 && d.Label.Length == 0)
+            if (!Listed(d))
             {
                 continue;                                    // an unconfigured DU simply disappears when unplugged: no ghosts
             }

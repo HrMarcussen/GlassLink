@@ -1,4 +1,5 @@
 using System.Net;
+using GlassLink.Core.Du;
 using GlassLink.Dmc;
 using Microsoft.AspNetCore.Http;
 
@@ -111,6 +112,48 @@ public class RequestGuardTests
         }
 
         Assert.DoesNotContain("evil.example", names);
+    }
+
+    [Fact]
+    public void Changes_must_be_addressed_to_localhost_or_an_address_as_a_name_can_be_answered_by_another_device()
+    {
+        // a page served under the PC's name by someone else on the network, which then points the name at this PC
+        Assert.NotNull(Check("POST", "simpc:8765", "application/json", "http://simpc:8765", "192.168.1.10"));
+        Assert.Null(Check("POST", "192.168.1.10:8765", "application/json", "http://192.168.1.10:8765", "192.168.1.10"));
+        Assert.Null(Check("POST", "localhost:8765", "application/json", "http://localhost:8765"));
+        Assert.Null(Check("GET", "simpc:8765", remote: "192.168.1.20"));                                 // reading by name stays open
+        Assert.Null(Check("POST", "simpc:8765", "application/json", "http://simpc:8765", "192.168.1.20", lan: true));   // allowed on purpose
+    }
+
+    [Fact]
+    public async Task The_status_page_is_never_shown_inside_another_sites_frame()
+    {
+        async Task<IHeaderDictionary> Headers(string path)
+        {
+            var http = new DefaultHttpContext();
+            http.Request.Path = path;
+            await RequestGuard.SecurityHeaders()(_ => Task.CompletedTask)(http);
+            return http.Response.Headers;
+        }
+
+        var page = await Headers("/");
+        Assert.Equal("DENY", page.XFrameOptions.ToString());
+        Assert.Contains("frame-ancestors 'none'", page.ContentSecurityPolicy.ToString());
+        Assert.Equal("nosniff", page.XContentTypeOptions.ToString());
+        var viewer = await Headers("/view/pfd");                     // a viewer may be part of someone's own dashboard
+        Assert.Empty(viewer.XFrameOptions.ToString());
+        Assert.Equal("nosniff", viewer.XContentTypeOptions.ToString());
+    }
+
+    [Fact]
+    public void A_du_set_up_only_with_tiles_stays_listed_when_unplugged()
+    {
+        static DuStatus Du(string display, string label, IReadOnlyList<(string, int, int)> tiles) =>
+            new("aabbccdd", label, display, 100, false, "not connected", null, null, 0, null, null, null, new OtaStatus(OtaState.Idle, 0, ""), [], null, tiles, [], false, "");
+        Assert.True(Api.Listed(Du("", "", [("pfd", 0, 0), ("nd", 1024, 0)])));                         // review T3
+        Assert.True(Api.Listed(Du("pfd", "", [])));
+        Assert.True(Api.Listed(Du("", "DU1", [])));
+        Assert.False(Api.Listed(Du("", "", [])));                                                      // a stranger simply goes
     }
 }
 

@@ -107,8 +107,29 @@ public static class RequestGuard
             return "changes are accepted from this PC only (set server.allow_lan_control to true in config.json to allow other devices)";
         }
 
+        // A name (the computer name, .local, the LAN's DNS suffix) can be answered by another device on the network, which
+        // could serve a page under it and then point the name at this PC: changes need localhost or an address (review S5)
+        if (!allowLanControl && host != "localhost" && !IPAddress.TryParse(host, out _))
+        {
+            return $"changes must be addressed to localhost or an address of this PC, not '{request.Host.Host}' (a name can be answered by another device)";
+        }
+
         return null;
     }
+
+    /// <summary>Headers on every answer: no guessing of content types, and the status page (the one with buttons) never
+    /// inside another site's frame, where a page could trick a click on it (review S10). Viewers may be framed.</summary>
+    public static Func<RequestDelegate, RequestDelegate> SecurityHeaders() => next => http =>
+    {
+        http.Response.Headers.XContentTypeOptions = "nosniff";
+        if (http.Request.Path == "/")
+        {
+            http.Response.Headers.XFrameOptions = "DENY";
+            http.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+        }
+
+        return next(http);
+    };
 
     /// <summary>Loopback, or one of this PC's own addresses (the page opened through the LAN address on the sim PC).</summary>
     private static bool IsThisPc(IPAddress? remote, IReadOnlySet<string> localNames) =>
