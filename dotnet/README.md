@@ -2,7 +2,7 @@
 
 `GlassLink.exe`, the DMC: a tray application with the status page in a window of its own and on port 8765. .NET 10,
 Windows only. It serves the status page from `../web` (copied at build time). The original Python DMC was retired in
-0.7.1 (#77); git history keeps it.
+0.8.0 (#77); git history keeps it.
 
 ## Projects
 

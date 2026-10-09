@@ -3,7 +3,7 @@
 All notable changes to GlassLink. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/) with one version for the whole repository:
 
-- The file `VERSION` is the single source of truth. The DMC (`glasslink.__version__`, status page) and the DU
+- The file `VERSION` is the single source of truth. The DMC (the tray menu, the status page, the setup program) and the DU
   firmware (`fw` in the INFO message, shown per DU on the status page) are both built from it, and each reports
   the git commit it was built from as `build`.
 - While the project is 0.x: **minor** (0.2 -> 0.3) for new features or any change to the USB protocol or the
@@ -22,6 +22,9 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   iPhone", or "Shown in the viewer on this PC" without a DU. The DMC names each viewer from its browser (iPhone,
   iPad, Android phone or tablet, Raspberry Pi, the Pi viewer, Windows PC, Mac, VLC; "this PC" for one on the sim
   PC); `/status` lists them per display as `viewers`.
+- The status page also answers to the PC's name with the network's DNS suffix (`simpc.lan`, `simpc.fritz.box`), not
+  only to the bare name, `.local` and its addresses. Troubleshooting has an entry for the "answers only to its own
+  names" refusal.
 
 ### Fixed
 - Pop-outs are parked off-screen on any screen size: the default places (from x 2600) were made for a 2560-wide
@@ -58,6 +61,31 @@ Found by a code review on 9 Oct 2026, each one checked against the code (and on 
   (`Origin: null`) can no longer open the live-picture WebSocket or change anything; text a DU reports (firmware
   version, panel size) is escaped on the page.
 - Version numbers like `1.0.0-rc2` compare as 1.0.0, not 1.0.2. `config.json.bak` and `.tmp` are ignored by git.
+- X-Plane pop-outs: a command X-Plane did not take (busy loading a flight) counted as done, so the last flight's
+  pop-outs were never asked for again and three refused commands gave up on a display. Only commands X-Plane takes
+  count now. While the popups' states cannot be read nothing is toggled (a toggle on a popup that is open closes it).
+  Another aircraft's commands are looked up afresh, a slow X-Plane no longer gets a second poll on top of a waiting
+  one, requests to it skip a system proxy, and the status page no longer waits while X-Plane is asked.
+- A display called `ecam` also took the window of `ecam_upper` (the title "GlassLink:ecam" is part of
+  "GlassLink:ecam_upper"). Displays now find their pop-out by its exact title (`title_exact`): new displays, every
+  pop-out (an older config's `title` is replaced then) and a new installation's configuration.
+- After a pop-out from an instrument view (the FSLabs' First Officer view) the camera was reset into the pilot's view;
+  it stays in the view it was in. A pop-out stopped before it moved the camera (the DMC quitting) leaves it alone.
+- An error while encoding a DU's band, or while stopping the capture of a closed window, ended the DMC with all its
+  capture sessions open (which can upset the graphics driver); that picture is skipped or the error logged instead.
+- An installed copy takes VERSION, FIRMWARE_VERSION and the DU firmware image only from its install folder: a file
+  in `%LOCALAPPDATA%\GlassLink`, which any program the user runs can write, decided what the DUs were offered.
+- The release workflow runs the tests, stops a tag's release that lacks SimConnect.dll, the firmware or the installer
+  (a missing SimConnect.dll was only a warning), gives write access only to the job that publishes, keeps no token in
+  the checkouts, takes the tag name from the environment instead of pasting it into a script, and runs the
+  third-party actions at fixed commits. A dry run's files are kept a week, as docs/releasing.md said (they were kept
+  90 days).
+- **[DU firmware]** `sdkconfig.defaults` started with a byte-order mark (ESP-IDF skipped its first line) and set two
+  options ESP-IDF 5.5 does not have; the build now runs without those warnings. Nothing changes on the DU.
+- Docs: the configuration table lists `process`, `firmware.image`, `popout.max_attempts` and `updates.repository` and
+  no longer the unused `brightness.source` and `popout.aircraft`; Windows 10 2004 is the minimum (as the installer
+  says, not 1903); the USB protocol's INFO example and SET_ROTATION (stored, not applied) match the firmware; the
+  Python DMC was retired in 0.8.0. `config.example.json` lost three settings nothing read.
 
 ## [0.9.0] - 2026-10-02
 

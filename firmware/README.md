@@ -15,9 +15,10 @@ Why things are done the way they are: [docs/notes.md](../docs/notes.md).
   Full-size pictures go straight into the back frame buffer (flip, no tearing), pictures as wide as the screen
   straight into their rows, others are copied into place. Brightness is applied in the decoder's colour conversion.
 - Layouts of up to six tiles (`SET_LAYOUT`, `TILE`) with test cards for lining them up with a panel's cut-outs.
-- Screens of its own, without a font library: NO USB, NOT ASSIGNED with the serial, IDENT with the label.
+- Screens of its own (Waiting for the PC, Waiting for the DMC, Not assigned, Identify, Updating firmware), in Inter
+  rasterised with stb_truetype from fonts built into the image.
 - Firmware update over USB into the other app slot, confirmed only once a picture was shown (or a host-requested
-  restart, or a minute up); otherwise the bootloader rolls back. Three unstable boots fall back to mode 0.
+  restart, or a minute up with a host); otherwise the bootloader rolls back. Three unstable boots fall back to mode 0.
 - Stats every 2 s (fps, decode, draw and transfer times, free PSRAM), log lines to the host.
 
 ## Build

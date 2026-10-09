@@ -64,7 +64,7 @@ what helps.
 
 ## Requirements
 
-- Windows 10 1903 or later, or Windows 11, and MSFS 2024 (MSFS 2020 is untested) or X-Plane 12.1.4 or later (its
+- Windows 10 version 2004 or later, or Windows 11, and MSFS 2024 (MSFS 2020 is untested) or X-Plane 12.1.4 or later (its
   web API on, which is X-Plane's default).
 - Nothing else for a release: it includes Microsoft's `SimConnect.dll` (unmodified, see
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)). A checkout does not: put a copy in `dotnet\lib\` (ignored by
@@ -119,9 +119,11 @@ page says where each display is shown, on DUs and in viewers: "Shown on DU1 · i
 | `displays.<name>.max_size`, `fps`, `quality` | per display: a smaller picture, other limits |
 | `displays.<name>.crop`, `tool_window` | a frame the window draws around the display, cut off (the window is made that much larger), and keeping the window out of Alt+Tab and the taskbar. The built-in X-Plane profiles set both for their pop-outs themselves |
 | `modules.<serial>` | per DU: `display`, `label`, `brightness` (trim), `screen` (HDMI mode 0-4), `tiles` (several displays: `{display: {x, y}}`); `rotation` is stored but not drawn by the DU yet |
-| `popout` | `auto`, `aircraft`, `zoom`, `grace_s`, `retry_s`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
-| `brightness` | `enabled`, `source`: the DUs follow the cockpit's display brightness knobs where the pop-outs do not dim themselves (the Fenix, through SimConnect); the FSLabs and the ToLiss dim their own |
-| `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours |
+| `popout` | `auto`, `zoom`, `grace_s`, `retry_s`, `max_attempts`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
+| `brightness` | `enabled`: the DUs follow the cockpit's display brightness knobs where the pop-outs do not dim themselves (the Fenix, through SimConnect); the FSLabs and the ToLiss dim their own |
+| `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours; `repository` (`owner/name`, for a fork) |
+| `process` | `priority` (`below_normal` by default, `normal`, `idle`) and `affinity` (`"auto"`, the default: the last third of the logical CPUs on a PC with eight or more; a list of CPU numbers; `[]` for all) |
+| `firmware.image` | the DU firmware a checkout offers the DUs (default: its own build); an installed copy offers only the one installed with it |
 
 ## HTTP API
 

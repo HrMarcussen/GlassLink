@@ -1,7 +1,7 @@
 # GlassLink DMC <-> DU USB protocol (draft 1, 2026-09-08)
 
 Applies to the ESP32-P4 display modules and to the DMC's USB output path (`dotnet/`; the original Python DMC was
-retired in 0.7.1).
+retired in 0.8.0).
 The WebSocket path (`/ws/<name>`) is unchanged and stays available for browsers, Pis and testing.
 
 ## 1. USB device
@@ -52,7 +52,7 @@ offset  size  field
 | 0x01 | FRAME | JPEG (baseline, 4:2:0 or 4:4:4, any size up to the panel size) | 0 | Show this frame. Sent only after a READY. |
 | 0x02 | GET_INFO | none | 0 | Module answers with INFO. |
 | 0x03 | SET_BRIGHTNESS | none | 0..100 | Effective DU brightness = cockpit knob (sim L:var, per-aircraft profile) x the module's trim slider. Sent by the host whenever it changes (a few times per second while a knob turns) and after connect; the module applies it to every frame (software dimming today, backlight PWM later) and does not persist it. |
-| 0x04 | SET_ROTATION | none | 0, 90, 180, 270 | Rotation applied by the module. |
+| 0x04 | SET_ROTATION | none | 0, 90, 180, 270 | Rotation of the picture. Stored in NVS (`rotation`), not applied yet: the panels are mounted upright. |
 | 0x05 | SHOW_IDENT | UTF-8 label of the module (<= 31 bytes, may be empty) | seconds, 0 = off | Stamp an "IDENT <label>" banner with the serial across the top of every frame (live picture or the kept last frame) so the user can see which physical unit this is while assigning. 0 cancels it; the module then redraws the last frame without the banner. |
 | 0x06 | PING | none | nonce | Module answers PONG with the same nonce. |
 | 0x07 | SET_ASSIGNED | optional (0.7): the DU's label, a newline, the assigned display's name, UTF-8 (`DU1\nCaptain PFD`) | 0 = nothing assigned, 1 = assigned and its pictures come, 2 (0.7) = assigned, but its display has no window (the sim is not showing it) | Sent after INFO, whenever the assignment changes, and (0.7) every 2 s, which also tells the DU that a DMC is there: with no message from a host for 6 s the DU shows "Waiting for the DMC". 0 shows "Not assigned", 2 "<display> · waiting for the sim" instead of an old picture; the DU keeps the label in NVS for its screens. Older firmware reads only arg 0 / not 0. |
@@ -62,7 +62,7 @@ offset  size  field
 | 0x0C | BYE | none | 0 | (0.7) The DMC is quitting: the DU shows "Waiting for the DMC" at once and forgets the pictures of the session. Older firmware skips it as unknown. |
 | 0x10 | OTA_BEGIN | none | total image size | Start a firmware update. The DU erases the inactive slot, shows an "UPDATING FIRMWARE" banner, ignores FRAMEs, and answers OTA_PROGRESS 0 (or OTA_RESULT 1). |
 | 0x11 | OTA_DATA | firmware chunk (the DMC uses 32 KiB) | offset of this chunk | Must arrive in order. Answered with OTA_PROGRESS = bytes written so far; the host sends the next chunk only then (stop and wait, because flash writes block the DU). |
-| 0x12 | OTA_END | none | CRC32 of the image (zlib) | The DU checks size and CRC, lets ESP-IDF validate the image, selects the new slot, answers OTA_RESULT and reboots if it was 0. The new image confirms itself after the display is up; otherwise the bootloader rolls back. |
+| 0x12 | OTA_END | none | CRC32 of the image (zlib) | The DU checks size and CRC, lets ESP-IDF validate the image, selects the new slot, answers OTA_RESULT and reboots if it was 0. The new image confirms itself once it has shown a picture or tile, the host started an update or asked for a restart, or it ran a minute with a host; a restart before that rolls back. |
 | 0x20 | REBOOT | none | 0 | |
 
 ## 4. Module -> host (bulk IN)
@@ -70,7 +70,7 @@ offset  size  field
 | type | name | payload | arg | meaning |
 |---|---|---|---|---|
 | 0x81 | READY | none | last displayed seq | "Send me the newest frame." Sent once at start, after every FRAME has been decoded and shown, after every INFO reply, and repeated every 2 s while idle (so a host that connects later, or missed a READY, still starts). This is the flow control: the host never has more than one frame in flight, and always sends the newest one (same latest-only rule as the WebSocket path). |
-| 0x82 | INFO | JSON: `{"fw":"0.2.0","build":"d9b66df","hw":"p4-nano+lt8912b","panel":[768,768],"decoder":"hw","uptime_s":1234,"temp_c":41.2}` | 0 | |
+| 0x82 | INFO | JSON: `{"fw":"0.9.0","build":"62843c4","hw":"p4-nano+lt8912b","panel":[768,768],"decoder":"hw","uptime_s":1234,"serial":"a1b2c3d4e5f60718293a4b5c","mode":0,"ident":0,"caps":["mode","tiles","band"],"tiles":0,"max_frame":524288,"max_tiles":6,"slot":"ota_0","confirmed":1,"display_error":""}` | 0 | `max_frame` depends on the mode. `slot` is the app slot it runs from, `confirmed` 0 while a new image can still roll back. |
 | 0x83 | STATS | JSON: `{"fps":29.6,"decode_ms":11.2,"draw_ms":12.9,"rx_ms":6.0,"dropped":0,"free_psram":27189568,"ident":0}` | 0 | Every 2 s and immediately after SHOW_IDENT. `ident` is the module's own view of the banner, which the app uses for the Identify toggle. |
 | 0x84 | PONG | none | nonce | |
 | 0x85 | LOG | UTF-8 text | level | Debug output, shown in the app's module log. |
@@ -114,7 +114,7 @@ offset  size  field
    16-byte header window one byte at a time over the incoming data until one does; this recovers from a host that
    was restarted in the middle of a message.
 4. If no FRAME arrives, the last frame simply stays on screen (a "no signal" marker is not implemented). SET_ROTATION
-   is stored and reported but not applied yet: the panels are mounted upright.
+   is stored but not applied yet: the panels are mounted upright.
 5. OTA: dual app partitions; the new image is written to the inactive slot, verified, and booted with rollback protection.
 
 ## 6a. Reserved for the hardware track (protocol freeze, 18 Sept 2026)
