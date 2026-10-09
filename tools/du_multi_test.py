@@ -32,7 +32,7 @@ def main() -> None:
     if len(displays) < len(serials):
         raise SystemExit(f"need {len(serials)} displays with a window, found {displays}")
     original = {s: st["modules"][s].get("display") or "" for s in serials}
-    proc = dmc_process()
+    proc = dmc_process(a.port)
     print(f"DMC {st['version']} ({st.get('build')}) pid {proc.pid}; DUs: "
           + ", ".join(f"{s[:8]} '{st['modules'][s].get('label') or ''}' fw {(st['modules'][s].get('info') or {}).get('fw')}"
                       for s in serials))

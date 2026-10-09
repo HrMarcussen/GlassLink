@@ -54,7 +54,7 @@ def main() -> None:
     names = [n for n, d in st["displays"].items() if d["window"].get("hwnd")]
     if not names:
         raise SystemExit("no display has a window (is the sim in the cockpit?)")
-    proc = dmc_process()
+    proc = dmc_process(a.port)
     ncpu = psutil.cpu_count()
     print(f"DMC {st['version']} ({st.get('build')}) pid {proc.pid} process {st.get('process')}; {ncpu} logical CPUs")
     print(f"displays with a window: {names}\n")

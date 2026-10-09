@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Synthetic 'display' window for testing without the sim.
 
-Draws a moving bar, a frame counter and a millisecond clock at a fixed rate, so you can
-add it as a display on the status page (match by the window title "GlassLink pattern") and check
-capture, change detection, fps and glass-to-glass latency (compare the clock on this
-window with the clock in the viewer on a phone photo/video).
+Draws a moving bar, a frame counter and a millisecond clock at a fixed rate, to check capture, change detection, fps
+and glass-to-glass latency (compare the clock on this window with the clock in the viewer on a phone photo/video).
 
     python tools/test_pattern.py [--size 600x600] [--fps 30] [--title "GlassLink pattern A"]
+
+The status page only adds sim windows, so add the pattern to the "displays" section of config.json by hand (with the
+DMC stopped), keeping the window on a screen:
+
+    "pattern": {"match": {"title_exact": "GlassLink pattern"}, "client_size": [600, 600], "position": [100, 100]}
+
+measure_latency.py reads the display called "pattern" by default.
 """
 
 from __future__ import annotations

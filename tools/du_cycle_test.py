@@ -43,7 +43,7 @@ def main() -> None:
     st = api(a.port, "/status")
     serial = a.serial or next(s for s, m in st["modules"].items() if m.get("alive"))
     original = st["modules"][serial].get("display") or ""
-    proc = dmc_process()
+    proc = dmc_process(a.port)
     print(f"DMC {st['version']} ({st.get('build')}) pid {proc.pid} process {st.get('process')}")
     print(f"DU {serial[:8]} fw {(st['modules'][serial].get('info') or {}).get('fw')}  originally on '{original}'\n")
     rows = []

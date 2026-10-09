@@ -301,6 +301,7 @@ public static partial class Api
     private static JsonObject Displays(DmcRuntime dmc)
     {
         var result = new JsonObject();
+        var dus = dmc.Dus.Status();                          // once, not once per display: it takes the DUs' lock
         foreach (var e in dmc.Displays.All)
         {
             var c = e.Capture.Counters;
@@ -316,7 +317,7 @@ public static partial class Api
                 ["error"] = window is null ? e.Capture.Error : "",
                 ["clients"] = e.Slot.Clients,
                 ["viewers"] = new JsonArray([.. e.Slot.Viewers.Select(v => (JsonNode)v)]),
-                ["du_assigned"] = dmc.Dus.Status().Count(d => d.Alive && Shows(d).Contains(e.Name)),
+                ["du_assigned"] = dus.Count(d => d.Alive && Shows(d).Contains(e.Name)),
                 ["client_size"] = dmc.Dus.DisplaySize(e.Name) is { } cs ? new JsonArray(cs.Width, cs.Height) : new JsonArray(768, 768),
                 ["capture_fps"] = e.Capture.CurrentFps,
                 ["in_use"] = InUse(dmc, e),

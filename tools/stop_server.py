@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Stop a running GlassLink server gracefully (never kill it: it holds capture sessions on the sim).
+"""Stop a running GlassLink DMC gracefully (never kill it: it holds capture sessions on the sim).
 
     python tools/stop_server.py [--port 8765] [--pid N]
 
-Tries POST /shutdown first. For servers without that route, attaches to the server's console and sends it
-Ctrl+Break (the --pid is found automatically from the command line "glasslink ... serve" if not given).
+Asks the DMC with POST /shutdown. If that fails, runs the DMC's own `GlassLink.exe --quit` (the exe of the process
+that listens on the port). Returns when the DMC process has ended, not only its port: the captures are released last.
 """
 import argparse
 import json
@@ -22,36 +22,24 @@ def port_open(port: int) -> bool:
         return False
 
 
-def find_pid(port: int | None = None, fallback: bool = True) -> int | None:
-    """The DMC's process: whatever listens on the port (the .NET or the Python DMC); else a Python DMC by its command line."""
-    if port:
-        try:
-            import psutil
-            for c in psutil.net_connections(kind="tcp"):
-                if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
-                    return c.pid
-        except Exception:  # noqa: BLE001
-            pass
-    if not fallback:
-        return None
-    out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                          "Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*glasslink*serve*' } | Select-Object -ExpandProperty ProcessId"],
+def find_pid(port: int) -> int | None:
+    """The process that listens on the port (needs psutil); else the one GlassLink.exe that runs."""
+    try:
+        import psutil
+        for c in psutil.net_connections(kind="tcp"):
+            if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port and c.pid:
+                return c.pid
+    except Exception:  # noqa: BLE001
+        pass
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", "(Get-Process GlassLink -ErrorAction SilentlyContinue).Id"],
                          capture_output=True, text=True).stdout.split()
-    return int(out[0]) if out else None
+    return int(out[0]) if len(out) == 1 else None
 
 
-def ctrl_c(pid: int) -> None:
-    import ctypes
-    k = ctypes.windll.kernel32
-    k.FreeConsole()
-    if not k.AttachConsole(pid):
-        raise SystemExit(f"AttachConsole({pid}) failed: {ctypes.get_last_error()}")
-    k.SetConsoleCtrlHandler(None, True)      # don't kill ourselves
-    # CTRL_BREAK (1): Ctrl+C was not delivered to a server started from a background shell, Ctrl+Break is.
-    # The server's console handler stops the capture sessions before the process ends.
-    if not k.GenerateConsoleCtrlEvent(1, 0):
-        raise SystemExit("GenerateConsoleCtrlEvent failed")
-    k.FreeConsole()
+def exe_of(pid: int) -> str | None:
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).Path"],
+                         capture_output=True, text=True).stdout.strip()
+    return out or None
 
 
 def main() -> None:
@@ -60,28 +48,27 @@ def main() -> None:
     ap.add_argument("--pid", type=int)
     a = ap.parse_args()
     if not port_open(a.port):
-        print("no server on port", a.port)
+        print("no DMC on port", a.port)
         return
-    listener = a.pid or find_pid(a.port, fallback=False)   # while the port is still open: afterwards nothing names it
+    pid = a.pid or find_pid(a.port)          # while the port is still open: afterwards nothing names it
     try:
         r = urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{a.port}/shutdown", method="POST", data=b"{}",
                                                           headers={"Content-Type": "application/json"}), timeout=3)
         print("shutdown endpoint:", json.loads(r.read() or b"{}"), flush=True)
     except Exception as exc:  # noqa: BLE001
-        pid = a.pid or find_pid(a.port)
-        print(f"no /shutdown ({exc}); sending Ctrl+Break to pid {pid}")
-        if not pid:
-            raise SystemExit("server pid not found; pass --pid")
-        ctrl_c(pid)
-    # The port closes before the captures are released: wait for the process itself, so a script that starts the
-    # other DMC next cannot overlap capture sessions (#53).
-    pid = listener
+        exe = exe_of(pid) if pid else None
+        if not exe:
+            raise SystemExit(f"no /shutdown ({exc}) and the DMC's GlassLink.exe was not found; quit it from its tray icon")
+        print(f"no /shutdown ({exc}); running {exe} --quit")
+        subprocess.run([exe, "--quit", "--port", str(a.port)], timeout=60)
+    # The port closes before the captures are released: wait for the process itself, so a script that starts another
+    # DMC next cannot overlap capture sessions (#53).
     for _ in range(60):
         time.sleep(0.5)
         if not port_open(a.port) and (not pid or not pid_alive(pid)):
-            print("server stopped")
+            print("DMC stopped" if pid else "port closed (the DMC's process could not be named: give it a few seconds)")
             return
-    print("server still running after 30 s", file=sys.stderr)
+    print("DMC still running after 30 s", file=sys.stderr)
     sys.exit(1)
 
 
