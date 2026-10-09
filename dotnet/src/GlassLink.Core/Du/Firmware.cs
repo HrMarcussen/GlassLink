@@ -55,8 +55,10 @@ public static class Firmware
     }
 
     /// <summary>"0.5.0" -> comparable; anything that is not a digit is ignored ("0.5.0-dirty" = 0.5.0).</summary>
+    /// <summary>The leading number of each dot-separated part: "1.0.0-rc2" is 1.0.0 (the digits after the dash must not
+    /// make it 1.0.2), "0.9.0" is 0.9.0.</summary>
     public static int[] VersionTuple(string version) =>
-        version.Split('.').Select(part => int.TryParse(new string(part.Where(char.IsDigit).ToArray()), out var n) ? n : 0).ToArray();
+        version.Split('.').Select(part => int.TryParse(new string(part.TakeWhile(char.IsDigit).ToArray()), out var n) ? n : 0).ToArray();
 
     /// <summary>True if a DU reports firmware older than the release in which the firmware last changed.</summary>
     public static bool IsOutdated(string? duVersion, string firmwareVersion)

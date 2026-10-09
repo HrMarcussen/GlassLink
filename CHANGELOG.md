@@ -28,6 +28,37 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   screen, so on a 4K screen four of the six pop-outs landed on the visible desktop. A parked window that would lie
   on a screen now goes right of all screens, keeping its distance to the others.
 
+Found by a code review on 9 Oct 2026, each one checked against the code (and on a DU where it shows) before fixing:
+- **[DU firmware]** A brightness change while a picture was being decoded (turning the cockpit knob while the display
+  moves) switched off the DU's free dimming until the next restart: from then on every dimmed picture took ~15 ms
+  more (measured on both DUs: 8.0 -> 23 ms at 768 x 768), enough to drop a 1080p DU below 20 fps. The decode now
+  records the brightness it really used; only a decode the dimming hook never saw counts as "does not work".
+  `GlassLink.Bench stream --knob <n>` turns the brightness during streaming to test it.
+- **[DU firmware]** An update cut off by a new USB session (DMC restarted, cable replugged) is given up at once
+  instead of after 15 s, in which a tiled DU dropped the new host's layout and showed "waiting for the sim" until the
+  next reconnect. A new image now confirms itself after a minute only if a host has talked to it (an image whose USB
+  does not work must roll back, not need a serial cable), and confirms itself when the host starts another update.
+  The crash counter that falls back to the 768 x 768 mode starts again after a stable minute, so two unrelated
+  restarts days apart no longer change the screen mode. A picture that cannot be decoded is logged once a second, not
+  at the frame rate.
+- A DU that falls back from an HDMI mode it cannot hold was asked for that mode again on every reconnect: a restart
+  loop. It is now asked once, the status page says it stayed in the other mode, and choosing the mode again on the
+  page tries again.
+- A number written in quotes in config.json (`"port": "8766"`), or a size like `["768", 768]`, stopped the DMC at
+  start-up (and `--quit` with it). Hand-edited numbers that are not numbers now read as the default, and a broken click
+  point is skipped instead of breaking the aircraft's profile.
+- An edit of the configuration that failed halfway left the half-done change in memory; it is taken back now. A
+  config.json that is missing while config.json.bak is there is restored from the backup.
+- The self-update: release files are only taken from this repository's own GitHub release downloads, with plain file
+  names; the downloaded setup program stays locked against changes from its checksum check until it has started
+  (another program could have swapped it in between, and it runs with administrator rights); an odd answer from
+  GitHub no longer throws; a setup program that never finishes no longer leaves the update stuck at "starting".
+- The status page server: refused requests are logged once per source and kind, at most 100 lines, without line
+  breaks from the request (random paths could grow memory and the log without end); a page in a sandboxed frame
+  (`Origin: null`) can no longer open the live-picture WebSocket or change anything; text a DU reports (firmware
+  version, panel size) is escaped on the page.
+- Version numbers like `1.0.0-rc2` compare as 1.0.0, not 1.0.2. `config.json.bak` and `.tmp` are ignored by git.
+
 ## [0.9.0] - 2026-10-02
 
 In short: X-Plane 12 with the ToLiss joins MSFS 2024: its displays pop out by command, without moving the camera, and

@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 config.json
+# the DMC's own backup and temporary copies of it (DU serials, camera setup): never published
+config.json.*
 snapshots/
+TestResults/
 *.log
 demo.json
 logs/

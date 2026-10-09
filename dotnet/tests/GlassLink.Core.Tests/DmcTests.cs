@@ -227,6 +227,8 @@ public class RegistryAndFirmwareTests
         Assert.False(Firmware.IsOutdated("0.10.0", "0.5.0"));
         Assert.False(Firmware.IsOutdated("0.5.0-dirty", "0.5.0"));
         Assert.False(Firmware.IsOutdated(null, "0.5.0"));
+        Assert.Equal([1, 0, 0], Firmware.VersionTuple("1.0.0-rc2"));               // a pre-release suffix is not part of the number
+        Assert.True(Firmware.IsOutdated("1.0.0-rc2", "1.0.1"));
         Assert.Throws<InvalidDataException>(() => Firmware.Load(Path.Combine(Path.GetTempPath(), "no-such-image.bin")));
     }
 }
