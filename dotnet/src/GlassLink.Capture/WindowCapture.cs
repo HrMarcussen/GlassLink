@@ -91,15 +91,28 @@ public sealed class WindowCapture : IDisposable
         _pool = Direct3D11CaptureFramePool.CreateFreeThreaded(_winrtDevice!, DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, _poolSize);
         _pool.FrameArrived += OnFrameArrived;
         _item.Closed += OnClosed;
-        _session = _pool.CreateCaptureSession(_item);
-        _session.IsCursorCaptureEnabled = false;
-        if (ApiInformation.IsPropertyPresent("Windows.Graphics.Capture.GraphicsCaptureSession", "IsBorderRequired"))
+        try
         {
-            _session.IsBorderRequired = false;              // no yellow capture border around the window (Windows 11)
-        }
+            _session = _pool.CreateCaptureSession(_item);
+            _session.IsCursorCaptureEnabled = false;
+            if (ApiInformation.IsPropertyPresent("Windows.Graphics.Capture.GraphicsCaptureSession", "IsBorderRequired"))
+            {
+                _session.IsBorderRequired = false;          // no yellow capture border around the window (Windows 11)
+            }
 
-        SetMaxFps(maxFps);
-        _session.StartCapture();
+            SetMaxFps(maxFps);
+            _session.StartCapture();
+        }
+        catch
+        {
+            // e.g. the window closed while this was set up: nobody disposes a capture that was never made, so it is here
+            _disposed = true;
+            _pool.FrameArrived -= OnFrameArrived;
+            _item.Closed -= OnClosed;
+            _session?.Dispose();
+            _pool.Dispose();
+            throw;
+        }
     }
 
     /// <summary>The compositor is asked not to deliver more often than this (Windows 11 22H2 and later). Note that an
@@ -133,7 +146,35 @@ public sealed class WindowCapture : IDisposable
 
     private void OnClosed(GraphicsCaptureItem sender, object? args) => Closed?.Invoke();
 
-    private unsafe void OnFrameArrived(Direct3D11CaptureFramePool pool, object? args)
+    private void OnFrameArrived(Direct3D11CaptureFramePool pool, object? args)
+    {
+        try
+        {
+            TakeFrame(pool);
+        }
+        catch (Exception ex) when (!_disposed)
+        {
+            // an exception would vanish inside the WinRT callback and the display would simply freeze: marked stale
+            // instead, so the owner's once-a-second check starts a new capture (and a new device if this one was lost)
+            FailReason = $"frame failed: {ex.GetType().Name}: {ex.Message}";
+            _failed = true;
+        }
+    }
+
+    /// <summary>The graphics device is checked once a second by the displays and before a capture is made with it: a
+    /// driver reset can stop the frames altogether, so the copy's exception may never come (review C1, 9 Oct 2026).</summary>
+    public static void CheckDevice()
+    {
+        lock (DeviceGate)
+        {
+            if (_device is { DeviceRemovedReason.Failure: true })
+            {
+                DeviceLostLocked();
+            }
+        }
+    }
+
+    private unsafe void TakeFrame(Direct3D11CaptureFramePool pool)
     {
         using var frame = pool.TryGetNextFrame();
         if (frame is null || _disposed || Stale)             // stale: its owner replaces it on the next check (#32)
@@ -237,6 +278,11 @@ public sealed class WindowCapture : IDisposable
     {
         lock (DeviceGate)
         {
+            if (_device is { DeviceRemovedReason.Failure: true })
+            {
+                DeviceLostLocked();                          // never hand a lost device to a new capture
+            }
+
             if (_device is not null)
             {
                 return;

@@ -45,6 +45,7 @@ public sealed class DisplayCapture : IDisposable
     private readonly object _gate = new();
     private WindowCapture? _capture;
     private WindowRule? _rule;
+    private List<Rect> _monitors = [];
     private volatile int _crop;
     private byte[] _previous = [];
     private byte[] _current = [];
@@ -109,6 +110,7 @@ public sealed class DisplayCapture : IDisposable
 
             try
             {
+                WindowCapture.CheckDevice();                 // a lost device makes every capture stale (review C1)
                 if (_capture is { Stale: true } stale)
                 {
                     Stop($"capture of '{Name}' restarts: {(stale.FailReason.Length > 0 ? stale.FailReason : "the graphics device was reset")}");   // #32
@@ -148,9 +150,21 @@ public sealed class DisplayCapture : IDisposable
                 }
                 else if (_capture is null)
                 {
-                    Error = "window not found";
+                    Error = WindowMatch.From(_display["match"] as JsonObject).Problem ?? "window not found";
                     _slot.Live = false;
                 }
+
+                // a screen added or changed later must not show a parked pop-out: parked again by the same rule
+                var monitors = WindowFinder.Monitors();
+                if (_capture is not null && Window is not null && _monitors.Count > 0 && !monitors.SequenceEqual(_monitors)
+                    && Pair(_display["position"]) is { } park)
+                {
+                    WindowFinder.Move(Window.Handle, park.A, park.B);
+                    Window = WindowFinder.Describe(Window.Handle) ?? Window;
+                    _log?.Invoke($"[{Name}] the screens changed: window parked again at {Window.Window.Left},{Window.Window.Top}");
+                }
+
+                _monitors = monitors;
             }
             catch (Exception ex)                                // a timer callback must never take the process down
             {
@@ -296,10 +310,26 @@ public sealed class DisplayCapture : IDisposable
                     return;
                 }
 
-                EncodeAndPublish(picture, w, h);
+                try
+                {
+                    EncodeAndPublish(picture, w, h);
+                }
+                catch (Exception ex)
+                {
+                    // the picture was not published, so it must not be the one the next frames are compared with: the
+                    // same picture again would count as unchanged until the instrument moves (review C1)
+                    picture.AsSpan().Fill(1);
+                    if (ex.Message != _encodeError)
+                    {
+                        _encodeError = ex.Message;
+                        _log?.Invoke($"[{Name}] encode failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
             }
         };
     }
+
+    private string _encodeError = "";
 
     /// <summary>The width x height BGRA picture inside a frame of <paramref name="crop"/> pixels, row by row, into a
     /// packed buffer (stride width x 4).</summary>

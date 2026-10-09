@@ -247,6 +247,20 @@ public sealed class DmcRuntime : IDisposable
         Updater.Dispose();
     }
 
+    /// <summary>Runs <paramref name="work"/> on another thread and waits for it at most <paramref name="limit"/>: for the
+    /// crash path, where the crashing thread may hold a lock the work needs. False if it failed or did not finish.</summary>
+    public static bool Within(Action work, TimeSpan limit)
+    {
+        try
+        {
+            return Task.Run(work).Wait(limit);
+        }
+        catch (AggregateException)
+        {
+            return false;
+        }
+    }
+
     private string? ReadText(string name)
     {
         // an installed copy: only its install folder (VERSION decides what the DUs are offered, see FirmwareImagePath)

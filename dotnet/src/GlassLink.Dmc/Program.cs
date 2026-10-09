@@ -127,6 +127,7 @@ internal static class Program
 
         using var dmc = dmcCreated;
         _log = dmc.Log;
+        _closeCaptures = dmc.Displays.Dispose;
         if (dmc.Config.LoadedFromBackup)
         {
             dmc.Log($"{configPath} was empty or broken: the last good save (config.json.bak) is used");
@@ -143,6 +144,7 @@ internal static class Program
         builder.WebHost.UseUrls(host is "0.0.0.0" or "::" or "*" ? $"http://*:{port}" : $"http://{host}:{port}");
         builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(5));
         var app = builder.Build();
+        app.Use(RequestGuard.SecurityHeaders());
         app.Use(RequestGuard.Middleware(                     // who may change what (#1): see RequestGuard
             () => dmc.Config.Read(root => root["server"]?["allow_lan_control"] is { } v && v.GetValueKind() == System.Text.Json.JsonValueKind.True), dmc.Log));
         app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
@@ -202,6 +204,7 @@ internal static class Program
     }
 
     private static Action<string>? _log;
+    private static Action? _closeCaptures;
 
     private static void Crash(Exception? ex, bool fatal)
     {
@@ -222,6 +225,13 @@ internal static class Program
         catch (IOException)
         {
             // nowhere to write: the message box still tells
+        }
+
+        // The process ends after a fatal error: its capture sessions are closed first, not left to die with it (ending a
+        // process that holds captures can upset the graphics driver). At most 3 s: the crashed thread may hold a lock.
+        if (fatal && _closeCaptures is { } close && !DmcRuntime.Within(close, TimeSpan.FromSeconds(3)))
+        {
+            _log?.Invoke("the captures could not all be closed before stopping");
         }
 
         MessageBox.Show($"The GlassLink DMC hit an error{(fatal ? " and has to stop" : "")}:\n\n{ex?.Message}\n\nDetails are in the DMC log.",

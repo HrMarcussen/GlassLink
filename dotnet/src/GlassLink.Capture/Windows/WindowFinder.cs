@@ -24,11 +24,26 @@ public sealed record WindowInfo(nint Handle, string Title, string ClassName, str
 /// <summary>Which window a display is: the "match" rule of a display in config.json. Every key that is given must hold.</summary>
 public sealed record WindowMatch(string? Process, string? ClassName, string? Title, string? TitleExact, string? TitleRegex, int[]? ClientSize)
 {
+    /// <summary>Why the rule can never match (a title_regex that is no regular expression, from a hand-edited
+    /// config.json), else null. Such a rule matches nothing instead of throwing on every look.</summary>
+    public string? Problem { get; init; }
+
     public static WindowMatch From(JsonObject? o)
     {
         string? Str(string key) => o?[key] is { } n && n.GetValueKind() == JsonValueKind.String ? n.GetValue<string>() : null;
         var size = o?["client_size"].Pair() is { } s ? new[] { s.A, s.B } : null;
-        return new WindowMatch(Str("process"), Str("class"), Str("title"), Str("title_exact"), Str("title_regex"), size);
+        var regex = Str("title_regex");
+        string? problem = null;
+        try
+        {
+            _ = regex is null ? null : new Regex(regex);
+        }
+        catch (ArgumentException ex)
+        {
+            (regex, problem) = ("(?!)", $"title_regex is not a regular expression: {ex.Message}");
+        }
+
+        return new WindowMatch(Str("process"), Str("class"), Str("title"), Str("title_exact"), regex, size) { Problem = problem };
     }
 
     public bool Matches(WindowInfo w) =>

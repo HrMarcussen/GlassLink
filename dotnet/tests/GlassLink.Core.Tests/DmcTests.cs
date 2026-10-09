@@ -143,6 +143,18 @@ public class RegistryAndFirmwareTests
     }
 
     [Fact]
+    public void After_a_fatal_error_the_captures_are_closed_but_never_waited_for_longer_than_the_limit()
+    {
+        Assert.True(DmcRuntime.Within(() => { }, TimeSpan.FromSeconds(2)));
+        Assert.False(DmcRuntime.Within(() => throw new InvalidOperationException("broken"), TimeSpan.FromSeconds(2)));
+        var started = Environment.TickCount64;
+        using var never = new ManualResetEventSlim();
+        Assert.False(DmcRuntime.Within(() => never.Wait(), TimeSpan.FromMilliseconds(200)));       // a lock the crashed thread holds
+        Assert.InRange(Environment.TickCount64 - started, 150, 2000);
+        never.Set();
+    }
+
+    [Fact]
     public void The_example_configuration_a_new_install_starts_from_finds_each_display_by_its_exact_title()
     {
         var folder = new DirectoryInfo(AppContext.BaseDirectory);
