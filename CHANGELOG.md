@@ -25,6 +25,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - The status page also answers to the PC's name with the network's DNS suffix (`simpc.lan`, `simpc.fritz.box`), not
   only to the bare name, `.local` and its addresses. Troubleshooting has an entry for the "answers only to its own
   names" refusal.
+- **[DU firmware]** Signed firmware: released DU firmware installs updates over USB only when they are signed with the
+  GlassLink release key, so no program on a PC can put other firmware on a DU through the GlassLink link. The release
+  workflow builds it with `firmware/sdkconfig.release`, signs it and checks the signature against
+  `firmware/signing-key.pub.pem`; `tools\new-firmware-key.ps1` makes the key once. Development and self-built
+  firmware checks nothing, and the USB-C serial port always takes any firmware (nothing is burnt into the chip). INFO
+  says `"signed": 1`, the status page "takes signed releases only", and the DMC refuses up front to send an unsigned
+  image to such a DU (tested on a DU: an unsigned image is refused and the DU keeps running, a signed one installs).
 
 ### Fixed
 - Pop-outs are parked off-screen on any screen size: the default places (from x 2600) were made for a 2560-wide

@@ -27,12 +27,14 @@ jobs:
         with:
           fetch-depth: 0            # git describe for the build id
           persist-credentials: false
-      - name: Build (ESP-IDF 5.5.5, ESP32-P4)
+      - name: Build (ESP-IDF 5.5.5, ESP32-P4, release settings)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d   # v1 (its branch, 8 Nov 2024): the image goes into the release
         with:
           esp_idf_version: v5.5.5
           target: esp32p4
           path: firmware
+          # sdkconfig.release: the DU installs only signed updates. Built unsigned; the next job signs it (it has the key)
+          command: idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
       - uses: actions/upload-artifact@v7
         with:
           name: firmware
@@ -70,6 +72,30 @@ jobs:
         with:
           name: firmware
           path: firmware/build
+      - name: Sign the DU firmware
+        shell: pwsh
+        env:
+          FIRMWARE_SIGNING_KEY: ${{ secrets.FIRMWARE_SIGNING_KEY }}
+        run: |
+          # A DU running released firmware installs only updates signed with this key (firmware/sdkconfig.release).
+          # The signature is checked against the public key in the repository, so a wrong secret never ships.
+          if (-not $env:FIRMWARE_SIGNING_KEY) {
+              if ($env:REF_TYPE -eq 'tag') { throw "FIRMWARE_SIGNING_KEY is not set: a release's DU firmware must be signed (docs/releasing.md)" }
+              Write-Output "::warning title=DU firmware not signed::no FIRMWARE_SIGNING_KEY in this run: DUs running a release would refuse this image"
+              exit 0
+          }
+          python -m pip install --disable-pip-version-check --quiet esptool==4.12.0
+          $key = Join-Path $env:RUNNER_TEMP 'firmware-key.pem'
+          [IO.File]::WriteAllText($key, $env:FIRMWARE_SIGNING_KEY)
+          try {
+              python -m espsecure sign_data --version 2 --keyfile $key --output firmware/build/glasslink_du-signed.bin firmware/build/glasslink_du.bin
+              if ($LASTEXITCODE) { throw "signing failed" }
+          } finally {
+              Remove-Item $key -Force
+          }
+          python -m espsecure verify_signature --version 2 --keyfile firmware/signing-key.pub.pem firmware/build/glasslink_du-signed.bin
+          if ($LASTEXITCODE) { throw "the signed firmware does not verify with firmware/signing-key.pub.pem: is FIRMWARE_SIGNING_KEY the release key?" }
+          Move-Item -Force firmware/build/glasslink_du-signed.bin firmware/build/glasslink_du.bin
       - name: SimConnect.dll from build-deps
         uses: HrMarcussen/release-tools/actions/fetch-deps@v1
         with:

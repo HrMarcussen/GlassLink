@@ -37,12 +37,27 @@ idf.py build
 `espressif/esp_lcd_lt8912b`). The version comes from the repository's `VERSION` file, the build id from
 `git describe`. CI builds every push that touches `firmware/`.
 
+## Released and own builds (signed updates)
+
+Released firmware is built with `sdkconfig.release` on top and signed by the release workflow
+(`idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build`, then `espsecure sign_data`). A DU running
+it installs an update over USB only when it is signed with the GlassLink release key, so no program on a PC can put
+other firmware on it through the GlassLink link (ESP-IDF's "signed app images without hardware secure boot"). Nothing
+is burnt into the chip: the USB-C serial port always takes any firmware. `"signed": 1` in INFO, "takes signed releases
+only" on the status page.
+
+A build from `sdkconfig.defaults` alone, as above, checks nothing: development builds and your own install over USB as
+always, and take a release too. To put your own build on a DU that runs a release, flash it once over the USB-C port
+(`idf.py -p COMx flash`); from then on it updates over USB again. The release key cannot be changed over USB: it is
+the key the running firmware was signed with (`firmware/signing-key.pub.pem`).
+
 ## Flash
 
 - **First time**, over the NANO's USB-C port (CH343 serial): `idf.py -p COMx flash monitor`.
 - **After that**, from the status page (Display units, Update) or with the bench tool
   (`GlassLink.Bench update firmware/build/glasslink_du.bin --serial <prefix>`, DMC stopped). The DMC offers an update
-  when a DU's firmware is older than `FIRMWARE_VERSION`.
+  when a DU's firmware is older than `FIRMWARE_VERSION`; it says so up front when a DU running a release would refuse
+  an unsigned image.
 
 ## Diagnostics
 

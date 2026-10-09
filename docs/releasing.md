@@ -29,6 +29,7 @@ run stops instead (`build-release.ps1 -Strict`), as it does without the firmware
 |---|---|---|
 | Environment secret `BUILD_DEPS_TOKEN` in `release` | Settings, Environments, release (or Secrets and variables, Actions, Manage environment secrets) | reads `SimConnect.dll` from the private `HrMarcussen/build-deps` (fine-grained token: that repository only, Contents read-only, with an expiry date) |
 | Environment `release` with a required reviewer | Settings, Environments | nothing is signed or published without an approval |
+| Environment secret `FIRMWARE_SIGNING_KEY` in `release`, and `firmware/signing-key.pub.pem` committed | run `tools\new-firmware-key.ps1` once: it makes the key outside the repository and writes the public half; paste the private key file's whole text as the secret, keep a copy in a password manager, delete the file | signs the DU firmware; a DU running a release installs only updates signed with it, for good, so the key is never replaced. A tag's run stops without it; the workflow checks the signature against the public key |
 | Environment secrets `CERTUM_USER`, `CERTUM_OTP_SECRET`; variable `SIGN_METHOD` = `certum-simplysign` | the `release` environment; Settings, Variables | code signing (Certum Open Source certificate, SimplySign cloud). Until then releases are unsigned and the run says so |
 
 ## SimConnect.dll
