@@ -176,6 +176,27 @@ public class DuManagerTests
     }
 
     [Fact]
+    public void A_du_that_falls_back_to_another_mode_is_asked_once_not_restarted_in_a_loop()
+    {
+        var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"display":"pfd","screen":4}}}""");   // the fake DU reports mode 3
+        using var _m = manager;
+        manager.ScanOnce();
+        Until(() => dus[0].Of(MessageType.SetMode).Count == 1);
+        Assert.Equal(4u, dus[0].Of(MessageType.SetMode)[0].Arg);
+
+        dus[0].Unplug();                                             // the DU restarts into the mode: the connection ends
+        Until(() => manager.Connection(Serial)?.Alive == false);
+        manager.ScanOnce();                                          // back, but in mode 3 again (the firmware fell back)
+        Until(() => dus.Count == 2 && manager.Connection(Serial)?.Info is not null);
+        manager.ScanOnce();
+        Until(() => manager.Status().Single().LayoutProblem.Contains("stayed in mode 3"));
+        Assert.Empty(dus[1].Of(MessageType.SetMode));                // not asked again: no restart loop
+
+        manager.SetScreen(Serial, 4);                                // the user chooses again: one more try
+        Until(() => dus[1].Of(MessageType.SetMode).Count == 1);
+    }
+
+    [Fact]
     public void A_plugged_in_du_gets_its_display_from_the_configuration()
     {
         var (manager, dus, displays, _, _) = Make("""{"modules":{"SERIAL":{"display":"nd","label":"DU2","brightness":80}},"other":{"kept":true}}""");

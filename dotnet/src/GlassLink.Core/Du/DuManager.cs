@@ -100,7 +100,9 @@ public sealed class DuManager : IDisposable
                 _connections.Remove(serial);
                 _brightnessSent.Remove(serial);
                 _rotationSent.Remove(serial);
-                _modeSent.Remove(serial);
+                // _modeSent stays: asking for a mode always ends the connection (the DU restarts into it), and the
+                // next connection must still know it was asked, or a DU that falls back to another mode is asked again
+                // and restarted in a loop
                 if (_bands.Remove(serial, out var band))
                 {
                     deadBands.Add(band.Band);        // nobody to send it to: stop composing (a new one comes with the DU)
@@ -399,6 +401,11 @@ public sealed class DuManager : IDisposable
                 entry.Remove("screen");
             }
         });
+        lock (_gate)
+        {
+            _modeSent.Remove(serial);                        // the user chose again: ask again, also for a mode it refused before
+        }
+
         Resync(serial);
     }
 
