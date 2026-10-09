@@ -17,19 +17,32 @@ public sealed class XPlaneClient : IDisposable
 
     private readonly HttpClient _http;
     private readonly Action<string>? _log;
+    private readonly Func<bool> _running;
     private readonly Dictionary<string, long> _ids = [];
     private readonly Timer _timer;
     private volatile bool _connected;
-    private int _failures, _pathMisses;
+    private int _failures, _pathMisses, _polling;
     private string _aircraftPath = "", _aircraftName = "";
     private double? _fps;
 
-    public XPlaneClient(Action<string>? log = null, int port = 8086)
+    /// <param name="handler">For tests: answers in place of X-Plane.</param>
+    /// <param name="running">For tests: whether X-Plane's process runs.</param>
+    public XPlaneClient(Action<string>? log = null, int port = 8086, HttpMessageHandler? handler = null, Func<bool>? running = null)
     {
         _log = log;
+        _running = running ?? IsRunning;
         // 127.0.0.1, not localhost: X-Plane listens on IPv4 only, and "localhost" would try IPv6 first on every request
-        _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/api/v3/"), Timeout = TimeSpan.FromSeconds(2) };
+        _http = handler is null ? new HttpClient(new HttpClientHandler { UseProxy = false }) : new HttpClient(handler);   // no proxy for 127.0.0.1
+        _http.BaseAddress = new Uri($"http://127.0.0.1:{port}/api/v3/");
+        _http.Timeout = TimeSpan.FromSeconds(2);
         _timer = new Timer(_ => Poll(), null, Timeout.Infinite, Timeout.Infinite);
+    }
+
+    private static bool IsRunning()
+    {
+        var processes = System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Process));
+        Array.ForEach(processes, p => p.Dispose());
+        return processes.Length > 0;
     }
 
     /// <summary>X-Plane runs and its web API answers.</summary>
@@ -165,14 +178,18 @@ public sealed class XPlaneClient : IDisposable
         }
     }
 
-    /// <summary>Every 2 s: is X-Plane there, which aircraft, how fast does it run.</summary>
-    private void Poll()
+    /// <summary>Every 2 s: is X-Plane there, which aircraft, how fast does it run. A poll still waiting for a busy X-Plane
+    /// (several 2 s timeouts) is not overtaken by the next one.</summary>
+    public void Poll()
     {
+        if (Interlocked.Exchange(ref _polling, 1) == 1)
+        {
+            return;
+        }
+
         try
         {
-            var processes = System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(Process));
-            var running = processes.Length > 0;
-            Array.ForEach(processes, p => p.Dispose());
+            var running = _running();
             // /api/capabilities answers from X-Plane's start on, home screen included; the datarefs only with a flight
             var answer = running ? Get("../capabilities") : null;
             _failures = answer is null ? _failures + 1 : 0;
@@ -208,6 +225,11 @@ public sealed class XPlaneClient : IDisposable
             var path = read ?? (_pathMisses >= 3 ? "" : _aircraftPath);   // no flight (home screen), or just one slow answer
             if (path != _aircraftPath)
             {
+                lock (_ids)
+                {
+                    _ids.Clear();                            // another aircraft registers its commands and datarefs anew
+                }
+
                 _aircraftPath = path;
                 _aircraftName = Text("sim/aircraft/view/acf_ui_name") ?? Path.GetFileNameWithoutExtension(path);
                 _log?.Invoke($"X-Plane: aircraft '{_aircraftName}' ({(path.Length > 0 ? path : "none")})");
@@ -218,6 +240,10 @@ public sealed class XPlaneClient : IDisposable
         catch (Exception ex)                                 // a timer callback must never take the process down
         {
             _log?.Invoke($"X-Plane: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _polling, 0);
         }
     }
 

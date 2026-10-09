@@ -13,7 +13,9 @@ public sealed class XPlanePopout : IDisposable
     private readonly XPlaneClient _xplane;
     private readonly Func<IReadOnlyList<string>> _missing;
     private readonly Action<string> _log;
-    private readonly Timer _timer;
+    private readonly Func<long> _clock;
+    private readonly Func<XPlaneProfile, bool> _anyPopout;
+    private readonly Timer? _timer;
     private readonly object _gate = new();
     private readonly Dictionary<string, int> _attempts = [];
     private string _aircraft = "";
@@ -25,10 +27,16 @@ public sealed class XPlanePopout : IDisposable
     public AutoPopoutState State { get; private set; } = new("starting", "", [], null);
 
     /// <param name="missing">Names of displays that have no window right now.</param>
-    public XPlanePopout(XPlaneClient xplane, Func<IReadOnlyList<string>> missing, Action<string> log)
+    /// <param name="clock">For tests: milliseconds, as Environment.TickCount64.</param>
+    /// <param name="anyPopout">For tests: whether any of the profile's pop-out windows is open.</param>
+    /// <param name="timer">For tests: false = no timer; <see cref="Tick"/> is called by hand.</param>
+    public XPlanePopout(XPlaneClient xplane, Func<IReadOnlyList<string>> missing, Action<string> log,
+        Func<long>? clock = null, Func<XPlaneProfile, bool>? anyPopout = null, bool timer = true)
     {
         (_xplane, _missing, _log) = (xplane, missing, log);
-        _timer = new Timer(_ => Tick(), null, 3000, 3000);
+        _clock = clock ?? (() => Environment.TickCount64);
+        _anyPopout = anyPopout ?? AnyPopout;
+        _timer = timer ? new Timer(_ => Tick(), null, 3000, 3000) : null;
     }
 
     /// <summary>Forget earlier attempts (one display, or all) and try again.</summary>
@@ -50,9 +58,10 @@ public sealed class XPlanePopout : IDisposable
         }
     }
 
-    public void Dispose() => _timer.Dispose();
+    public void Dispose() => _timer?.Dispose();
 
-    private void Tick()
+    /// <summary>One look (every 3 s): never two at once, never an exception out of the timer.</summary>
+    public void Tick()
     {
         lock (_gate)
         {
@@ -82,6 +91,7 @@ public sealed class XPlanePopout : IDisposable
         }
     }
 
+    // X-Plane is asked outside _gate (each request can wait 2 s for a busy X-Plane): Retry and the status page do not wait.
     private void Step()
     {
         if (!_xplane.Connected)
@@ -119,7 +129,7 @@ public sealed class XPlanePopout : IDisposable
             return;
         }
 
-        var now = Environment.TickCount64;
+        var now = _clock();
         _missingSince ??= now;
         if (!_xplane.Knows(profile.Displays[missing[0]].Command))
         {
@@ -127,33 +137,52 @@ public sealed class XPlanePopout : IDisposable
             return;
         }
 
-        if (now - _missingSince < 5000 || now - _lastAction < 4000)
+        long lastAction;
+        bool reinstated;
+        lock (_gate)
+        {
+            (lastAction, reinstated) = (_lastAction, _reinstated);
+        }
+
+        if (now - _missingSince < 5000 || now - lastAction < 4000)
         {
             State = new("waiting", "waiting for the pop-out windows", missing, State.LastAttempt);   // they appear a second or two after a command
             return;
         }
 
         // Right after loading no display has a window: the aircraft brings back all of the last flight's pop-outs at once.
-        if (!_reinstated && profile.ReinstateCommand is { } reinstate && !AnyPopout(profile))
+        if (!reinstated && profile.ReinstateCommand is { } reinstate && !_anyPopout(profile))
         {
-            _reinstated = true;
-            _lastAction = now;
             var ok = _xplane.Command(reinstate);
-            _log($"X-Plane pop-out: {string.Join(", ", missing)} missing -> {reinstate}{(ok ? "" : " (not accepted)")}");
+            lock (_gate)
+            {
+                _lastAction = now;
+                _reinstated = ok;                            // a command X-Plane did not take (busy loading) is sent again
+            }
+
+            _log($"X-Plane pop-out: {string.Join(", ", missing)} missing -> {reinstate}{(ok ? "" : " (not accepted, again in a moment)")}");
             State = new("running", $"reopening the pop-outs of the last flight ('{_xplane.AircraftName}', profile '{profile.Key}')", missing, DateTime.Now);
             return;
         }
 
+        // The popups' states decide between "open it" and "it is open, but inside X-Plane". Without them (X-Plane busy)
+        // nothing is sent: a toggle command on a popup that is open would close it.
         var states = profile.StateArray is { } array ? _xplane.Numbers(array) : null;
-        var opened = new List<string>();
+        if (profile.StateArray is not null && states is null)
+        {
+            State = new("waiting", "X-Plane is busy: asking again in a moment", missing, State.LastAttempt);
+            return;
+        }
+
+        var toOpen = new List<string>();
         var inside = new List<string>();
         var givenUp = new List<string>();
-        foreach (var name in missing)
+        lock (_gate)
         {
-            var display = profile.Displays[name];
-            var open = states is not null && display.StateIndex < states.Length && states[display.StateIndex] >= 0.5;
-            lock (_gate)
+            foreach (var name in missing)
             {
+                var display = profile.Displays[name];
+                var open = states is not null && display.StateIndex < states.Length && states[display.StateIndex] >= 0.5;
                 var attempts = _attempts.GetValueOrDefault(name);
                 if (open && attempts > 0)
                 {
@@ -169,18 +198,27 @@ public sealed class XPlanePopout : IDisposable
                 }
                 else
                 {
-                    _attempts[name] = attempts + 1;
-                    if (_xplane.Command(display.Command))
-                    {
-                        opened.Add(name);
-                    }
+                    toOpen.Add(name);
                 }
+            }
+        }
+
+        var opened = toOpen.Where(name => _xplane.Command(profile.Displays[name].Command)).ToList();
+        lock (_gate)
+        {
+            foreach (var name in opened)
+            {
+                _attempts[name] = _attempts.GetValueOrDefault(name) + 1;     // only a command X-Plane took counts as a try
+            }
+
+            if (opened.Count > 0)
+            {
+                _lastAction = now;
             }
         }
 
         if (opened.Count > 0)
         {
-            _lastAction = now;
             _log($"X-Plane pop-out: opening {string.Join(", ", opened)}");
         }
 
@@ -190,7 +228,7 @@ public sealed class XPlanePopout : IDisposable
                 ? new("waiting", $"{string.Join(", ", inside)} open inside X-Plane, not as a window of its own: pop it out once with the button at the right end of its title bar (with the ISCS options \"Use popout windows for popups\" and \"Save popup config on quit\" on, the aircraft remembers it)", inside, State.LastAttempt)
                 : givenUp.Count > 0
                     ? new("gave_up", $"gave up on {string.Join(", ", givenUp)}: its popup did not open as a window {MaxAttempts} times. Press Close window to retry", givenUp, State.LastAttempt)
-                    : new("waiting", "waiting for the pop-out windows", missing, State.LastAttempt);
+                    : new("waiting", toOpen.Count > 0 ? "X-Plane did not take the command: asking again in a moment" : "waiting for the pop-out windows", missing, State.LastAttempt);
     }
 
     /// <summary>Whether any of the profile's pop-out windows is open (also one the DMC does not capture).</summary>
