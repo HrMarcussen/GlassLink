@@ -108,7 +108,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
 
             created = new JsonObject
             {
-                ["match"] = new JsonObject { ["process"] = PopoutProcedure.SimProcess, ["class"] = PopoutProcedure.SimClass, ["title"] = PopoutProcedure.TitlePrefix + name },
+                ["match"] = new JsonObject { ["process"] = PopoutProcedure.SimProcess, ["class"] = PopoutProcedure.SimClass, ["title_exact"] = PopoutProcedure.TitlePrefix + name },
                 ["client_size"] = new JsonArray(768, 768),
                 ["position"] = NextParkingSlot(displays),
             };
@@ -221,7 +221,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
                 }
 
                 var point = profile?.Points.GetValueOrDefault(name);
-                entry["title"] = (d["match"] as JsonObject)?["title"]?.DeepClone();
+                entry["title"] = ((d["match"] as JsonObject)?["title_exact"] ?? (d["match"] as JsonObject)?["title"])?.DeepClone();
                 entry["sim_window"] = IsSimDisplay(name);
                 entry["has_point"] = point is not null;
                 entry["point_view"] = point is null ? null : point.Camera.ViewType is null ? "captain seat" : "FO seat";

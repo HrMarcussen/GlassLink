@@ -126,9 +126,13 @@ public class RegistryAndFirmwareTests
         var (registry, _, _) = Make();
         using var r = registry;
         var added = registry.Add("  FO_PFD ", null);
-        Assert.Equal("GlassLink:fo_pfd", added["match"]!["title"]!.GetValue<string>());
+        Assert.Equal("GlassLink:fo_pfd", added["match"]!["title_exact"]!.GetValue<string>());
         Assert.Equal("[3400,0]", added["position"]!.ToJsonString());                           // 2600,0 is taken by pfd
         Assert.Equal("[4200,0]", registry.Add("fo_nd", null)["position"]!.ToJsonString());
+        // exact titles: the window of a display called "ecam_upper" is not also the window of one called "ecam"
+        var ecam = GlassLink.Capture.Windows.WindowMatch.From(registry.Add("ecam", null)["match"] as JsonObject);
+        Assert.False(ecam.Matches(new GlassLink.Capture.Windows.WindowInfo(1, "GlassLink:ecam_upper", "AceApp", "FlightSimulator2024.exe", false, default, default, default)));
+        Assert.True(ecam.Matches(new GlassLink.Capture.Windows.WindowInfo(1, "GlassLink:ecam", "AceApp", "FlightSimulator2024.exe", false, default, default, default)));
         Assert.NotNull(registry.Slot("fo_pfd"));
         foreach (var bad in new[] { "", "1pfd", "FO PFD", "pfd!", new string('x', 30) })
         {
@@ -136,6 +140,30 @@ public class RegistryAndFirmwareTests
         }
 
         Assert.Throws<DisplayException>(() => registry.Add("pfd", null));
+    }
+
+    [Fact]
+    public void The_example_configuration_a_new_install_starts_from_finds_each_display_by_its_exact_title()
+    {
+        var folder = new DirectoryInfo(AppContext.BaseDirectory);
+        while (folder is not null && !File.Exists(Path.Combine(folder.FullName, "config.example.json")))
+        {
+            folder = folder.Parent;
+        }
+
+        Assert.NotNull(folder);
+        var example = (JsonObject)JsonNode.Parse(File.ReadAllText(Path.Combine(folder.FullName, "config.example.json")))!;
+        var displays = (JsonObject)example["displays"]!;
+        Assert.Equal(6, displays.Count);
+        foreach (var (name, node) in displays)
+        {
+            var match = GlassLink.Capture.Windows.WindowMatch.From(node!["match"] as JsonObject);
+            Assert.Equal("GlassLink:" + name, match.TitleExact);
+            Assert.Null(match.Title);                                                                // "GlassLink:pfd" is part of "GlassLink:pfd2"
+            Assert.True(match.Matches(new GlassLink.Capture.Windows.WindowInfo(1, "GlassLink:" + name, "AceApp", "FlightSimulator2024.exe", false, default, default, default)));
+        }
+
+        Assert.Equal(8765, DmcRuntime.PortFrom(example["server"]));
     }
 
     [Fact]

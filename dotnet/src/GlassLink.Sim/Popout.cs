@@ -102,6 +102,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
 
         var (oldView, oldZoom) = (camera.View, camera.Zoom);
         say($"using profile '{profile.Key}', camera was view {oldView} zoom {oldZoom:0}");
+        var moved = false;
         try
         {
             foreach (var group in names.Where(profile.Points.ContainsKey).GroupBy(n => profile.Points[n].Camera.Key))
@@ -111,6 +112,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
                     break;
                 }
 
+                moved = true;
                 ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
                 if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && (aspect <= 0 || pfd.Fits(aspect))
@@ -137,7 +139,10 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         }
         finally
         {
-            Restore(oldView, oldZoom, sim.Handle);
+            if (moved)                                       // stopped before the first move (the DMC quitting): nothing to undo
+            {
+                Restore(oldView, oldZoom, sim.Handle);
+            }
         }
 
         return done;
@@ -301,7 +306,8 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         config.Update(root =>
         {
             display = ConfigFile.Section(ConfigFile.Section(root, "displays"), name);
-            display["match"] = new JsonObject { ["process"] = SimProcess, ["class"] = SimClass, ["title"] = TitlePrefix + name };
+            // the exact title: "GlassLink:pfd" is also part of "GlassLink:pfd2" (an older config's "title" is replaced here)
+            display["match"] = new JsonObject { ["process"] = SimProcess, ["class"] = SimClass, ["title_exact"] = TitlePrefix + name };
         });
         if (WindowFinder.Describe(hwnd) is not { } w)
         {
@@ -332,7 +338,13 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             Thread.Sleep(1000);
         }
 
-        camera.Reset();
+        // the reset only for the sim's pilot views (type 1): in an instrument view, such as the FSLabs' First Officer view
+        // (2/5), it would leave that view for the pilot's, as it does when popping out (ApplyCamera)
+        if (view is null or { Type: 1 })
+        {
+            camera.Reset();
+        }
+
         if (zoom is { } z)
         {
             Thread.Sleep(500);
