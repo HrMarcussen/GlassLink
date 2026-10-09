@@ -50,6 +50,11 @@ public static class Input
             Key(Native.VK_RMENU, down: true, extended: true);
             altDown = true;
             Thread.Sleep(300);
+            if (Native.GetForegroundWindow() != simWindow)
+            {
+                return false;                                // another window came up meanwhile: the click would land in it
+            }
+
             Mouse(Native.MOUSEEVENTF_LEFTDOWN);
             buttonDown = true;
             Thread.Sleep(120);

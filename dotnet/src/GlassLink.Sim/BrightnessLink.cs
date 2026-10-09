@@ -75,19 +75,37 @@ public sealed class BrightnessLink(ConfigFile config, SimConnectClient sim, SimC
         if (now - _dimmingChecked > 5000)
         {
             _dimmingChecked = now;
-            try
+            _standdown = DimmingOn(profile.DimmingFile, profile.DimmingTag, profile.DimmingOnValue, profile.DimmingName ?? "the aircraft dims its pop-outs",
+                _standdown, out var busy);
+            if (busy)
             {
-                var text = File.ReadAllText(profile.DimmingFile);
-                var match = Regex.Match(text, $"<{Regex.Escape(profile.DimmingTag)}>\\s*([^<]*?)\\s*</", RegexOptions.IgnoreCase);
-                var on = match.Success && string.Equals(match.Groups[1].Value, profile.DimmingOnValue ?? "true", StringComparison.OrdinalIgnoreCase);
-                _standdown = on ? profile.DimmingName ?? "the aircraft dims its pop-outs" : null;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _standdown = null;
+                _dimmingChecked = now - 4000;                // looked at again in a second
             }
         }
 
         return _standdown;
+    }
+
+    /// <summary>Whether the aircraft's settings file says its own dimming is on: <paramref name="name"/> if so, null if
+    /// not or if there is no such file. While the aircraft is writing the file it cannot be read: then the previous answer
+    /// stands (<paramref name="busy"/>), so the DU does not dim on top of the aircraft for a few seconds (review C10).</summary>
+    public static string? DimmingOn(string file, string tag, string? onValue, string name, string? previous, out bool busy)
+    {
+        busy = false;
+        try
+        {
+            var text = File.ReadAllText(file);
+            var match = Regex.Match(text, $"<{Regex.Escape(tag)}>\\s*([^<]*?)\\s*</", RegexOptions.IgnoreCase);
+            return match.Success && string.Equals(match.Groups[1].Value, onValue ?? "true", StringComparison.OrdinalIgnoreCase) ? name : null;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            busy = true;
+            return previous;
+        }
     }
 }

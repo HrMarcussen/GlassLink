@@ -113,8 +113,16 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
                 }
 
                 moved = true;
-                ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
+                var still = ApplyCamera(profile.Points[group.First()].Camera, profile.Zoom, sim.Handle);
                 sim = SimMainWindow() ?? sim;
+                if (!still)
+                {
+                    // the click would land wherever the moving view puts it, and the window it opens would be taken for
+                    // this display (review C4, 9 Oct 2026)
+                    say("the view did not come to rest; not clicking. Retrying later.");
+                    continue;
+                }
+
                 if (group.Key == "reset" && profile.Detect == "pfd_sphere" && profile.Points.TryGetValue("pfd", out var pfd) && (aspect <= 0 || pfd.Fits(aspect))
                     && !ViewMatches(sim, pfd, profile.Points.GetValueOrDefault("nd") is { Camera.Key: "reset" } nd && (aspect <= 0 || nd.Fits(aspect)) ? nd : null))
                 {
@@ -148,8 +156,9 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         return done;
     }
 
-    /// <summary>Puts the camera into the state a point was recorded in and waits until the picture has stopped moving.</summary>
-    public void ApplyCamera(CameraSpec spec, double zoom, nint simWindow)
+    /// <summary>Puts the camera into the state a point was recorded in and waits until the picture has stopped moving.
+    /// False if it was still moving after the wait.</summary>
+    public bool ApplyCamera(CameraSpec spec, double zoom, nint simWindow)
     {
         if (spec.ViewType is null)
         {
@@ -176,8 +185,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             Thread.Sleep(1500);
             camera.SetZoom(zoom);
             Thread.Sleep(1200);
-            WaitUntilStill(simWindow);
-            return;
+            return WaitUntilStill(simWindow);
         }
         else
         {
@@ -190,7 +198,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         Thread.Sleep(800);
         camera.SetZoom(zoom);
         Thread.Sleep(1200);
-        WaitUntilStill(simWindow);
+        return WaitUntilStill(simWindow);
     }
 
     /// <summary>
@@ -225,18 +233,20 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     }
 
     /// <summary>Camera moves are animated and can take seconds (right after loading, much longer). Two quiet
-    /// comparisons of the sim's picture in a row count as still.</summary>
+    /// comparisons of the sim's picture in a row count as still. True as well when the picture cannot be read at all
+    /// (nothing to judge by); false only when it was seen moving for the whole wait.</summary>
     public bool WaitUntilStill(nint simWindow, double maxSeconds = 12, double threshold = 2.0)
     {
         var started = Environment.TickCount64;
         var previous = WindowFinder.CoarseGrey(simWindow);
-        var quiet = 0;
+        var (quiet, compared) = (0, false);
         while (Environment.TickCount64 - started < maxSeconds * 1000)
         {
             Thread.Sleep(400);
             var current = WindowFinder.CoarseGrey(simWindow);
             if (previous is not null && current is not null && previous.Length == current.Length)
             {
+                compared = true;
                 var motion = 0.0;
                 for (var i = 0; i < current.Length; i++)
                 {
@@ -259,7 +269,13 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
             previous = current;
         }
 
-        say($"camera still moving after {maxSeconds:0} s; continuing anyway");
+        if (!compared)
+        {
+            say("the sim's picture cannot be read to see whether the camera has stopped; continuing");
+            return true;
+        }
+
+        say($"camera still moving after {maxSeconds:0} s");
         return false;
     }
 
@@ -271,7 +287,7 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         say($"{name}: Right-Alt + click at ({x}, {y})");
         if (!Input.RightAltClick(sim.Handle, x, y))
         {
-            say("could not bring the sim window to the front; not clicking");
+            say("the sim window is not in front (another window came up); not clicking");
             return false;
         }
 
@@ -302,19 +318,20 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     public void Adopt(nint hwnd, string name)
     {
         WindowFinder.SetTitle(hwnd, TitlePrefix + name);
-        JsonObject? display = null;
+        ((int A, int B)? Size, (int A, int B)? Position) wanted = default;
         config.Update(root =>
         {
-            display = ConfigFile.Section(ConfigFile.Section(root, "displays"), name);
+            var display = ConfigFile.Section(ConfigFile.Section(root, "displays"), name);
             // the exact title: "GlassLink:pfd" is also part of "GlassLink:pfd2" (an older config's "title" is replaced here)
             display["match"] = new JsonObject { ["process"] = SimProcess, ["class"] = SimClass, ["title_exact"] = TitlePrefix + name };
+            wanted = (Pair(display["client_size"]), Pair(display["position"]));   // read here: the tree is only safe under the lock
         });
         if (WindowFinder.Describe(hwnd) is not { } w)
         {
             return;
         }
 
-        var (size, position) = (Pair(display?["client_size"]), Pair(display?["position"]));
+        var (size, position) = wanted;
         if (size is { } s)
         {
             WindowFinder.SetClientSize(w, s.A, s.B, position?.A, position?.B);

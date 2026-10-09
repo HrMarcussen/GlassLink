@@ -233,13 +233,49 @@ public sealed class SimConnectClient : IDisposable
     {
         lock (_gate)
         {
+            if (_registered == 0)
+            {
+                _sent.Clear();                               // packet ids belong to one connection
+            }
+
             for (; _registered < _variables.Count; _registered++)
             {
                 var v = _variables[_registered];
                 Native.SimConnect_AddToDataDefinition(_handle, v.Id, v.Name, v.IsText ? null : v.Unit, v.IsText ? Native.STRING256 : Native.FLOAT64, 0, uint.MaxValue);
+                Remember(v.Name);
                 Native.SimConnect_RequestDataOnSimObject(_handle, v.Id, v.Id, 0, v.IsText ? Native.PERIOD_SECOND : Native.PERIOD_SIM_FRAME, Native.FLAG_CHANGED, 0, 0, 0);
+                Remember(v.Name);
             }
         }
+    }
+
+    /// <summary>Which variable a packet was for, so a refusal from the sim can name it (under _gate).</summary>
+    private void Remember(string variable)
+    {
+        if (Native.SimConnect_GetLastSentPacketID(_handle, out var sendId) == 0)
+        {
+            _sent[sendId] = variable;
+        }
+    }
+
+    private readonly Dictionary<uint, string> _sent = [];
+    private readonly HashSet<string> _refusals = [];
+
+    /// <summary>A request the sim refused (a misspelt variable, one this aircraft does not have): logged once per variable
+    /// and kind, instead of the variable silently never getting a value (review C10).</summary>
+    private void Refused(uint exception, uint sendId)
+    {
+        string what;
+        lock (_gate)
+        {
+            what = _sent.GetValueOrDefault(sendId) ?? $"packet {sendId}";
+            if (!_refusals.Add($"{exception}|{what}"))
+            {
+                return;
+            }
+        }
+
+        _log?.Invoke($"SimConnect refused '{what}' (SIMCONNECT_EXCEPTION {exception}): it stays without a value");
     }
 
     private unsafe void Pump()
@@ -269,6 +305,9 @@ public sealed class SimConnectClient : IDisposable
                         v.Value = *(double*)((byte*)data + 40);
                     }
 
+                    break;
+                case Native.RECV_EXCEPTION when size >= 24:
+                    Refused(header[3], header[4]);
                     break;
                 case Native.RECV_EVENT_FRAME when size >= 28:
                     SimFps = *(float*)((byte*)data + 24);
@@ -317,7 +356,10 @@ public sealed class SimConnectClient : IDisposable
     private static class Native
     {
         public const uint FLOAT64 = 4, STRING256 = 9, PERIOD_SIM_FRAME = 3, PERIOD_SECOND = 4, FLAG_CHANGED = 1;
-        public const uint RECV_QUIT = 3, RECV_EVENT_FRAME = 7, RECV_SIMOBJECT_DATA = 8;
+        public const uint RECV_EXCEPTION = 1, RECV_QUIT = 3, RECV_EVENT_FRAME = 7, RECV_SIMOBJECT_DATA = 8;
+
+        [DllImport("SimConnect.dll")]
+        public static extern int SimConnect_GetLastSentPacketID(nint handle, out uint sendId);
 
         [DllImport("SimConnect.dll", CharSet = CharSet.Ansi)]
         public static extern int SimConnect_Open(out nint handle, string name, nint hwnd, uint userEvent, nint eventHandle, uint configIndex);

@@ -39,6 +39,48 @@ public class SimTests
     }
 
     [Fact]
+    public void A_title_regex_that_is_no_regular_expression_matches_nothing_and_says_why()
+    {
+        var bad = WindowMatch.From(Config("""{"title_regex":"GlassLink:(pfd"}"""));   // hand-edited config.json
+        var window = new WindowInfo(1, "GlassLink:pfd", "AceApp", "FlightSimulator2024.exe", false, default, default, default);
+        Assert.False(bad.Matches(window));                               // no exception on every look (review C11)
+        Assert.Contains("title_regex", bad.Problem);
+        var good = WindowMatch.From(Config("""{"title_regex":"^GlassLink:(pfd|nd)$"}"""));
+        Assert.True(good.Matches(window));
+        Assert.Null(good.Problem);
+    }
+
+    [Fact]
+    public void The_aircraft_dimming_setting_keeps_its_last_answer_while_the_aircraft_writes_the_file()
+    {
+        var file = Path.Combine(Directory.CreateTempSubdirectory("glasslink-dimming").FullName, "settings.xml");
+        File.WriteAllText(file, "<Settings><HomeCockpitMode>true</HomeCockpitMode></Settings>");
+        Assert.Equal("Home Cockpit Mode", BrightnessLink.DimmingOn(file, "HomeCockpitMode", null, "Home Cockpit Mode", null, out var busy));
+        Assert.False(busy);
+        using (File.Open(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None))     // the aircraft is saving it
+        {
+            Assert.Equal("Home Cockpit Mode", BrightnessLink.DimmingOn(file, "HomeCockpitMode", null, "Home Cockpit Mode", "Home Cockpit Mode", out busy));
+            Assert.True(busy);                                           // not "off" for 5 s, which dimmed twice (review C10)
+        }
+
+        File.WriteAllText(file, "<Settings><HomeCockpitMode>false</HomeCockpitMode></Settings>");
+        Assert.Null(BrightnessLink.DimmingOn(file, "HomeCockpitMode", null, "Home Cockpit Mode", "Home Cockpit Mode", out busy));
+        File.Delete(file);
+        Assert.Null(BrightnessLink.DimmingOn(file, "HomeCockpitMode", null, "Home Cockpit Mode", "Home Cockpit Mode", out busy));   // no such file: off
+        Assert.False(busy);
+    }
+
+    [Fact]
+    public void A_view_that_cannot_be_seen_does_not_stop_the_pop_out()
+    {
+        // no window to look at (handle 0): nothing to judge by, so the pop-out goes on as before; only a view seen moving
+        // for the whole wait stops the click (review C4, which needs the sim to show)
+        using var sim = new SimConnectClient();
+        var procedure = new PopoutProcedure(new GlassLink.Core.Config.ConfigFile(new JsonObject()), new SimCamera(sim), _ => { });
+        Assert.True(procedure.WaitUntilStill(0, maxSeconds: 1));
+    }
+
+    [Fact]
     public void A_cropped_picture_is_what_lies_inside_the_frame()
     {
         const int w = 6, h = 5, stride = w * 4 + 8, crop = 1;        // a stride wider than the row, as a capture can have
