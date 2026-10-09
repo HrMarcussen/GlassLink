@@ -1,4 +1,4 @@
-﻿# GlassLink module firmware - ESP32-P4 (Waveshare ESP32-P4-NANO + Olimex MIPI-HDMI / LT8912B)
+# GlassLink module firmware - ESP32-P4 (Waveshare ESP32-P4-NANO + Olimex MIPI-HDMI / LT8912B)
 CONFIG_IDF_TARGET="esp32p4"
 
 # CPU / memory
@@ -8,7 +8,6 @@ CONFIG_SPIRAM_MODE_HEX=y
 CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LMB=n
 # The Waveshare NANO's ESP32-P4NRW32 is chip revision v1.3 (pre-3.x silicon generation)
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_100=y
@@ -19,15 +18,14 @@ CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# USB device (TinyUSB, high-speed port, one vendor interface)
+# USB device (TinyUSB, high-speed port, one vendor interface; the task priority is set in usb_link.c)
 CONFIG_TINYUSB_VENDOR_COUNT=1
 # Unbuffered vendor class: usb_link.c keeps received data itself (TinyUSB's FIFO mode drops a transfer, #61)
 CONFIG_TINYUSB_VENDOR_RX_BUFSIZE=0
 CONFIG_TINYUSB_VENDOR_TX_BUFSIZE=0
 # Transfers of up to 16 KB instead of one per 512-byte packet: receive went from ~6.7 to ~28 MB/s
 CONFIG_TINYUSB_VENDOR_EPSIZE=16384
-CONFIG_TINYUSB_TASK_PRIORITY=6
-# temporary: log USB control requests during bring-up
+# TinyUSB's own log off (its default, 1, logs from the USB task while frames arrive)
 CONFIG_TINYUSB_DEBUG_LEVEL=0
 
 # MIPI DSI / LCD
