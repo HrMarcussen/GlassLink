@@ -151,14 +151,17 @@ public static class Profiles
         var points = new Dictionary<string, ClickPoint>();
         foreach (var (name, node) in o["points"] as JsonObject ?? [])
         {
+            // a hand-edited point that is not two numbers is skipped (Learn again), never thrown: the status page reads profiles
+            static (double X, double Y)? Xy(JsonNode? n) =>
+                n is JsonArray { Count: 2 } a && a[0].Number(double.NaN) is var x && a[1].Number(double.NaN) is var y && double.IsFinite(x) && double.IsFinite(y) ? (x, y) : null;
             switch (node)
             {
-                case JsonArray { Count: 2 } a:
-                    points[name] = new ClickPoint(a[0]!.AsDouble(), a[1]!.AsDouble(), profileCamera, profileAspect);
+                case JsonArray when Xy(node) is { } xy:
+                    points[name] = new ClickPoint(xy.X, xy.Y, profileCamera, profileAspect);
                     break;
                 // sim custom cameras ("mode": "custom") were a dead end in 0.4 development builds: such a point is not learned
-                case JsonObject p when p["xy"] is JsonArray { Count: 2 } xy && !IsCustomCamera(p):
-                    points[name] = new ClickPoint(xy[0]!.AsDouble(), xy[1]!.AsDouble(),
+                case JsonObject p when Xy(p["xy"]) is { } xy && !IsCustomCamera(p):
+                    points[name] = new ClickPoint(xy.X, xy.Y,
                         p["camera"] is JsonObject c ? CameraSpec.From(c) : profileCamera, Number(p["aspect"]) ?? profileAspect);
                     break;
             }

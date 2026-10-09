@@ -283,8 +283,7 @@ public sealed partial class DisplayRegistry(ConfigFile config, Func<string, bool
 
     private static JsonArray NextParkingSlot(JsonObject displays)
     {
-        var used = displays.Select(kv => (kv.Value as JsonObject)?["position"] as JsonArray).Where(a => a is { Count: 2 })
-            .Select(a => ((int)a![0]!.AsDouble(), (int)a[1]!.AsDouble())).ToHashSet();
+        var used = displays.Select(kv => ((kv.Value as JsonObject)?["position"]).Pair()).OfType<(int, int)>().ToHashSet();
         for (var i = 0; i < 64; i++)
         {
             var slot = (ParkX0 + i % ParkColumns * ParkDx, ParkY0 + i / ParkColumns * ParkDy);

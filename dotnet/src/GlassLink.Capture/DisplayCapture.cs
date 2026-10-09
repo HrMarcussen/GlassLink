@@ -217,8 +217,7 @@ public sealed class DisplayCapture : IDisposable
         return WindowFinder.Describe(w.Handle) ?? w;
     }
 
-    private static (int A, int B)? Pair(JsonNode? node) =>
-        node is JsonArray { Count: 2 } a ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null;
+    private static (int A, int B)? Pair(JsonNode? node) => node.Pair();
 
     /// <summary>Full rate while something shows this display (and a few seconds after), a preview picture otherwise.</summary>
     private bool WantFrame()

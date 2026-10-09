@@ -41,4 +41,14 @@ public static class JsonNumbers
 
         return double.Parse(node.ToJsonString(), CultureInfo.InvariantCulture);
     }
+
+    /// <summary>A JSON number, or <paramref name="fallback"/> for anything else (missing, a string "8766", true): for
+    /// values a user may edit by hand, which must never stop the DMC from starting.</summary>
+    public static double Number(this JsonNode? node, double fallback) =>
+        node is JsonValue v && v.GetValueKind() == System.Text.Json.JsonValueKind.Number ? v.AsDouble() : fallback;
+
+    /// <summary>Two JSON numbers in an array ([768, 768]) as whole numbers; null for anything else.</summary>
+    public static (int A, int B)? Pair(this JsonNode? node) =>
+        node is JsonArray { Count: 2 } a && a[0].Number(double.NaN) is var x && a[1].Number(double.NaN) is var y && double.IsFinite(x) && double.IsFinite(y)
+            ? ((int)x, (int)y) : null;
 }

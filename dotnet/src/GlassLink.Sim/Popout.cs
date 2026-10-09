@@ -359,6 +359,5 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         }
     }
 
-    private static (int A, int B)? Pair(JsonNode? node) =>
-        node is JsonArray { Count: 2 } a ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null;
+    private static (int A, int B)? Pair(JsonNode? node) => node.Pair();
 }

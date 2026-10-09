@@ -39,8 +39,7 @@ public sealed class DmcRuntime : IDisposable
         // The size of the picture a display really publishes (after max_size); its configured client_size before the
         // first frame (#27).
         Dus.DisplaySize = display => Displays.Slot(display) is { Width: > 0, Height: > 0 } slot ? (slot.Width, slot.Height)
-            : Config.Read<(int, int)?>(root => (root["displays"] as JsonObject)?[display] is JsonObject d && d["client_size"] is JsonArray a && a.Count == 2
-                ? ((int)a[0]!.AsDouble(), (int)a[1]!.AsDouble()) : null);
+            : Config.Read<(int, int)?>(root => ((root["displays"] as JsonObject)?[display] as JsonObject)?["client_size"].Pair());
         Displays.Removed = Dus.DisplayRemoved;
         Learner = new Learner(Config, Camera, Log) { PauseAuto = paused => { if (Auto is not null) { Auto.Paused = paused; } } };
         Advisor = new Advisor();
@@ -273,6 +272,11 @@ public sealed class DmcRuntime : IDisposable
         }
     }
 
+    /// <summary>The web server's port from the "server" section: 8765 unless it holds a usable port number (a hand-edited
+    /// "8766" in quotes or a 0 must not stop the DMC from starting).</summary>
+    public static int PortFrom(JsonNode? server) =>
+        server?["port"].Number(8765) is var p && p is >= 1 and <= 65535 ? (int)p : 8765;
+
     /// <summary>Keep out of the simulator's way: below-normal priority, and only the last third of the logical CPUs on
     /// machines with eight or more ("process" section of the configuration: priority, affinity "auto" | [cpus] | null).</summary>
     private (string, int[]) TuneProcess()
@@ -290,7 +294,7 @@ public sealed class DmcRuntime : IDisposable
         var count = Environment.ProcessorCount;
         int[] cpus = section?["affinity"] switch
         {
-            JsonArray list => list.Select(n => (int)n!.AsDouble()).Where(n => n >= 0 && n < count).ToArray(),
+            JsonArray list => list.Select(n => (int)n.Number(-1)).Where(n => n >= 0 && n < count).ToArray(),
             JsonValue v when v.GetValueKind() == System.Text.Json.JsonValueKind.String && v.GetValue<string>() == "auto" && count >= 8
                 => Enumerable.Range(count - count / 3, count / 3).ToArray(),
             null when count >= 8 => Enumerable.Range(count - count / 3, count / 3).ToArray(),

@@ -29,7 +29,10 @@ public sealed class ConfigFile
     {
         if (!File.Exists(path))
         {
-            return new ConfigFile([], path);
+            // gone, but the copy of the last good save is still there (deleted by hand, or a save cut short): use it
+            return File.Exists(path + ".bak") && TryParse(path + ".bak") is { } saved
+                ? new ConfigFile(saved, path) { LoadedFromBackup = true }
+                : new ConfigFile([], path);
         }
 
         try
@@ -52,15 +55,36 @@ public sealed class ConfigFile
     private static JsonObject Parse(string file) =>
         JsonNode.Parse(File.ReadAllText(file)) as JsonObject ?? throw new InvalidDataException($"{file} does not hold a JSON object");
 
+    private static JsonObject? TryParse(string file)
+    {
+        try
+        {
+            return Parse(file);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException or IOException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Runs an edit under the lock and saves: to a temporary file flushed to disk, then swapped in with the
     /// previous file kept as config.json.bak, so a crash or a blue screen at any moment leaves a readable file. If
-    /// the save fails, the edit is taken back, so memory and file do not disagree (#30).</summary>
+    /// the edit throws or the save fails, the edit is taken back, so memory and file do not disagree (#30).</summary>
     public void Update(Action<JsonObject> edit)
     {
         lock (_gate)
         {
-            var before = _path is null ? null : (JsonObject)Root.DeepClone();
-            edit(Root);
+            var before = (JsonObject)Root.DeepClone();
+            try
+            {
+                edit(Root);
+            }
+            catch
+            {
+                Restore(before);                             // an edit that gave up halfway leaves nothing behind
+                throw;
+            }
+
             if (_path is null)
             {
                 return;
@@ -87,14 +111,18 @@ public sealed class ConfigFile
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Root.Clear();
-                foreach (var (key, value) in before!)
-                {
-                    Root[key] = value?.DeepClone();
-                }
-
+                Restore(before);
                 throw new IOException($"the configuration could not be saved: {ex.Message}", ex);
             }
+        }
+    }
+
+    private void Restore(JsonObject before)
+    {
+        Root.Clear();
+        foreach (var (key, value) in before)
+        {
+            Root[key] = value?.DeepClone();
         }
     }
 

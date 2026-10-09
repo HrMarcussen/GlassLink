@@ -134,7 +134,7 @@ internal static class Program
 
         var server = dmc.Config.Read(root => root["server"]?.DeepClone() as JsonObject);
         var host = server?["host"].Text() ?? "0.0.0.0";
-        var port = int.TryParse(Option("--port"), out var p) ? p : (int)(server?["port"]?.AsDouble() ?? 8765);
+        var port = int.TryParse(Option("--port"), out var p) ? p : DmcRuntime.PortFrom(server);
 
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ContentRootPath = AppContext.BaseDirectory });
         builder.Logging.ClearProviders();                    // the DMC has its own log; the web server stays quiet
@@ -286,7 +286,7 @@ internal static class Program
 
         try
         {
-            return (int)(JsonNode.Parse(File.ReadAllText(configPath))?["server"]?["port"]?.AsDouble() ?? 8765);
+            return DmcRuntime.PortFrom(JsonNode.Parse(File.ReadAllText(configPath))?["server"]);
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException or InvalidOperationException)
         {
