@@ -96,6 +96,22 @@ public class RequestGuardTests
         Assert.Null(Check("POST", "192.168.1.10:8765", "application/json", "http://192.168.1.10:8765", "192.168.1.10"));   // this PC through its LAN address
         Assert.Null(Check("POST", "192.168.1.10:8765", "application/json", "http://192.168.1.10:8765", "192.168.1.20", lan: true));
     }
+
+    [Fact]
+    public void This_pc_answers_to_its_name_in_the_lan_dns_too()
+    {
+        var names = RequestGuard.LocalNames();
+        var machine = Environment.MachineName.ToLowerInvariant();
+        Assert.Contains(machine, names);
+        Assert.Contains(machine + ".local", names);
+        foreach (var suffix in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                     .Select(n => n.GetIPProperties().DnsSuffix).Where(s => s.Length > 0))
+        {
+            Assert.Contains($"{machine}.{suffix}".ToLowerInvariant(), names);                     // simpc.lan, simpc.fritz.box
+        }
+
+        Assert.DoesNotContain("evil.example", names);
+    }
 }
 
 public class ViewerTests

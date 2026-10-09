@@ -131,7 +131,13 @@ public static class RequestGuard
 
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
             {
-                foreach (var a in nic.GetIPProperties().UnicastAddresses)
+                var properties = nic.GetIPProperties();
+                if (properties.DnsSuffix.Length > 0)
+                {
+                    names.Add($"{machine}.{properties.DnsSuffix}".ToLowerInvariant());     // simpc.lan, simpc.fritz.box: the LAN's DNS
+                }
+
+                foreach (var a in properties.UnicastAddresses)
                 {
                     var text = a.Address.ToString().ToLowerInvariant();
                     names.Add(text);

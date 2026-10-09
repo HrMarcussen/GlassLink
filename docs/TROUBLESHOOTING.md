@@ -92,6 +92,18 @@ what the CPU is rated for (XMP), automatic CPU overclocking. Check those first. 
 while the sim runs; use Quit in its tray menu or `GlassLink.exe --quit` (ending a process that holds window captures
 can upset the GPU driver).
 
+## A phone or a Pi gets "this DMC answers only to its own names and addresses"
+
+**What you see.** The status page or a viewer opened as `http://<some name>:8765/...` answers with that line (HTTP
+403), while the PC's own name or address works.
+
+**Why.** The DMC answers only to the names and addresses of the PC it runs on: `localhost`, the computer name, the
+computer name with `.local`, the PC's domain or its network's DNS suffix (`simpc.lan`, `simpc.fritz.box`), and its IP
+addresses. Any other name could be a web page that points its own domain at the PC (DNS rebinding), so a name of
+your own for the sim PC (a hosts-file entry, a router alias) is refused.
+
+**What to do.** Open the page with the computer name (`http://<computer name>:8765/view/pfd`) or the PC's IP address.
+
 ## Windows shows an old name for a DU
 
 Windows remembers a USB device's name. Remove the device once in Device Manager (with the DU plugged in) and plug it
