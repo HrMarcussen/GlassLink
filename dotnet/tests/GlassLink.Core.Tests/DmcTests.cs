@@ -143,6 +143,34 @@ public class RegistryAndFirmwareTests
     }
 
     [Fact]
+    public void Diagnostics_blank_out_who_and_where_the_user_is_but_keep_what_a_helper_needs()
+    {
+        var redact = Diagnostics.Redactor("Thomas", "SIMPC", ["fe80::1234:5678%12", "fe80::1234:5678", "192.168.1.10"], ["home.lan", ""]);
+        var log = """
+            14:52:53 GlassLink DMC 0.10.0 (2c5afa4), configuration C:\Users\Thomas\AppData\Local\GlassLink\config.json
+            14:52:54 firmware at C:\Users\THOMAS~1\Downloads\glasslink_du.bin, status page http://localhost:8765/
+            refused GET / from 192.168.1.20: this DMC answers only to its own names and addresses, not 'simpc.home.lan'
+            listening on 127.0.0.1 and 0.0.0.0, link-local fe80::1234:5678
+            22:12:21 DU 1501f789b4fad0865624c341 fw 0.10.0 on SIMPC
+            """;
+        var r = redact(log);
+        foreach (var gone in new[] { "Thomas", "THOMAS~1", "192.168.1.20", "simpc", "home.lan", "fe80::1234:5678" })
+        {
+            Assert.DoesNotContain(gone, r, StringComparison.OrdinalIgnoreCase);
+        }
+
+        foreach (var kept in new[] { @"C:\Users\<user>\AppData", "127.0.0.1", "0.0.0.0", "14:52:53", "22:12:21", "1501f789b4fad0865624c341", "0.10.0", "<pc>.<domain>" })
+        {
+            Assert.Contains(kept, r);                                // times, versions and DU serials are what a helper reads
+        }
+
+        var zip = Diagnostics.Zip([("logs/dmc.log", log)], redact);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(zip));
+        using var reader = new StreamReader(archive.GetEntry("logs/dmc.log")!.Open());
+        Assert.Equal(r, reader.ReadToEnd());
+    }
+
+    [Fact]
     public void After_a_fatal_error_the_captures_are_closed_but_never_waited_for_longer_than_the_limit()
     {
         Assert.True(DmcRuntime.Within(() => { }, TimeSpan.FromSeconds(2)));

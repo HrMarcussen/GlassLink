@@ -26,6 +26,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   displays are not popped out until it is on again; switching it off during the countdown calls the pop-out off
   before the camera moves. "Pop out missing displays now" and Close window still work while it is off. It covers
   X-Plane too. The top bar says "automatic pop-out off" while displays are missing because of it.
+- Save diagnostics (System tab, or the tray menu): one zip to attach to an issue, with what the status page shows, the
+  configuration, the logs of the last three days and the PC's Windows, .NET, graphics adapters and screens. The
+  user's name, the computer's name, network names and addresses are blanked out; it is given to the sim PC only
+  and sent nowhere.
 
 ## [0.10.0] - 2026-10-09
 

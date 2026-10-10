@@ -224,6 +224,14 @@
   <section class="tab" data-tab="system">
   <h2>System</h2>
   <div class="kv" id="system-kv" style="max-width:56rem;font-size:.9375rem"></div>
+  <h2>Diagnostics</h2>
+  <div style="margin:4px 0 18px">
+    <button type="button" id="diag-save">Save diagnostics</button>
+    <span class="dim small" style="margin-left:10px">One file to attach to an issue: what this page shows, the configuration, the
+      logs of the last three days and the PC's Windows, graphics and screens. Your user name, the computer's name, network
+      names and addresses are blanked out, and nothing is sent anywhere: read it before you share it. On the sim PC only
+      (also in the tray menu).</span>
+  </div>
   <h2>Links</h2>
   <div class="dim">Status JSON: <a href="/status">/status</a> &nbsp; Modules JSON: <a href="/modules">/modules</a> &nbsp;
     Viewer: <code>/view/&lt;display&gt;</code> (add <code>?fps=1</code> for the overlay) &nbsp; MJPEG: <code>/stream/&lt;display&gt;</code></div>
@@ -663,6 +671,7 @@
     const d = $('#learn-dismiss'); if (d) d.onclick = () => { learnDismissed = id; el.hidden = true; };
   }
   fetch('/popout/settings').then(r => r.json()).then(d => { $('#restore-key').value = d.camera_restore_key || ''; $('#auto-popout').checked = !!d.auto; }).catch(() => {});
+  $('#diag-save').onclick = () => { location.href = '/diagnostics'; };     // a zip: the browser (or the status window) saves it
   $('#auto-popout').onchange = (e) => api('/popout/settings', 'POST', { auto: e.target.checked })
     .then(d => { e.target.checked = !!d.auto; refresh(); }).catch(() => { e.target.checked = !e.target.checked; });
   // Press the combination instead of typing it: the field records modifiers + one key (a-z, 0-9, F1-F24).

@@ -104,7 +104,12 @@ public sealed class Tray : IDisposable
             new ToolStripMenuItem("Open status page", null, (_, _) => OpenStatusPage()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) },
             _autoPopout,
             new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.RetryPopout()),
-            _autostart, _withSim, new ToolStripSeparator(),
+            _autostart, _withSim,
+            new ToolStripMenuItem("Save diagnostics…", null, (_, _) => SaveDiagnostics())
+            {
+                ToolTipText = "The status, configuration and recent logs in one file to attach to an issue; names and addresses blanked out",
+            },
+            new ToolStripSeparator(),
             new ToolStripMenuItem("Quit", null, (_, _) => quit()),
         ]);
         menu.Opening += (_, _) => { TrayMenuStyle.Apply(menu, Palette.Current); Refresh(); };      // follows the system theme, live
@@ -216,6 +221,30 @@ public sealed class Tray : IDisposable
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             _dmc.Log($"could not open the status page: {ex.Message}");
+        }
+    }
+
+    private void SaveDiagnostics()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            FileName = Diagnostics.FileName, Filter = "Zip file|*.zip", Title = "Save GlassLink diagnostics",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+        };
+        if (dialog.ShowDialog() != DialogResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllBytes(dialog.FileName, Diagnostics.Build(_dmc));
+            _dmc.Log($"diagnostics saved: {dialog.FileName}");
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{dialog.FileName}\"") { UseShellExecute = false })?.Dispose();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show($"The diagnostics could not be saved: {ex.Message}", "GlassLink DMC", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 

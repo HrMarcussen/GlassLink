@@ -115,6 +115,15 @@ public class RequestGuardTests
     }
 
     [Fact]
+    public void The_diagnostics_go_to_this_pc_only()
+    {
+        Assert.True(RequestGuard.FromThisPc(IPAddress.Loopback));
+        Assert.True(RequestGuard.FromThisPc(IPAddress.IPv6Loopback));
+        Assert.False(RequestGuard.FromThisPc(IPAddress.Parse("192.0.2.77")));      // a phone on the LAN: the logs stay here
+        Assert.False(RequestGuard.FromThisPc(null));
+    }
+
+    [Fact]
     public void Changes_must_be_addressed_to_localhost_or_an_address_as_a_name_can_be_answered_by_another_device()
     {
         // a page served under the PC's name by someone else on the network, which then points the name at this PC

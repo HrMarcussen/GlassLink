@@ -32,6 +32,10 @@ public static partial class Api
         app.MapGet("/fonts/inter.woff2", () => Results.File(Path.Combine(statics, "fonts", "inter.woff2"), "font/woff2"));
         app.MapGet("/view/{name}", (string name) => dmc.Displays.Get(name) is null ? Results.NotFound() : Page("viewer.html"));
         app.MapGet("/status", () => Json(Status(dmc)));
+        // logs and the configuration: for this PC only, even where the status page is open to the LAN
+        app.MapGet("/diagnostics", (HttpContext http) => RequestGuard.FromThisPc(http.Connection.RemoteIpAddress)
+            ? Results.File(Diagnostics.Build(dmc), "application/zip", Diagnostics.FileName)
+            : Plain(403, "the diagnostics hold the logs and the configuration: save them on the sim PC itself"));
 
         // -- pictures ----------------------------------------------------------------------------------
         app.MapGet("/snapshot/{file}", (string file) =>

@@ -131,6 +131,9 @@ public static class RequestGuard
         return next(http);
     };
 
+    /// <summary>A request from this PC itself (for what only its user may read, such as the diagnostics).</summary>
+    public static bool FromThisPc(IPAddress? remote) => IsThisPc(remote, LocalNames());
+
     /// <summary>Loopback, or one of this PC's own addresses (the page opened through the LAN address on the sim PC).</summary>
     private static bool IsThisPc(IPAddress? remote, IReadOnlySet<string> localNames) =>
         remote is not null && (IPAddress.IsLoopback(remote) || localNames.Contains((remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString().ToLowerInvariant()));
