@@ -262,11 +262,8 @@ public static partial class Api
     public static JsonObject Status(DmcRuntime dmc)
     {
         var popout = dmc.PopoutState ?? new AutoPopoutState("off", "auto pop-out disabled", [], null);
-        var xplane = dmc.XPlane.Connected;
-        var xplaneProfile = dmc.XPlaneProfile;
-        var brightness = xplane      // X-Plane's aircraft dim their own pop-outs: the link has nothing to do there
-            ? new BrightnessStatus(true, dmc.XPlane.AircraftName, new Dictionary<string, string>(), xplaneProfile?.DimmingName ?? "X-Plane: the aircraft's pop-outs show its own brightness")
-            : dmc.Brightness.Status();
+        var sim = dmc.ActiveSim;
+        var brightness = sim.BrightnessStatus();
         var strays = PopoutProcedure.SimMainWindow() is null ? [] : PopoutProcedure.StrayPopouts();
         var dus = dmc.Dus.Status();
         var advice = dmc.Advisor.Advise(new AdvisorInput(
@@ -288,17 +285,15 @@ public static partial class Api
             ["usb"] = new JsonObject { ["enabled"] = true, ["scan_error"] = dmc.Dus.LastScanError },
             ["brightness"] = new JsonObject
             {
-                ["enabled"] = dmc.BrightnessEnabled, ["source"] = xplane ? "x-plane" : "simconnect", ["running"] = brightness.Running, ["aircraft"] = brightness.Aircraft,
+                ["enabled"] = dmc.BrightnessEnabled, ["source"] = sim.Id == "xplane" ? "x-plane" : "simconnect", ["running"] = brightness.Running, ["aircraft"] = brightness.Aircraft,
                 ["standdown"] = brightness.Standdown, ["error"] = brightness.Running ? "" : "sim not running",
                 ["map"] = new JsonObject(brightness.Map.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
             },
-            ["sim"] = xplane
-                ? new JsonObject
-                {
-                    ["name"] = "X-Plane", ["connected"] = true, ["fps"] = dmc.XPlane.Fps, ["aircraft"] = dmc.XPlane.AircraftName,
-                    ["in_cockpit"] = dmc.XPlane.AircraftPath.Length > 0, ["profile"] = xplaneProfile?.Key,
-                }
-                : new JsonObject { ["name"] = "MSFS", ["connected"] = dmc.Sim.Connected, ["fps"] = dmc.Sim.SimFps is { } f ? Math.Round(f, 1) : null, ["in_cockpit"] = dmc.Camera.InCockpit },
+            ["sim"] = new JsonObject
+            {
+                ["name"] = sim.Name, ["connected"] = sim.Connected, ["fps"] = sim.Fps is { } f ? Math.Round(f, 1) : null, ["aircraft"] = sim.Aircraft,
+                ["in_cockpit"] = sim.InCockpit, ["profile"] = sim.ProfileKey,
+            },
             ["learn"] = Learn(dmc),
             ["strays"] = new JsonArray([.. strays.Select(w => (JsonNode)new JsonObject
             {

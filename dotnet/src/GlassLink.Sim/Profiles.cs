@@ -57,9 +57,18 @@ public sealed record AircraftProfile(string Key, double Zoom, IReadOnlyDictionar
     string? Detect = null, CameraSpec? CopilotCamera = null, bool DimmingAlways = false);
 
 /// <summary>
-/// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points merge per display).
-/// A profile applies to an aircraft when its key is part of the aircraft's title.
+/// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points and displays merge
+/// per display). One format for both sims: an MSFS profile applies to an aircraft when its key is part of the aircraft's
+/// title and pops out by clicks (points, cameras); an X-Plane profile ("sim": "xplane") applies when its key is part of
+/// the aircraft's .acf path and pops out by the aircraft's own commands (displays: window title, command, popup state).
 /// </summary>
+/// <remarks>
+/// The ToLiss profile: the ToLiss Airbus family (A319, A320neo, A321, A339, A340), measured 2 Oct 2026 with the A321
+/// 1.7.2 and the A339 1.1 on X-Plane 12.4 (the same window titles and commands in both). With the ISCS options "Use
+/// popout windows for popups" and "Save popup config on quit" its popups are ordinary windows; AirbusFBW/PopUp*
+/// toggles one, toliss_airbus/reinstatePopups brings back every one that was popped out at the end of the last flight.
+/// The windows are drawn sharp at any size inside a 15 px X-Plane frame, and they dim with the cockpit's knobs themselves.
+/// </remarks>
 public static class Profiles
 {
     private const string BuiltIn = """
@@ -93,11 +102,38 @@ public static class Profiles
           "fo_pfd": {"xy": [0.5559, 0.7000], "camera": {"mode": "view", "type": 2, "index": 5}}
         },
         "popout_dimming": {"always": true, "name": "the FSLabs dims its pop-outs itself"}
+      },
+      "ToLiss": {
+        "sim": "xplane",
+        "displays": {
+          "pfd": {"title": "ToLiss Captain Left DU", "command": "AirbusFBW/PopUpPFD1", "state": 2},
+          "fo_pfd": {"title": "ToLiss Copilot Right DU", "command": "AirbusFBW/PopUpPFD2", "state": 3},
+          "nd": {"title": "ToLiss Captain Right DU", "command": "AirbusFBW/PopUpND1", "state": 4},
+          "fo_nd": {"title": "ToLiss Copilot Left DU", "command": "AirbusFBW/PopUpND2", "state": 5},
+          "ecam_upper": {"title": "ToLiss Upper ECAM", "command": "AirbusFBW/PopUpEWD", "state": 6},
+          "ecam_lower": {"title": "ToLiss Lower ECAM", "command": "AirbusFBW/PopUpSD", "state": 7}
+        },
+        "reinstate_command": "toliss_airbus/reinstatePopups",
+        "state_array": "AirbusFBW/PopUpStateArray",
+        "frame": 15,
+        "popout_dimming": {"always": true, "name": "the ToLiss dims its pop-outs itself"}
       }
     }
     """;
 
+    /// <summary>An X-Plane profile ("sim": "xplane"); every other one is for MSFS.</summary>
+    public static bool IsXPlane(JsonObject profile) => profile["sim"].Text() == "xplane";
+
+    /// <summary>The MSFS profiles.</summary>
     public static IReadOnlyDictionary<string, AircraftProfile> All(JsonObject config)
+    {
+        var defaultZoom = (config["popout"] as JsonObject)?["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : 30;
+        return Merged(config).Where(kv => kv.Value is JsonObject o && !IsXPlane(o))
+            .ToDictionary(kv => kv.Key, kv => Parse(kv.Key, (JsonObject)kv.Value!, defaultZoom));
+    }
+
+    /// <summary>The built-in profiles of both sims with the configuration's on top, as JSON.</summary>
+    public static JsonObject Merged(JsonObject config)
     {
         var merged = (JsonObject)JsonNode.Parse(BuiltIn)!;
         if ((config["popout"] as JsonObject)?["profiles"] is JsonObject user)
@@ -113,11 +149,11 @@ public static class Profiles
                 merged[key] = ours;
                 foreach (var (k, v) in theirs)
                 {
-                    if (k == "points" && v is JsonObject points)
+                    if (k is "points" or "displays" && v is JsonObject entries)      // one display's point or window, not all of them
                     {
-                        var target = ours["points"] as JsonObject ?? [];
-                        ours["points"] = target;
-                        foreach (var (name, p) in points)
+                        var target = ours[k] as JsonObject ?? [];
+                        ours[k] = target;
+                        foreach (var (name, p) in entries)
                         {
                             target[name] = p?.DeepClone();
                         }
@@ -130,11 +166,10 @@ public static class Profiles
             }
         }
 
-        var defaultZoom = (config["popout"] as JsonObject)?["zoom"] is { } z && z.GetValueKind() == JsonValueKind.Number ? z.AsDouble() : 30;
-        return merged.Where(kv => kv.Value is JsonObject).ToDictionary(kv => kv.Key, kv => Parse(kv.Key, (JsonObject)kv.Value!, defaultZoom));
+        return merged;
     }
 
-    /// <summary>The profile whose key is part of the aircraft title (case-insensitive); the longest key wins.</summary>
+    /// <summary>The MSFS profile whose key is part of the aircraft title (case-insensitive); the longest key wins.</summary>
     public static AircraftProfile? Select(JsonObject config, string? aircraftTitle) =>
         string.IsNullOrWhiteSpace(aircraftTitle)
             ? null

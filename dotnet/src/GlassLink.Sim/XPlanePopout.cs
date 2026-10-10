@@ -31,9 +31,12 @@ public sealed class XPlanePopout : IDisposable
     /// <param name="anyPopout">For tests: whether any of the profile's pop-out windows is open.</param>
     /// <param name="timer">For tests: false = no timer; <see cref="Tick"/> is called by hand.</param>
     /// <param name="enabled">Whether automatic pop-out is switched on ("popout.auto"); null = always.</param>
+    /// <param name="profiles">The profile for an aircraft path (built-in and config.json); null = the built-in ones.</param>
     public XPlanePopout(XPlaneClient xplane, Func<IReadOnlyList<string>> missing, Action<string> log,
-        Func<long>? clock = null, Func<XPlaneProfile, bool>? anyPopout = null, bool timer = true, Func<bool>? enabled = null)
+        Func<long>? clock = null, Func<XPlaneProfile, bool>? anyPopout = null, bool timer = true, Func<bool>? enabled = null,
+        Func<string, XPlaneProfile?>? profiles = null)
     {
+        _profiles = profiles ?? (path => XPlaneProfiles.Select(new System.Text.Json.Nodes.JsonObject(), path));
         (_xplane, _missing, _log) = (xplane, missing, log);
         _clock = clock ?? (() => Environment.TickCount64);
         _anyPopout = anyPopout ?? AnyPopout;
@@ -42,6 +45,7 @@ public sealed class XPlanePopout : IDisposable
     }
 
     private readonly Func<bool> _enabled;
+    private readonly Func<string, XPlaneProfile?> _profiles;
     private long _askedUntil = long.MinValue / 2;
 
     /// <summary>Forget earlier attempts (one display, or all) and try again.</summary>
@@ -119,7 +123,7 @@ public sealed class XPlanePopout : IDisposable
             Reset(aircraft);                                 // another flight or aircraft: start over
         }
 
-        if (XPlaneProfiles.Select(aircraft) is not { } profile)
+        if (_profiles(aircraft) is not { } profile)
         {
             State = new("waiting", aircraft.Length == 0 ? "X-Plane: no aircraft loaded" : $"no X-Plane profile for aircraft '{_xplane.AircraftName}'", [], State.LastAttempt);
             return;
@@ -194,7 +198,7 @@ public sealed class XPlanePopout : IDisposable
             foreach (var name in missing)
             {
                 var display = profile.Displays[name];
-                var open = states is not null && display.StateIndex < states.Length && states[display.StateIndex] >= 0.5;
+                var open = states is not null && display.StateIndex >= 0 && display.StateIndex < states.Length && states[display.StateIndex] >= 0.5;
                 var attempts = _attempts.GetValueOrDefault(name);
                 if (open && attempts > 0)
                 {

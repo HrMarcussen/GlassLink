@@ -28,14 +28,15 @@ public sealed class DmcRuntime : IDisposable
         Camera = new SimCamera(Sim);
         Brightness = new BrightnessLink(Config, Sim, Camera);
         XPlane = new XPlaneClient(Log);
+        MsfsSim = new MsfsSim(Sim, Camera, Brightness, Config, () => Auto);
+        XPlaneSim = new XPlaneSim(XPlane, Config, () => XPlaneAuto);
         Displays = new DisplayRegistry(Config, name => Dus?.IsShown(name) == true, Log)
         {
-            Alternative = name => XPlaneProfile?.Rule(name),     // the same display names find the X-Plane aircraft's pop-outs
+            Alternative = name => ActiveSim.Rule(name),          // the same display names find the X-Plane aircraft's pop-outs
         };
         Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
         Dus.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
-        // X-Plane's aircraft dim their pop-outs themselves (the ToLiss does, measured 2 Oct 2026): nothing to add on the DU
-        Dus.SimBrightness = display => BrightnessEnabled && !XPlane.Connected ? Brightness.For(display) : null;
+        Dus.SimBrightness = display => BrightnessEnabled ? ActiveSim.Brightness(display) : null;
         // The size of the picture a display really publishes (after max_size); its configured client_size before the
         // first frame (#27).
         Dus.DisplaySize = display => Displays.Slot(display) is { Width: > 0, Height: > 0 } slot ? (slot.Width, slot.Height)
@@ -76,24 +77,22 @@ public sealed class DmcRuntime : IDisposable
 
     public XPlanePopout? XPlaneAuto { get; private set; }
 
-    /// <summary>The profile of the aircraft loaded in X-Plane; null without X-Plane, an aircraft or a profile for it.</summary>
-    public XPlaneProfile? XPlaneProfile => XPlane.Connected ? XPlaneProfiles.Select(XPlane.AircraftPath) : null;
+    public MsfsSim MsfsSim { get; }
 
-    /// <summary>The automatic pop-out of the sim that runs: X-Plane's while X-Plane answers, else the MSFS one.</summary>
-    public AutoPopoutState? PopoutState => XPlane.Connected ? XPlaneAuto?.State : Auto?.State;
+    public XPlaneSim XPlaneSim { get; }
 
-    /// <summary>Closes a display's pop-out so it is popped out afresh. X-Plane's are closed with the aircraft's own
-    /// command: X-Plane would take a close message to the window as "quit X-Plane". False if it could not be closed.</summary>
+    /// <summary>The sim that runs: X-Plane while X-Plane answers, else MSFS (which also stands for "no sim yet").</summary>
+    public ISimulator ActiveSim => XPlane.Connected ? XPlaneSim : MsfsSim;
+
+    /// <summary>The automatic pop-out of the sim that runs.</summary>
+    public AutoPopoutState? PopoutState => ActiveSim.PopoutState;
+
+    /// <summary>Closes a display's pop-out so it is popped out afresh, the way the window's own sim allows (X-Plane would
+    /// take a close message to the window as "quit X-Plane"). False if it could not be closed.</summary>
     public bool ClosePopout(string name, WindowInfo window)
     {
-        if (string.Equals(window.Process, XPlaneClient.Process, StringComparison.OrdinalIgnoreCase))
-        {
-            if (XPlaneProfile?.Displays.GetValueOrDefault(name) is not { } display || !XPlane.Command(display.Command))
-            {
-                return false;
-            }
-        }
-        else if (!WindowFinder.Close(window.Handle))
+        ISimulator sim = string.Equals(window.Process, XPlaneClient.Process, StringComparison.OrdinalIgnoreCase) ? XPlaneSim : MsfsSim;
+        if (!sim.ClosePopout(name, window))
         {
             return false;
         }
@@ -143,7 +142,8 @@ public sealed class DmcRuntime : IDisposable
         // always made: "popout.auto" is a switch that takes effect at once (tray menu, Setup tab), and "Pop out missing
         // displays now" works while it is off
         Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
-        XPlaneAuto = new XPlanePopout(XPlane, Displays.MissingDisplays, Log, enabled: () => AutoPopoutOn);
+        XPlaneAuto = new XPlanePopout(XPlane, Displays.MissingDisplays, Log, enabled: () => AutoPopoutOn,
+            profiles: path => XPlaneProfiles.Select(Config.Snapshot(), path));       // built-in and config.json's
     }
 
     /// <summary>Pop out missing displays by itself ("popout.auto").</summary>

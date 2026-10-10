@@ -30,6 +30,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   configuration, the logs of the last three days and the PC's Windows, .NET, graphics adapters and screens. The
   user's name, the computer's name, network names and addresses are blanked out; it is given to the sim PC only
   and sent nowhere.
+- X-Plane aircraft profiles in config.json: one profile format for both sims (`"sim": "xplane"` for an X-Plane one,
+  with its pop-outs' window titles, commands and popup states). The built-in ToLiss profile is now part of the same
+  list as the Fenix and FSLabs, so a profile can change one of its displays or add another X-Plane aircraft (README,
+  Aircraft profiles).
+
+### Changed
+- The DMC talks to "the sim that runs" through one interface for MSFS and X-Plane (status, top bar, brightness,
+  closing a pop-out, finding an X-Plane pop-out), instead of asking in each place whether X-Plane runs. `/status`
+  lists `aircraft` and `profile` for MSFS too. Tested on X-Plane 12.4.4 with the A339: its six pop-outs found by the
+  profile read from the new format.
 
 ## [0.10.0] - 2026-10-09
 

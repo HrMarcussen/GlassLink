@@ -11,11 +11,13 @@ public class SimTests
     [Fact]
     public void The_toliss_in_x_plane_is_known_by_its_folder_and_finds_its_pop_outs_by_title()
     {
-        var profile = XPlaneProfiles.Select("Aircraft/ToLissA321_V1p7p2/a321.acf")!;
+        var profile = XPlaneProfiles.Select(Config("{}"), "Aircraft/ToLissA321_V1p7p2/a321.acf")!;
         Assert.Equal("ToLiss", profile.Key);
         Assert.Equal(["ecam_lower", "ecam_upper", "fo_nd", "fo_pfd", "nd", "pfd"], profile.Displays.Keys.Order());
-        Assert.Null(XPlaneProfiles.Select("Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf"));
-        Assert.Null(XPlaneProfiles.Select(""));
+        Assert.Equal(new XPlaneDisplay("ToLiss Captain Left DU", "AirbusFBW/PopUpPFD1", 2), profile.Displays["pfd"]);   // read from the profile JSON
+        Assert.Equal(("toliss_airbus/reinstatePopups", "AirbusFBW/PopUpStateArray"), (profile.ReinstateCommand, profile.StateArray));
+        Assert.Null(XPlaneProfiles.Select(Config("{}"), "Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf"));
+        Assert.Null(XPlaneProfiles.Select(Config("{}"), ""));
 
         var rule = profile.Rule("pfd")!;
         Assert.Equal((15, true), (rule.Frame, rule.ToolWindow));
@@ -24,6 +26,26 @@ public class SimTests
         Assert.False(profile.Rule("nd")!.Match.Matches(popout));                // another display's window
         Assert.False(rule.Match.Matches(popout with { Process = "FlightSimulator2024.exe" }));
         Assert.Null(profile.Rule("mcdu"));                                       // not a ToLiss display GlassLink knows
+    }
+
+    [Fact]
+    public void An_x_plane_aircraft_can_be_added_or_changed_in_the_configuration_like_an_msfs_one()
+    {
+        var config = Config("""
+            {"popout":{"profiles":{
+              "FlightFactor A350": {"sim": "xplane", "frame": 10,
+                "displays": {"pfd": {"title": "A350 PFD", "command": "ff/a350/popup_pfd"}, "broken": {"title": "no command"}}},
+              "ToLiss": {"displays": {"pfd": {"title": "ToLiss Captain Left DU (renamed)", "command": "AirbusFBW/PopUpPFD1", "state": 2}}}
+            }}}
+            """);
+        var a350 = XPlaneProfiles.Select(config, "Aircraft/FlightFactor A350/a350.acf")!;
+        Assert.Equal((10, "A350 PFD", -1), (a350.Frame, a350.Displays["pfd"].Title, a350.Displays["pfd"].StateIndex));   // no popup state: none read
+        Assert.False(a350.Displays.ContainsKey("broken"));                       // half a display is left out, not thrown
+        var toliss = XPlaneProfiles.Select(config, "Aircraft/ToLissA339/A330-900.acf")!;
+        Assert.Equal("ToLiss Captain Left DU (renamed)", toliss.Displays["pfd"].Title);   // one display changed ...
+        Assert.Equal("ToLiss Lower ECAM", toliss.Displays["ecam_lower"].Title);           // ... the others kept
+        Assert.Null(Profiles.Select(config, "ToLiss A321"));                     // an X-Plane profile is no MSFS one
+        Assert.DoesNotContain("ToLiss", Profiles.All(config).Keys);
     }
 
     [Fact]

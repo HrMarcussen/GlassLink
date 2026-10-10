@@ -105,6 +105,23 @@ public class XPlaneTests
     }
 
     [Fact]
+    public void X_plane_answers_the_dmc_as_a_simulator_like_msfs_does()
+    {
+        var (fake, client, popout, _, _, _, _) = Make();
+        var sim = new XPlaneSim(client, new GlassLink.Core.Config.ConfigFile(new JsonObject()), () => popout);
+        Assert.Equal(("xplane", "X-Plane", true, 50.0, "ToLiSs A321", true, "ToLiss"), (sim.Id, sim.Name, sim.Connected, sim.Fps, sim.Aircraft, sim.InCockpit, sim.ProfileKey));
+        Assert.Equal(new SimSummary(true, true, "X-Plane: ToLiSs A321"), sim.Summary());
+        Assert.Null(sim.Brightness("pfd"));                                   // the ToLiss dims its pop-outs itself
+        Assert.Equal("the ToLiss dims its pop-outs itself", sim.BrightnessStatus().Standdown);
+        Assert.Equal("ToLiss Captain Left DU", sim.Rule("pfd")!.Match.TitleExact);
+
+        var window = new GlassLink.Capture.Windows.WindowInfo(1, "ToLiss Captain Left DU", "X-System", "X-Plane.exe", false, default, default, default);
+        Assert.True(sim.ClosePopout("pfd", window));                         // by the aircraft's command, never a close message
+        Assert.Equal(["AirbusFBW/PopUpPFD1"], fake.Activated);
+        Assert.False(sim.ClosePopout("mcdu", window));
+    }
+
+    [Fact]
     public void After_loading_the_last_flights_pop_outs_are_reinstated_once_and_again_if_x_plane_did_not_take_it()
     {
         var (fake, _, popout, _, tick, _, _) = Make();

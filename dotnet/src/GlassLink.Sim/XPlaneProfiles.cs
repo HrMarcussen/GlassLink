@@ -1,5 +1,8 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using GlassLink.Capture;
 using GlassLink.Capture.Windows;
+using GlassLink.Core.Config;
 
 namespace GlassLink.Sim;
 
@@ -11,9 +14,12 @@ public sealed record XPlaneDisplay(string Title, string Command, int StateIndex)
 /// An X-Plane aircraft whose displays GlassLink can pop out: the aircraft draws them as pop-out windows of its own,
 /// opened by its commands, so no camera has to move and nothing is clicked in the cockpit.
 /// </summary>
-public sealed record XPlaneProfile(string Key, Func<string, bool> Matches, IReadOnlyDictionary<string, XPlaneDisplay> Displays,
+public sealed record XPlaneProfile(string Key, IReadOnlyDictionary<string, XPlaneDisplay> Displays,
     string? ReinstateCommand, string? StateArray, int Frame, string? DimmingName)
 {
+    /// <summary>The profile applies to an aircraft whose .acf path (relative to the X-Plane folder) contains its key.</summary>
+    public bool Matches(string aircraftPath) => aircraftPath.Contains(Key, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>How the DMC finds a display's pop-out: X-Plane's window by its exact title, cropped by X-Plane's frame,
     /// kept out of Alt+Tab and the taskbar.</summary>
     public WindowRule? Rule(string display) => Displays.TryGetValue(display, out var d)
@@ -21,38 +27,36 @@ public sealed record XPlaneProfile(string Key, Func<string, bool> Matches, IRead
         : null;
 }
 
+/// <summary>The X-Plane profiles: the "sim": "xplane" entries of <see cref="Profiles"/>, built-in and from config.json.</summary>
 public static class XPlaneProfiles
 {
     /// <summary>X-Plane's window class, for its main window and every pop-out.</summary>
     public const string WindowClass = "X-System";
 
-    /// <summary>
-    /// The ToLiss Airbus family (A319, A320neo, A321, A339, A340). Measured 2 Oct 2026 with the A321 1.7.2 and the A339
-    /// 1.1 on X-Plane 12.4 (the same window titles and commands in both): with the ISCS options "Use popout windows for popups" and "Save popup config on quit" its popups are
-    /// ordinary windows; AirbusFBW/PopUp* toggles one, toliss_airbus/reinstatePopups brings back every one that was
-    /// popped out at the end of the last flight. The windows are drawn sharp at any size, inside a 15 px X-Plane frame,
-    /// and they dim with the cockpit's brightness knobs themselves.
-    /// </summary>
-    public static readonly XPlaneProfile ToLiss = new(
-        "ToLiss",
-        path => path.Contains("ToLiss", StringComparison.OrdinalIgnoreCase),
-        new Dictionary<string, XPlaneDisplay>
+    /// <summary>The built-in ToLiss profile (Profiles' remarks say what was measured).</summary>
+    public static XPlaneProfile ToLiss { get; } = All(new JsonObject()).Single(p => p.Key == "ToLiss");
+
+    public static IReadOnlyList<XPlaneProfile> All(JsonObject config) =>
+        Profiles.Merged(config).Where(kv => kv.Value is JsonObject o && Profiles.IsXPlane(o)).Select(kv => Parse(kv.Key, (JsonObject)kv.Value!)).ToList();
+
+    /// <summary>The profile for an aircraft (its .acf path); null if there is none. The longest matching key wins.</summary>
+    public static XPlaneProfile? Select(JsonObject config, string aircraftPath) =>
+        aircraftPath.Length == 0 ? null : All(config).Where(p => p.Matches(aircraftPath)).OrderByDescending(p => p.Key.Length).FirstOrDefault();
+
+    /// <summary>A display without a window title or command is left out (a hand-written profile may be half done).</summary>
+    private static XPlaneProfile Parse(string key, JsonObject o)
+    {
+        var displays = new Dictionary<string, XPlaneDisplay>();
+        foreach (var (name, node) in o["displays"] as JsonObject ?? [])
         {
-            ["pfd"] = new("ToLiss Captain Left DU", "AirbusFBW/PopUpPFD1", 2),
-            ["fo_pfd"] = new("ToLiss Copilot Right DU", "AirbusFBW/PopUpPFD2", 3),
-            ["nd"] = new("ToLiss Captain Right DU", "AirbusFBW/PopUpND1", 4),
-            ["fo_nd"] = new("ToLiss Copilot Left DU", "AirbusFBW/PopUpND2", 5),
-            ["ecam_upper"] = new("ToLiss Upper ECAM", "AirbusFBW/PopUpEWD", 6),
-            ["ecam_lower"] = new("ToLiss Lower ECAM", "AirbusFBW/PopUpSD", 7),
-        },
-        ReinstateCommand: "toliss_airbus/reinstatePopups",
-        StateArray: "AirbusFBW/PopUpStateArray",
-        Frame: 15,
-        DimmingName: "the ToLiss dims its pop-outs itself");
+            if (node is JsonObject d && d["title"].Text() is { Length: > 0 } title && d["command"].Text() is { Length: > 0 } command)
+            {
+                displays[name] = new XPlaneDisplay(title, command, (int)d["state"].Number(-1));
+            }
+        }
 
-    public static IReadOnlyList<XPlaneProfile> BuiltIn { get; } = [ToLiss];
-
-    /// <summary>The profile for an aircraft (its .acf path relative to the X-Plane folder); null if there is none.</summary>
-    public static XPlaneProfile? Select(string aircraftPath) =>
-        aircraftPath.Length == 0 ? null : BuiltIn.FirstOrDefault(p => p.Matches(aircraftPath));
+        var dim = o["popout_dimming"] as JsonObject;
+        return new XPlaneProfile(key, displays, o["reinstate_command"].Text(), o["state_array"].Text(),
+            Math.Max(0, (int)o["frame"].Number(0)), dim?["name"].Text() ?? "the aircraft dims its pop-outs itself");
+    }
 }

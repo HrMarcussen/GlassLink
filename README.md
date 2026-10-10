@@ -129,6 +129,27 @@ page says where each display is shown, on DUs and in viewers: "Shown on DU1 · i
 | `process` | `priority` (`below_normal` by default, `normal`, `idle`) and `affinity` (`"auto"`, the default: the last third of the logical CPUs on a PC with eight or more; a list of CPU numbers; `[]` for all) |
 | `firmware.image` | the DU firmware a checkout offers the DUs (default: its own build); an installed copy offers only the one installed with it |
 
+### Aircraft profiles
+
+`popout.profiles` holds one profile per aircraft, for both sims, on top of the built-in ones (Fenix, FSLabs, ToLiss;
+a profile of the same name changes only what it names, display by display). An MSFS profile applies when its name is
+part of the aircraft's title and is made by **Learn**. An X-Plane profile (`"sim": "xplane"`) applies when its name is
+part of the aircraft's `.acf` path, for an aircraft whose displays are pop-out windows it opens by command:
+
+```json
+"popout": {"profiles": {
+  "My A350": {"sim": "xplane", "frame": 15,
+    "displays": {"pfd": {"title": "<window title>", "command": "<command that opens it>", "state": 0}},
+    "reinstate_command": "<command that reopens the last flight's pop-outs>",
+    "state_array": "<dataref: which popups are open>",
+    "popout_dimming": {"always": true}}
+}}
+```
+
+`title` is the pop-out window's exact title, `command` the X-Plane command that toggles it, `state` its entry in
+`state_array` (leave both out if the aircraft has none: GlassLink then only sends the command), `frame` the frame
+X-Plane draws inside the window.
+
 ## HTTP API
 
 The status page uses these; they are also handy for scripts. Changes (POST, DELETE) come from this PC only unless

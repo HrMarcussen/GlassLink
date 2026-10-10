@@ -20,16 +20,9 @@ public sealed record Summary(Health Level, string Sim, string Displays, string D
 {
     public static Summary Of(DmcRuntime dmc)
     {
-        var xplane = dmc.XPlane.Connected;
-        var simWindow = xplane || GlassLink.Sim.PopoutProcedure.SimMainWindow() is not null;
-        var (simLevel, sim) = xplane
-            ? dmc.XPlane.AircraftPath.Length == 0 ? (Health.Attention, "X-Plane: no aircraft loaded")
-              : dmc.XPlaneProfile is null ? (Health.Attention, $"X-Plane: no profile for {dmc.XPlane.AircraftName}")
-              : (Health.Good, $"X-Plane: {dmc.XPlane.AircraftName}")
-            : !simWindow ? (Health.Attention, "Sim not running")            // general: which sim comes next is not known
-            : !dmc.Sim.Connected ? (Health.Attention, "MSFS starting")
-            : !dmc.Camera.InCockpit ? (Health.Attention, "MSFS: not in cockpit")
-            : (Health.Good, $"MSFS: {dmc.Camera.Title}");
+        var summary = dmc.ActiveSim.Summary();
+        var simWindow = summary.Running;
+        var (simLevel, sim) = (summary.Ok ? Health.Good : Health.Attention, summary.Text);
 
         var all = dmc.Displays.All;
         var found = all.Count(e => e.Capture.HasWindow);
