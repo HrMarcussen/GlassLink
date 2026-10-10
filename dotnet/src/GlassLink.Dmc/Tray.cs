@@ -35,7 +35,10 @@ public sealed record Summary(Health Level, string Sim, string Displays, string D
         var found = all.Count(e => e.Capture.HasWindow);
         var popout = dmc.PopoutState?.Status;
         var displayLevel = found == all.Count || !simWindow ? Health.Good : popout == "gave_up" ? Health.Broken : Health.Attention;
-        var displays = $"Displays {found}/{all.Count}" + (found < all.Count && popout == "running" ? " · popping out" : found < all.Count && popout == "gave_up" ? " · gave up" : "");
+        var displays = $"Displays {found}/{all.Count}" + (found == all.Count || !simWindow ? "" : popout switch
+        {
+            "running" => " · popping out", "starting" => " · popping out in a moment", "gave_up" => " · gave up", "off" => " · automatic pop-out off", _ => "",
+        });
 
         var dus = dmc.Dus.Status().Where(d => d.Alive || d.Display.Length > 0).ToList();
         var gone = dus.Where(d => !d.Alive).Select(d => d.Label.Length > 0 ? d.Label : d.Serial[..Math.Min(8, d.Serial.Length)]).ToList();
@@ -66,8 +69,9 @@ public sealed class Tray : IDisposable
     private readonly string _url;
     private readonly NotifyIcon _icon;
     private readonly System.Windows.Forms.Timer _timer;
-    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart, _withSim, _update;
+    private readonly ToolStripMenuItem _sim, _displays, _dus, _autostart, _withSim, _update, _autoPopout;
     private readonly Dictionary<Health, Icon> _icons = [];
+    private readonly PopoutNotice _notice = new();
     private Health? _shown;
 
     public Tray(DmcRuntime dmc, string url, Action quit)
@@ -86,11 +90,19 @@ public sealed class Tray : IDisposable
             ToolTipText = SimLaunch.File_ is null ? "The simulator's exe.xml was not found" : "An entry in the simulator's exe.xml; the DMC quits when the simulator does" };
         _update = new ToolStripMenuItem("", null, (_, _) => OpenStatusPage()) { Visible = false,
             ToolTipText = "Opens the status page; the System tab installs the update" };
+        _autoPopout = new ToolStripMenuItem("Automatic pop-out", null, (_, _) => dmc.SetAutoPopout(!dmc.AutoPopoutOn)) { Checked = dmc.AutoPopoutOn,
+            ToolTipText = "Pops out missing displays by itself, after a notice over the sim. Switch it off while you need the camera" };
+        if (dmc.Auto is { } auto)
+        {
+            auto.Notice = _notice.Say;                       // "pops out the PFD in 3 s: hands off", over the sim
+        }
+
         var menu = new ContextMenuStrip();
         menu.Items.AddRange(
         [
             new ToolStripMenuItem($"GlassLink DMC {dmc.Version}") { Enabled = false }, _update, _sim, _displays, _dus, new ToolStripSeparator(),
             new ToolStripMenuItem("Open status page", null, (_, _) => OpenStatusPage()) { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) },
+            _autoPopout,
             new ToolStripMenuItem("Pop out missing displays now", null, (_, _) => dmc.RetryPopout()),
             _autostart, _withSim, new ToolStripSeparator(),
             new ToolStripMenuItem("Quit", null, (_, _) => quit()),
@@ -107,6 +119,12 @@ public sealed class Tray : IDisposable
 
     public void Dispose()
     {
+        if (_dmc.Auto is { } auto)
+        {
+            auto.Notice = _ => { };
+        }
+
+        _notice.Dispose();
         _timer.Dispose();
         _icon.Visible = false;
         _icon.Dispose();
@@ -128,6 +146,7 @@ public sealed class Tray : IDisposable
                 item.Tag = palette.For(level);
             }
 
+            _autoPopout.Checked = _dmc.AutoPopoutOn;            // also switched from the status page
             var update = _dmc.Updater.Available ? $"GlassLink {_dmc.Updater.Latest!.Version} is available" : null;
             _update.Visible = update is not null;
             _update.Text = update is null ? "" : $"\u2191  {update}…";        // an arrow and words, not a colour
@@ -158,6 +177,7 @@ public sealed class Tray : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Open status page") { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) });
+        menu.Items.Add(new ToolStripMenuItem("Automatic pop-out") { Checked = true });
         menu.Items.Add(new ToolStripMenuItem("Pop out missing displays now"));
         menu.Items.Add(new ToolStripMenuItem("Start with Windows") { Checked = true });
         menu.Items.Add(new ToolStripMenuItem("Start and stop with the simulator"));

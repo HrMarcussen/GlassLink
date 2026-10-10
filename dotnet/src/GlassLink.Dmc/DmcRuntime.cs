@@ -140,11 +140,20 @@ public sealed class DmcRuntime : IDisposable
         Displays.StartAll();
         Dus.Start();
         Updater.Start();
-        if (PopoutSettings.From(Config.Root).Auto)
-        {
-            Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
-            XPlaneAuto = new XPlanePopout(XPlane, Displays.MissingDisplays, Log);
-        }
+        // always made: "popout.auto" is a switch that takes effect at once (tray menu, Setup tab), and "Pop out missing
+        // displays now" works while it is off
+        Auto = new AutoPopout(Config, Camera, Displays.MissingSimDisplays, Log);
+        XPlaneAuto = new XPlanePopout(XPlane, Displays.MissingDisplays, Log, enabled: () => AutoPopoutOn);
+    }
+
+    /// <summary>Pop out missing displays by itself ("popout.auto").</summary>
+    public bool AutoPopoutOn => Config.Read(root => PopoutSettings.From(root).Auto);
+
+    /// <summary>Switches the automatic pop-out on or off; a countdown that runs is called off.</summary>
+    public void SetAutoPopout(bool on)
+    {
+        Config.Update(root => ConfigFile.Section(root, "popout")["auto"] = on);
+        Log($"automatic pop-out {(on ? "on" : "off")}");
     }
 
     public void Log(string message)

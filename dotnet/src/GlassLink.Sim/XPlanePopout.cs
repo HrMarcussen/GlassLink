@@ -30,14 +30,19 @@ public sealed class XPlanePopout : IDisposable
     /// <param name="clock">For tests: milliseconds, as Environment.TickCount64.</param>
     /// <param name="anyPopout">For tests: whether any of the profile's pop-out windows is open.</param>
     /// <param name="timer">For tests: false = no timer; <see cref="Tick"/> is called by hand.</param>
+    /// <param name="enabled">Whether automatic pop-out is switched on ("popout.auto"); null = always.</param>
     public XPlanePopout(XPlaneClient xplane, Func<IReadOnlyList<string>> missing, Action<string> log,
-        Func<long>? clock = null, Func<XPlaneProfile, bool>? anyPopout = null, bool timer = true)
+        Func<long>? clock = null, Func<XPlaneProfile, bool>? anyPopout = null, bool timer = true, Func<bool>? enabled = null)
     {
         (_xplane, _missing, _log) = (xplane, missing, log);
         _clock = clock ?? (() => Environment.TickCount64);
         _anyPopout = anyPopout ?? AnyPopout;
+        _enabled = enabled ?? (() => true);
         _timer = timer ? new Timer(_ => Tick(), null, 3000, 3000) : null;
     }
+
+    private readonly Func<bool> _enabled;
+    private long _askedUntil = long.MinValue / 2;
 
     /// <summary>Forget earlier attempts (one display, or all) and try again.</summary>
     public void Retry(string? name = null)
@@ -55,6 +60,7 @@ public sealed class XPlanePopout : IDisposable
             }
 
             _lastAction = long.MinValue / 2;
+            _askedUntil = _clock() + 60_000;               // asked for: also while switched off, for a minute
         }
     }
 
@@ -94,6 +100,12 @@ public sealed class XPlanePopout : IDisposable
     // X-Plane is asked outside _gate (each request can wait 2 s for a busy X-Plane): Retry and the status page do not wait.
     private void Step()
     {
+        if (!_enabled() && _clock() > _askedUntil)
+        {
+            State = new("off", "automatic pop-out is switched off (tray menu or Setup tab); Pop out missing displays now still works", _missing(), State.LastAttempt);
+            return;
+        }
+
         if (!_xplane.Connected)
         {
             Reset("");

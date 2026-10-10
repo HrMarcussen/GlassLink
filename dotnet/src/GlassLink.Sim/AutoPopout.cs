@@ -15,7 +15,7 @@ public sealed class AutoPopout : IDisposable
     private readonly SimCamera _camera;
     private readonly Func<IReadOnlyList<string>> _missing;
     private readonly Action<string> _log;
-    private readonly Timer _timer;
+    private readonly Timer? _timer;
     private readonly object _gate = new();
     private readonly Dictionary<string, (int Fails, ClickPoint? Point)> _fails = [];
     private long? _missingSince;
@@ -35,11 +35,16 @@ public sealed class AutoPopout : IDisposable
     /// <summary>Set while a click point is being learned: the camera belongs to the user then.</summary>
     public bool Paused { get; set; }
 
+    /// <summary>Told what to show over the sim (null: nothing): that the camera is about to move, and that it is moving.
+    /// The tray puts it in a notice that never takes the focus; without a tray only the status page says it.</summary>
+    public Action<string?> Notice { get; set; } = _ => { };
+
     /// <param name="missing">Names of sim displays that have no window right now.</param>
-    public AutoPopout(ConfigFile config, SimCamera camera, Func<IReadOnlyList<string>> missing, Action<string> log)
+    /// <param name="timer">For tests: false = no timer; <see cref="Tick"/> is called by hand.</param>
+    public AutoPopout(ConfigFile config, SimCamera camera, Func<IReadOnlyList<string>> missing, Action<string> log, bool timer = true)
     {
         (_config, _camera, _missing, _log) = (config, camera, missing, log);
-        _timer = new Timer(_ => Tick(), null, 5000, 5000);
+        _timer = timer ? new Timer(_ => Tick(), null, 5000, 5000) : null;
     }
 
     /// <summary>Forget earlier failures (one display, or all) and try again soon.</summary>
@@ -57,8 +62,11 @@ public sealed class AutoPopout : IDisposable
             }
 
             _lastAttempt = long.MinValue / 2;
+            _askedUntil = Environment.TickCount64 + 60_000;  // asked for: one run within a minute, also while switched off
         }
     }
+
+    private long _askedUntil = long.MinValue / 2;
 
     private volatile bool _stopping;
 
@@ -67,7 +75,7 @@ public sealed class AutoPopout : IDisposable
     public void Dispose()
     {
         _stopping = true;
-        _timer.Dispose();
+        _timer?.Dispose();
         var deadline = Environment.TickCount64 + 20_000;
         while (Environment.TickCount64 < deadline)
         {
@@ -83,7 +91,8 @@ public sealed class AutoPopout : IDisposable
         }
     }
 
-    private void Tick()
+    /// <summary>One look (every 5 s): never two at once, never an exception out of the timer.</summary>
+    public void Tick()
     {
         lock (_gate)
         {
@@ -116,6 +125,12 @@ public sealed class AutoPopout : IDisposable
     private void Step()
     {
         var settings = PopoutSettings.From(_config.Snapshot());
+        if (!settings.Auto && Environment.TickCount64 > _askedUntil)
+        {
+            State = new("off", "automatic pop-out is switched off (tray menu or Setup tab); Pop out missing displays now still works", _missing(), State.LastAttempt);
+            return;
+        }
+
         if (Paused)
         {
             State = new("waiting", "paused while a pop-out click point is being learned", State.Missing, State.LastAttempt);
@@ -211,11 +226,26 @@ public sealed class AutoPopout : IDisposable
             return;
         }
 
+        // The camera is about to move: said first, over the sim and on the status page, for a few seconds in which it can
+        // be called off (switched off, a Learn, out of the cockpit, the DMC quitting) without anything having moved
+        var asked = Environment.TickCount64 <= _askedUntil;
+        var what = todo.Count == 1 ? $"the {GlassLink.Core.Du.DisplayNames.For(todo[0])}" : $"{todo.Count} displays";
+        if (!CountDown(settings.WarnSeconds, left => $"GlassLink pops out {what} in {left} s: hands off mouse and keyboard",
+                text => { State = new("starting", text, todo, State.LastAttempt); Notice(text); },
+                () => _stopping || Paused || !(asked || PopoutSettings.From(_config.Snapshot()).Auto) || !_camera.InCockpit, Thread.Sleep))
+        {
+            Notice(null);
+            State = new("waiting", "called off before the camera moved", todo, State.LastAttempt);
+            return;
+        }
+
         _lastAttempt = now;
+        _askedUntil = long.MinValue / 2;
         State = new("running", $"popping out {string.Join(", ", todo)} ('{_camera.Title}', profile '{profile.Key}')", todo, DateTime.Now);
         _log($"auto pop-out: {string.Join(", ", todo)} missing, aircraft '{_camera.Title}' in cockpit -> popping out with profile '{profile.Key}'");
         if (!CameraLock.TryEnter("the automatic pop-out"))
         {
+            Notice(null);
             State = new("waiting", $"the camera is busy ({CameraLock.Owner}); popping out afterwards", todo, State.LastAttempt);
             return;
         }
@@ -223,11 +253,13 @@ public sealed class AutoPopout : IDisposable
         IReadOnlyList<string> done;
         try
         {
+            Notice($"GlassLink is popping out {what}: hands off mouse and keyboard until your view is back");
             done = new PopoutProcedure(_config, _camera, m => _log($"pop-out: {m}")) { Stop = () => _stopping }.Run(todo, profile);
         }
         finally
         {
             CameraLock.Exit();
+            Notice(null);
         }
 
         var still = todo.Except(done).ToList();
@@ -246,5 +278,22 @@ public sealed class AutoPopout : IDisposable
             : startingUp
                 ? new("partial", $"still missing {string.Join(", ", still)}: the aircraft may still be starting up (some take a minute or two before every display pops out); trying again in {StartupRetrySeconds} s", still, DateTime.Now)
                 : new("partial", $"still missing {string.Join(", ", still)}, retry in {settings.RetrySeconds:0} s", still, DateTime.Now);
+    }
+
+    /// <summary>Says <paramref name="text"/>(seconds left) once a second for <paramref name="seconds"/> seconds; false as soon
+    /// as <paramref name="calledOff"/> is true. No seconds: true at once, nothing said.</summary>
+    public static bool CountDown(int seconds, Func<int, string> text, Action<string> say, Func<bool> calledOff, Action<int> sleep)
+    {
+        for (var left = seconds; left > 0; left--)
+        {
+            say(text(left));
+            sleep(1000);
+            if (calledOff())
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

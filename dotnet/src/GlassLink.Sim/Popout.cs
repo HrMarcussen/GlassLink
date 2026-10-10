@@ -40,7 +40,10 @@ public sealed class SimCamera(SimConnectClient sim)
     public void Reset() => sim.Set(_action, 1);
 }
 
-public sealed record PopoutSettings(double GraceSeconds, double RetrySeconds, int MaxAttempts, string? RestoreKey, bool Auto)
+/// <param name="Auto">Pop out missing displays by itself ("popout.auto"; the tray menu and the Setup tab switch it).</param>
+/// <param name="WarnSeconds">How long a notice says that the camera is about to move before it does ("popout.warn_s",
+/// 3; 0 = no warning).</param>
+public sealed record PopoutSettings(double GraceSeconds, double RetrySeconds, int MaxAttempts, string? RestoreKey, bool Auto, int WarnSeconds = 3)
 {
     public static PopoutSettings From(JsonObject config)
     {
@@ -48,7 +51,7 @@ public sealed record PopoutSettings(double GraceSeconds, double RetrySeconds, in
         double Num(string key, double fallback) => p?[key] is { } n && n.GetValueKind() == JsonValueKind.Number ? n.AsDouble() : fallback;
         var key = p?["camera_restore_key"] is { } k && k.GetValueKind() == JsonValueKind.String ? k.GetValue<string>() : null;
         return new PopoutSettings(Num("grace_s", 10), Num("retry_s", 60), (int)Num("max_attempts", 2), string.IsNullOrWhiteSpace(key) ? null : key,
-            p?["auto"] is { } a && a.GetValueKind() == JsonValueKind.True);
+            p?["auto"] is { } a && a.GetValueKind() == JsonValueKind.True, (int)Math.Clamp(Num("warn_s", 3), 0, 30));
     }
 }
 

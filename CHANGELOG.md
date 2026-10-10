@@ -17,6 +17,16 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+### Added
+- A notice over the sim before the automatic pop-out moves the camera: "GlassLink pops out 6 displays in 3 s: hands
+  off mouse and keyboard", counting down, then "is popping out ... until your view is back" while it runs. It never
+  takes the focus and lets clicks through (all six popped out through it, MSFS 2024 with the Fenix). `popout.warn_s`
+  sets the seconds (0: no notice).
+- A switch for the automatic pop-out, in the tray menu ("Automatic pop-out") and on the Setup tab: off, missing
+  displays are not popped out until it is on again; switching it off during the countdown calls the pop-out off
+  before the camera moves. "Pop out missing displays now" and Close window still work while it is off. It covers
+  X-Plane too. The top bar says "automatic pop-out off" while displays are missing because of it.
+
 ## [0.10.0] - 2026-10-09
 
 In short: a code review by seven reviewers, and a second round that checked each of their findings against the code,

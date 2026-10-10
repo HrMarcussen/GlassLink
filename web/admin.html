@@ -189,6 +189,16 @@
       <span class="dim small" style="margin-left:.6rem">A new display gets 768 x 768 and a free parking place off-screen. Press <b>Learn</b> on it and Right-Alt + click that display once in the cockpit when the banner says so: the DMC sets the camera itself and pops it out on its own from then on.</span>
     </div>
   </div>
+  <h2>Automatic pop-out</h2>
+  <div style="margin:4px 0 18px">
+    <label><input type="checkbox" id="auto-popout"> Pop out missing displays by itself</label>
+    <div class="dim" style="margin-top:.4rem;max-width:52rem">
+      To pop a display out, GlassLink moves the cockpit camera and clicks the display. A notice over the sim says so a
+      few seconds before: hands off mouse and keyboard until your view is back. Switch this off (here or in the tray
+      menu) while you need the camera; a countdown that has started stops at once. <b>Pop out missing displays now</b> in
+      the tray menu works either way.
+    </div>
+  </div>
   <h2>Camera after a pop-out</h2>
   <div style="margin:4px 0 18px">
     <input id="restore-key" readonly placeholder="click, then press the keys" title="click here and press the key combination; Backspace or Delete clears it" style="width:14rem;max-width:100%;cursor:pointer" aria-label="key that loads your own view"> <button id="restore-save">Save</button>
@@ -652,7 +662,9 @@
     const c = $('#learn-cancel'); if (c) c.onclick = () => api('/learn/cancel', 'POST').then(() => refresh()).catch(() => {});
     const d = $('#learn-dismiss'); if (d) d.onclick = () => { learnDismissed = id; el.hidden = true; };
   }
-  fetch('/popout/settings').then(r => r.json()).then(d => { $('#restore-key').value = d.camera_restore_key || ''; }).catch(() => {});
+  fetch('/popout/settings').then(r => r.json()).then(d => { $('#restore-key').value = d.camera_restore_key || ''; $('#auto-popout').checked = !!d.auto; }).catch(() => {});
+  $('#auto-popout').onchange = (e) => api('/popout/settings', 'POST', { auto: e.target.checked })
+    .then(d => { e.target.checked = !!d.auto; refresh(); }).catch(() => { e.target.checked = !e.target.checked; });
   // Press the combination instead of typing it: the field records modifiers + one key (a-z, 0-9, F1-F24).
   $('#restore-key').addEventListener('keydown', (e) => {
     if (e.key === 'Tab') return;
@@ -718,6 +730,8 @@
       ['The simulator is running and you are in the cockpit', inCockpit, simUp ? 'Load a flight and wait until you sit in the cockpit.' : 'Start the simulator and load a flight. The DMC waits for it.'],
       ['Every display has its pop-out window', disp.length > 0 && found === disp.length,
         po.status === 'running' ? 'The DMC is popping them out now; the view moves for a few seconds.'
+        : po.status === 'starting' ? 'The DMC pops them out in a moment (a notice over the sim counts down); the view moves for a few seconds.'
+        : po.status === 'off' ? `Missing: ${missing.join(', ')}. Automatic pop-out is off: switch it on under <a href="#setup">Setup</a> or in the tray menu, or use Pop out missing displays now there.`
         : `Missing: ${missing.join(', ')}. The DMC pops out the displays it knows a click point for. For the others press Learn under <a href="#setup">Setup</a> and pop the display out once yourself (Right Alt + click).`],
       ['A DU is connected', alive.length > 0, 'Plug a GlassLink DU into a USB port. It appears within a few seconds.'],
       ['Every DU shows a display', alive.length > 0 && alive.every(m => showsOf(m).length), 'Use "Put on a DU…" under a display below. The DU you pick shows its name for three seconds.'],
@@ -750,7 +764,7 @@
     else setPill('#st-sim', knobsBad ? 'warn' : 'ok', `${simName}: ${br.aircraft || 'running'}${knobsBad ? ' · brightness link' : ''}`, knobs);
 
     const total = disp.length;
-    const busy = po.status === 'running' ? ' · popping out' : po.status === 'gave_up' ? ' · gave up' : '';
+    const busy = { running: ' · popping out', starting: ' · popping out in a moment', gave_up: ' · gave up', off: ' · automatic pop-out off' }[po.status] || '';
     if (!total) setPill('#st-displays', 'warn', 'No displays', 'Add displays under Setup');
     else {
       const slow = Object.keys(s.displays || {}).filter(isSlow);
@@ -803,9 +817,10 @@
       $('#n-displays').textContent = Object.keys(s.displays || {}).length || '';
       $('#n-dus').textContent = Object.values(s.modules || {}).filter(x => x.alive).length || '';
       const po = s.popout || {}; const pp = $('#popout-pill');
-      pp.hidden = ['idle', 'done', 'off'].includes(po.status || 'off');      // the top bar already says "Displays 6/6"
-      pp.textContent = po.status === 'running' ? 'popping out the displays…' : (po.detail || po.status || '');
-      pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
+      pp.hidden = ['idle', 'done'].includes(po.status || 'idle') || (po.status === 'off' && !(po.missing || []).length);   // the top bar already says "Displays 6/6"
+      pp.textContent = po.status === 'running' ? 'popping out the displays…' : po.status === 'off' ? 'automatic pop-out is off' : (po.detail || po.status || '');
+      pp.className = 'pill ' + ({idle:'ok', done:'ok', running:'warn', starting:'warn', waiting:'', partial:'warn', error:'bad', off:''}[po.status] || '');
+      const ap = $('#auto-popout'); if (ap && document.activeElement !== ap && 'auto' in po) ap.checked = !!po.auto;   // also switched from the tray
       // Re-render the module table only when something structural changed (assignment, state, settings,
       // ident); the live numbers are patched in place so dropdowns and inputs are never disturbed.
       const mods = s.modules || {};

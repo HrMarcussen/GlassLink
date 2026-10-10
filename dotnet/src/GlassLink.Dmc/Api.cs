@@ -194,10 +194,32 @@ public static partial class Api
             dmc.Log($"update check {(check.GetValue<bool>() ? "on" : "off")}");
             return Json(dmc.Updater.ToJson());
         }));
-        app.MapGet("/popout/settings", () => Json(new JsonObject { ["camera_restore_key"] = PopoutSettings.From(dmc.Config.Snapshot()).RestoreKey }));
+        JsonObject PopoutJson()
+        {
+            var s = PopoutSettings.From(dmc.Config.Snapshot());
+            return new JsonObject { ["camera_restore_key"] = s.RestoreKey, ["auto"] = s.Auto, ["warn_s"] = s.WarnSeconds };
+        }
+
+        app.MapGet("/popout/settings", () => Json(PopoutJson()));
         app.MapPost("/popout/settings", async (HttpRequest request) =>
         {
-            var key = (Str((await Body(request))["camera_restore_key"]) ?? "").Trim().ToLowerInvariant();
+            var body = await Body(request);
+            if (body["auto"] is { } auto)                   // the switch on the Setup tab: only what is sent changes
+            {
+                if (auto.GetValueKind() is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False))
+                {
+                    return Plain(400, "auto must be true or false");
+                }
+
+                dmc.SetAutoPopout(auto.GetValue<bool>());
+            }
+
+            if (!body.ContainsKey("camera_restore_key"))
+            {
+                return Json(PopoutJson());
+            }
+
+            var key = (Str(body["camera_restore_key"]) ?? "").Trim().ToLowerInvariant();
             try
             {
                 if (key.Length > 0)
@@ -216,7 +238,7 @@ public static partial class Api
             }
 
             dmc.Config.Update(root => ConfigFile.Section(root, "popout")["camera_restore_key"] = key.Length > 0 ? key : null);
-            return Json(new JsonObject { ["camera_restore_key"] = key.Length > 0 ? key : null });
+            return Json(PopoutJson());
         });
 
         // -- stopping: only from this PC ------------------------------------------------------------------------
@@ -281,7 +303,7 @@ public static partial class Api
             ["popout"] = new JsonObject
             {
                 ["status"] = popout.Status, ["detail"] = popout.Detail, ["missing"] = new JsonArray([.. popout.Missing.Select(n => (JsonNode)n)]),
-                ["last_attempt"] = popout.LastAttempt?.ToString("HH:mm:ss"),
+                ["last_attempt"] = popout.LastAttempt?.ToString("HH:mm:ss"), ["auto"] = dmc.AutoPopoutOn,
             },
             ["advice"] = new JsonArray([.. advice.Concat(UpdateAdvice(dmc)).Select(a => (JsonNode)new JsonObject
             {

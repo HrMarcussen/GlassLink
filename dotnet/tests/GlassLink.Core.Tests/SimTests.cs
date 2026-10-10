@@ -229,6 +229,41 @@ public class SimTests
         var s = PopoutSettings.From(Config("""{"popout":{"auto":true,"retry_s":30,"camera_restore_key":"shift+f1"}}"""));
         Assert.Equal((10.0, 30.0, 2, "shift+f1", true), (s.GraceSeconds, s.RetrySeconds, s.MaxAttempts, s.RestoreKey, s.Auto));
         Assert.Null(PopoutSettings.From(Config("{}")).RestoreKey);
+        Assert.Equal(3, s.WarnSeconds);                              // a notice 3 s before the camera moves
+        Assert.Equal(0, PopoutSettings.From(Config("""{"popout":{"warn_s":0}}""")).WarnSeconds);
+        Assert.Equal(30, PopoutSettings.From(Config("""{"popout":{"warn_s":600}}""")).WarnSeconds);
+    }
+
+    [Fact]
+    public void Switched_off_the_automatic_pop_out_moves_nothing_until_asked()
+    {
+        var config = new GlassLink.Core.Config.ConfigFile(Config("""{"popout":{"auto":false}}"""));
+        using var sim = new SimConnectClient();
+        using var auto = new AutoPopout(config, new SimCamera(sim), () => ["pfd"], _ => { }, timer: false);
+        auto.Tick();
+        Assert.Equal("off", auto.State.Status);
+        auto.Retry();                                                 // "Pop out missing displays now" works while it is off
+        auto.Tick();
+        Assert.NotEqual("off", auto.State.Status);
+        config.Update(root => GlassLink.Core.Config.ConfigFile.Section(root, "popout")["auto"] = true);
+        auto.Tick();
+        Assert.NotEqual("off", auto.State.Status);
+    }
+
+    [Fact]
+    public void A_notice_counts_down_before_the_camera_moves_and_stops_when_called_off()
+    {
+        var said = new List<string>();
+        var slept = 0;
+        Assert.True(AutoPopout.CountDown(3, left => $"in {left} s", said.Add, () => false, ms => slept += ms));
+        Assert.Equal(["in 3 s", "in 2 s", "in 1 s"], said);
+        Assert.Equal(3000, slept);
+
+        said.Clear();
+        var looks = 0;
+        Assert.False(AutoPopout.CountDown(3, left => $"in {left} s", said.Add, () => ++looks >= 2, _ => { }));   // switched off, paused, out of the cockpit
+        Assert.Equal(["in 3 s", "in 2 s"], said);
+        Assert.True(AutoPopout.CountDown(0, _ => "never", said.Add, () => true, _ => { }));   // warn_s 0: no notice
     }
 
     [Fact]

@@ -69,7 +69,8 @@ public class XPlaneTests
 {
     private const string ToLiss = "Aircraft/ToLissA321_V1p7p2/a321.acf";
 
-    private static (FakeXPlane Fake, XPlaneClient Client, XPlanePopout Popout, Func<bool[]> _, Action Tick, List<string> Missing, Action<bool> SetAnyPopout) Make()
+    private static (FakeXPlane Fake, XPlaneClient Client, XPlanePopout Popout, Func<bool[]> _, Action Tick, List<string> Missing, Action<bool> SetAnyPopout) Make(
+        Func<bool>? enabled = null)
     {
         var fake = new FakeXPlane(ToLiss);
         foreach (var d in XPlaneProfiles.ToLiss.Displays.Values)
@@ -84,7 +85,7 @@ public class XPlaneTests
         var missing = new List<string> { "pfd", "nd" };
         long now = 0;
         var any = false;
-        var popout = new XPlanePopout(client, () => missing.ToList(), _ => { }, () => now, _ => any, timer: false);
+        var popout = new XPlanePopout(client, () => missing.ToList(), _ => { }, () => now, _ => any, timer: false, enabled: enabled);
         popout.Tick();                                                // the first look starts the clock: pop-outs get 5 s to appear
         Assert.Empty(fake.Activated);
         return (fake, client, popout, () => [], () => { now += 10_000; popout.Tick(); }, missing, v => any = v);
@@ -116,6 +117,20 @@ public class XPlaneTests
         tick();
         Assert.Equal(2, fake.Activated.Count(c => c == "toliss_airbus/reinstatePopups"));   // taken: not a third time
         Assert.Equal("running", popout.State.Status);
+    }
+
+    [Fact]
+    public void Switched_off_it_opens_nothing_until_asked()
+    {
+        var (fake, _, popout, _, tick, _, _) = Make(() => false);
+        tick();
+        tick();
+        Assert.Empty(fake.Activated);
+        Assert.Equal("off", popout.State.Status);
+        popout.Retry();                                               // "Pop out missing displays now"
+        tick();                                                       // the first look starts the clock
+        tick();
+        Assert.Equal(["toliss_airbus/reinstatePopups"], fake.Activated);
     }
 
     [Fact]

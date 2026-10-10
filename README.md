@@ -83,8 +83,10 @@ what helps.
    the simulator".
 2. Plug in the DUs. A new DU shows NOT ASSIGNED with its serial; on the status page press **Identify** to see which
    one it is and choose its display (Display units tab, or "Put on a DU" on a display's card).
-3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, GlassLink pops the
-   displays out (about 20 s for four, do not touch mouse or keyboard meanwhile) and the DUs show them.
+3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, a notice over the
+   sim counts down from 3, then GlassLink pops the displays out (about 35 s for six; do not touch mouse or keyboard
+   meanwhile) and the DUs show them. "Automatic pop-out" in the tray menu (or the Setup tab) switches this off while
+   you need the camera; "Pop out missing displays now" works either way.
 4. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
 5. X-Plane 12 with the ToLiss, once: in the ToLiss menu (ISCS) switch on "Use popout windows for popups" and "Save
    popup config on quit", then click each display in the cockpit and pop its popup out with the button at the right
@@ -121,7 +123,7 @@ page says where each display is shown, on DUs and in viewers: "Shown on DU1 · i
 | `displays.<name>.max_size`, `fps`, `quality` | per display: a smaller picture, other limits |
 | `displays.<name>.crop`, `tool_window` | a frame the window draws around the display, cut off (the window is made that much larger), and keeping the window out of Alt+Tab and the taskbar. The built-in X-Plane profiles set both for their pop-outs themselves |
 | `modules.<serial>` | per DU: `display`, `label`, `brightness` (trim), `screen` (HDMI mode 0-4), `tiles` (several displays: `{display: {x, y}}`); `rotation` is stored but not drawn by the DU yet |
-| `popout` | `auto`, `zoom`, `grace_s`, `retry_s`, `max_attempts`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
+| `popout` | `auto` (the tray menu's switch), `warn_s` (the notice before the camera moves, 3 s; 0 = none), `zoom`, `grace_s`, `retry_s`, `max_attempts`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
 | `brightness` | `enabled`: the DUs follow the cockpit's display brightness knobs where the pop-outs do not dim themselves (the Fenix, through SimConnect); the FSLabs and the ToLiss dim their own |
 | `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours; `repository` (`owner/name`, for a fork) |
 | `process` | `priority` (`below_normal` by default, `normal`, `idle`) and `affinity` (`"auto"`, the default: the last third of the logical CPUs on a PC with eight or more; a list of CPU numbers; `[]` for all) |
