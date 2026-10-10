@@ -35,6 +35,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   list as the Fenix and FSLabs, so a profile can change one of its displays or add another X-Plane aircraft (README,
   Aircraft profiles).
 
+- **[DU firmware]** An image for ESP32-P4 chip revision v3.x as well (#82): newer NANOs carry the ESP32-P4NRW32X
+  (v3.x), which cannot run the image for v1.x chips (Espressif PCN202600801). Releases carry both
+  (`glasslink_du-x.y.z.bin` for v1.x, `glasslink_du-p4v3-x.y.z.bin` for v3.x), both signed; CI builds both. A DU
+  says its chip in INFO (`chip_rev`, 103 = v1.3), the DMC offers it the matching image and refuses to send one whose
+  header names other revisions. The v3.x image is built but not yet tested on a v3.x board.
+
 ### Changed
 - The DMC talks to "the sim that runs" through one interface for MSFS and X-Plane (status, top bar, brightness,
   closing a pop-out, finding an X-Plane pop-out), instead of asking in each place whether X-Plane runs. `/status`

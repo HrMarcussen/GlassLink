@@ -11,6 +11,7 @@ demo.json
 logs/
 firmware/build/
 firmware/build-release/
+firmware/build-p4v3/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old

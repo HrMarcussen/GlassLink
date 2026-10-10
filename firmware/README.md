@@ -37,6 +37,19 @@ idf.py build
 `espressif/esp_lcd_lt8912b`). The version comes from the repository's `VERSION` file, the build id from
 `git describe`. CI builds every push that touches `firmware/`.
 
+## Chip revisions v1.x and v3.x
+
+ESP32-P4 v1.x (the NANOs GlassLink was made on, v1.3) and v3.x (the ESP32-P4NRW32X on newer NANOs) need separate
+images: `sdkconfig.defaults` builds for v1.x, `sdkconfig.p4v3` on top builds for v3.x into its own folder:
+
+```
+idf.py -B build-p4v3 -D SDKCONFIG=build-p4v3/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.p4v3" build
+```
+
+The DMC offers `firmware/build-p4v3/glasslink_du.bin` (an installed copy: `firmware\glasslink_du-p4v3.bin`) to a DU
+whose INFO says `chip_rev` 300 or more, the other image to the rest, and refuses to send an image whose header names
+other revisions. The v3.x image is built in CI and released, but not yet tested on a v3.x board (#82).
+
 ## Released and own builds (signed updates)
 
 Released firmware is built with `sdkconfig.release` on top and signed by the release workflow

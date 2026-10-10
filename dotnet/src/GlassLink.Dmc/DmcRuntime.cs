@@ -122,11 +122,24 @@ public sealed class DmcRuntime : IDisposable
     /// configuration, else the one built in this checkout, else one next to GlassLink.exe.</summary>
     /// <remarks>An installed copy takes only the image installed with it: its configuration folder can be written by any
     /// program the user runs, the install folder cannot (SECURITY.md). A checkout takes its own build, or firmware.image.</remarks>
-    public string FirmwareImagePath => Installed
-        ? Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin")
-        : Config.Read(root => (root["firmware"] as JsonObject)?["image"].Text())
-          ?? new[] { Path.Combine(Root, "firmware", "build", "glasslink_du.bin"), Path.Combine(AppContext.BaseDirectory, "firmware", "glasslink_du.bin") }
-              .FirstOrDefault(File.Exists) ?? Path.Combine(Root, "firmware", "build", "glasslink_du.bin");
+    public string FirmwareImagePath => FirmwareImagePathFor(null);
+
+    /// <summary>The image for a DU's chip: an ESP32-P4 v3.x has its own (glasslink_du-p4v3.bin next to the other; in a
+    /// checkout firmware/build-p4v3 or firmware.image_p4v3), as v1.x and v3.x chips cannot run the same binary (#82).
+    /// A DU that does not report its chip has a v1.x one.</summary>
+    public string FirmwareImagePathFor(int? chipRevision)
+    {
+        var v3 = chipRevision >= 300;
+        var shipped = Path.Combine(AppContext.BaseDirectory, "firmware", v3 ? "glasslink_du-p4v3.bin" : "glasslink_du.bin");
+        if (Installed)
+        {
+            return shipped;
+        }
+
+        var built = Path.Combine(Root, "firmware", v3 ? "build-p4v3" : "build", "glasslink_du.bin");
+        return Config.Read(root => (root["firmware"] as JsonObject)?[v3 ? "image_p4v3" : "image"].Text())
+               ?? new[] { built, shipped }.FirstOrDefault(File.Exists) ?? built;
+    }
 
     /// <summary>Installed by the setup program (its uninstaller is next to GlassLink.exe), not run from a checkout.</summary>
     public static bool Installed => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
@@ -214,7 +227,14 @@ public sealed class DmcRuntime : IDisposable
 
                 try
                 {
-                    var image = Firmware.Load(FirmwareImagePath);
+                    var chip = du.Info?.ChipRevision;
+                    var image = Firmware.Load(FirmwareImagePathFor(chip));
+                    if (!image.Fits(chip))
+                    {
+                        // the DU's bootloader would refuse it after the transfer, and keep its old firmware
+                        throw new DisplayException($"this DU's chip is ESP32-P4 {Firmware.ChipName(chip ?? 100)}, the image ({Path.GetFileName(image.Path)}) is for {image.ChipRange} only");
+                    }
+
                     if (du.Info?.SignedUpdates == true && !image.Signed)
                     {
                         // the DU would refuse it at the end of the transfer: said before, and how to go on instead

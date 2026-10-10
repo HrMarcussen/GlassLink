@@ -85,9 +85,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Build (ESP-IDF 5.5.5, ESP32-P4)
+      - name: Build (ESP-IDF 5.5.5, ESP32-P4 v1.x and v3.x)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d   # v1 (its branch, 8 Nov 2024)
         with:
           esp_idf_version: v5.5.5
           target: esp32p4
           path: firmware
+          command: >-
+            idf.py build &&
+            idf.py -B build-p4v3 -D SDKCONFIG=build-p4v3/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.p4v3" build

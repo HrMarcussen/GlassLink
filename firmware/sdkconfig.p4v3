@@ -1,0 +1,7 @@
+# ESP32-P4 chip revision v3.x (the ESP32-P4NRW32X on NANOs sold since 2026): on top of sdkconfig.defaults, a second
+# image (#82). Espressif PCN202600801: v3.x "is not software-compatible" with v1.x, the two cannot run the same binary.
+# The bootloader refuses an image built for the other revision range, so a DU never boots the wrong one.
+#   idf.py -B build-p4v3 -D SDKCONFIG=build-p4v3/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.p4v3" build
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=n
+# ESP-IDF's default minimum for v3 (v3.1); the NANOs carry v3.2
+CONFIG_ESP32P4_REV_MIN_301=y

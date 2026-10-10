@@ -26,6 +26,10 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
     /// <summary>The DU runs released firmware, which installs only updates signed with the release key ("signed": 1).</summary>
     public bool SignedUpdates { get; init; }
 
+    /// <summary>The ESP32-P4's revision as major * 100 + minor ("chip_rev"; 103 = v1.3); null from firmware before 0.11.
+    /// v1.x and v3.x chips cannot run the same image (#82).</summary>
+    public int? ChipRevision { get; init; }
+
     public static DuInfo? From(JsonElement? json)
     {
         if (json is not { ValueKind: JsonValueKind.Object } j)
@@ -42,6 +46,7 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
         return new DuInfo(DuJson.Str(j, "fw"), DuJson.Str(j, "build"), DuJson.Str(j, "hw"), w, h, DuJson.Str(j, "slot"), (long)DuJson.Num(j, "uptime_s"))
         {
             SignedUpdates = DuJson.Num(j, "signed") == 1,
+            ChipRevision = DuJson.Num(j, "chip_rev", -1) is var rev and >= 0 ? (int)rev : null,
         };
     }
 }

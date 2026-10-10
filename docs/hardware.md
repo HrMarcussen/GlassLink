@@ -15,6 +15,13 @@ USB 2.0 high speed (`docs/usb-protocol.md`).
 
 Panel details: [panel-DBC088HXN60L050A.md](panel-DBC088HXN60L050A.md).
 
+**Chip revision.** NANOs come with two generations of the ESP32-P4, which cannot run the same firmware image
+(Espressif PCN202600801): the ESP32-P4NRW32 is revision v1.x (GlassLink was made on v1.3), the ESP32-P4NRW32X
+(Waveshare's NANO page names this one since 2026) is v3.x. Each release carries an image for each:
+`glasslink_du-x.y.z.bin` for v1.x and `glasslink_du-p4v3-x.y.z.bin` for v3.x. A DU says its revision in INFO
+(`chip_rev`, 103 = v1.3; firmware 0.11 and later) and the DMC offers it the matching image only; the boot log
+names it too ("chip revision: v1.3"). **The v3.x image is built but not yet tested on a v3.x board** (#82).
+
 ## Wiring on the bench
 
 - **NANO USB-C**: 5 V power, and flashing / serial console (CH343). The NANO cannot be powered through its Type-A

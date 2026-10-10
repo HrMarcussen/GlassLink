@@ -8,6 +8,19 @@ public sealed record FirmwareImage(byte[] Data, string Version, string Project, 
 {
     /// <summary>Signed by the release workflow: a DU running released firmware takes nothing else.</summary>
     public bool Signed { get; init; }
+
+    /// <summary>The chip revisions the image runs on, major * 100 + minor, from its header (100..199 for v1.x chips,
+    /// 301..399 for v3.x): ESP-IDF's bootloader refuses it on any other, so it is never sent to one (#82).</summary>
+    public int MinChipRevision { get; init; }
+
+    public int MaxChipRevision { get; init; } = int.MaxValue;
+
+    /// <summary>Runs on a chip of this revision; a DU that does not say (firmware before 0.11) has a v1.x chip, as only
+    /// v1.x images existed then.</summary>
+    public bool Fits(int? chipRevision) => (chipRevision ?? 100) is var r && r >= MinChipRevision && r <= MaxChipRevision;
+
+    /// <summary>"v1.00-v1.99".</summary>
+    public string ChipRange => $"v{MinChipRevision / 100}.{MinChipRevision % 100:00}-v{MaxChipRevision / 100}.{MaxChipRevision % 100:00}";
 }
 
 /// <summary>DU firmware images: reads the ESP-IDF application descriptor so that only a real DU image is ever sent.</summary>
@@ -58,8 +71,13 @@ public static class Firmware
         return new FirmwareImage(data, Text(16, 32), project, data.Length, Crc32.HashToUInt32(data), path, File.GetLastWriteTime(path))
         {
             Signed = IsSigned(data),
+            MinChipRevision = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(15)),       // esp_image_header_t.min_chip_rev_full
+            MaxChipRevision = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(17)),       // .max_chip_rev_full
         };
     }
+
+    /// <summary>"v1.3" for 103.</summary>
+    public static string ChipName(int revision) => $"v{revision / 100}.{revision % 100}";
 
     /// <summary>The image ends in an ESP-IDF signature sector (espsecure sign_data --version 2): the image padded to whole
     /// 4 KB, then a 4 KB sector starting with the signature block's magic 0xE7 and version 2 (RSA-3072).</summary>

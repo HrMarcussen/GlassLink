@@ -301,6 +301,39 @@ public class RegistryAndFirmwareTests
     }
 
     [Fact]
+    public void A_du_gets_the_image_built_for_its_chip_and_never_the_other()
+    {
+        // two images as ESP-IDF writes them: the header says which chip revisions they run on (#82)
+        string Image(string folder, string name, ushort min, ushort max)
+        {
+            var app = new byte[10_000];
+            app[0] = 0xE9;
+            BitConverter.GetBytes(min).CopyTo(app, 15);                       // esp_image_header_t.min_chip_rev_full
+            BitConverter.GetBytes(max).CopyTo(app, 17);                       // .max_chip_rev_full
+            BitConverter.GetBytes(0xABCD5432u).CopyTo(app, 32);
+            System.Text.Encoding.ASCII.GetBytes(Firmware.ProjectName).CopyTo(app, 32 + 48);
+            File.WriteAllBytes(Path.Combine(folder, name), app);
+            return Path.Combine(folder, name);
+        }
+
+        var folder = Directory.CreateTempSubdirectory("glasslink-chips").FullName;
+        var v1 = Firmware.Load(Image(folder, "glasslink_du.bin", 100, 199));
+        var v3 = Firmware.Load(Image(folder, "glasslink_du-p4v3.bin", 301, 399));
+        Directory.Delete(folder, true);
+        Assert.True(v1.Fits(103));                                           // the NANOs GlassLink was made on
+        Assert.False(v1.Fits(302));                                          // an ESP32-P4NRW32X: its bootloader would refuse it
+        Assert.True(v3.Fits(302));
+        Assert.False(v3.Fits(103));
+        Assert.True(v1.Fits(null));                                          // firmware before 0.11 does not say: only v1.x images existed
+        Assert.False(v3.Fits(null));
+        Assert.Equal(("v1.00-v1.99", "v3.01-v3.99", "v3.2"), (v1.ChipRange, v3.ChipRange, Firmware.ChipName(302)));
+
+        DuInfo Info(string json) => DuInfo.From(System.Text.Json.JsonDocument.Parse(json).RootElement)!;
+        Assert.Equal(302, Info("""{"fw":"0.11.0","chip_rev":302}""").ChipRevision);
+        Assert.Null(Info("""{"fw":"0.10.0"}""").ChipRevision);
+    }
+
+    [Fact]
     public void A_signed_release_image_is_told_from_a_development_build_and_so_is_a_du_that_takes_only_signed_ones()
     {
         // an application image as the DMC checks it: header, descriptor with the project name

@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_ota_ops.h"
+#include "esp_chip_info.h"
 #include "esp_rom_crc.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
@@ -231,12 +232,14 @@ static void send_log(int level, const char *fmt, ...)
 static void send_info(void)
 {
     display_info_t di = display_get_info();
-    char buf[400];
+    esp_chip_info_t ci;
+    esp_chip_info(&ci);                     /* revision as major * 100 + minor: which image fits this DU (#82) */
+    char buf[512];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"display_error\":\"%s\"}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"chip_rev\":%d,\"display_error\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
                      esp_timer_get_time() < s_ident_until_us ? 1 : 0, s_tile_n, (unsigned long)RX_BUF_SIZE, MAX_TILES,
-                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, s_display_error);
+                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, (int)ci.revision, s_display_error);
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }

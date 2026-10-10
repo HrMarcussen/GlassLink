@@ -33,12 +33,17 @@ jobs:
           esp_idf_version: v5.5.5
           target: esp32p4
           path: firmware
-          # sdkconfig.release: the DU installs only signed updates. Built unsigned; the next job signs it (it has the key)
-          command: idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build
+          # sdkconfig.release: the DU installs only signed updates. Built unsigned; the next job signs it (it has the key).
+          # Two images: ESP32-P4 v1.x chips, and v3.x chips (sdkconfig.p4v3), which cannot run each other's (#82)
+          command: >-
+            idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release" build &&
+            idf.py -B build-p4v3 -D SDKCONFIG=build-p4v3/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.release;sdkconfig.p4v3" build
       - uses: actions/upload-artifact@v7
         with:
           name: firmware
-          path: firmware/build/glasslink_du.bin
+          path: |
+            firmware/build/glasslink_du.bin
+            firmware/build-p4v3/glasslink_du.bin
           if-no-files-found: error
           retention-days: 1         # only for the next job
 
@@ -71,7 +76,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: firmware
-          path: firmware/build
+          path: firmware                # firmware/build and firmware/build-p4v3
       - name: Sign the DU firmware
         shell: pwsh
         env:
@@ -87,15 +92,20 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet esptool==4.12.0
           $key = Join-Path $env:RUNNER_TEMP 'firmware-key.pem'
           [IO.File]::WriteAllText($key, $env:FIRMWARE_SIGNING_KEY)
+          $images = 'firmware/build/glasslink_du.bin', 'firmware/build-p4v3/glasslink_du.bin'
           try {
-              python -m espsecure sign_data --version 2 --keyfile $key --output firmware/build/glasslink_du-signed.bin firmware/build/glasslink_du.bin
-              if ($LASTEXITCODE) { throw "signing failed" }
+              foreach ($image in $images) {
+                  python -m espsecure sign_data --version 2 --keyfile $key --output "$image.signed" $image
+                  if ($LASTEXITCODE) { throw "signing $image failed" }
+              }
           } finally {
               Remove-Item $key -Force
           }
-          python -m espsecure verify_signature --version 2 --keyfile firmware/signing-key.pub.pem firmware/build/glasslink_du-signed.bin
-          if ($LASTEXITCODE) { throw "the signed firmware does not verify with firmware/signing-key.pub.pem: is FIRMWARE_SIGNING_KEY the release key?" }
-          Move-Item -Force firmware/build/glasslink_du-signed.bin firmware/build/glasslink_du.bin
+          foreach ($image in $images) {
+              python -m espsecure verify_signature --version 2 --keyfile firmware/signing-key.pub.pem "$image.signed"
+              if ($LASTEXITCODE) { throw "$image does not verify with firmware/signing-key.pub.pem: is FIRMWARE_SIGNING_KEY the release key?" }
+              Move-Item -Force "$image.signed" $image
+          }
       - name: SimConnect.dll from build-deps
         uses: HrMarcussen/release-tools/actions/fetch-deps@v1
         with:
@@ -124,6 +134,7 @@ jobs:
         run: |
           ./tools/build-release.ps1 -Stage package -Strict:($env:REF_TYPE -eq 'tag')
           Copy-Item firmware/build/glasslink_du.bin "dist/glasslink_du-${{ steps.version.outputs.version }}.bin"
+          Copy-Item firmware/build-p4v3/glasslink_du.bin "dist/glasslink_du-p4v3-${{ steps.version.outputs.version }}.bin"
       - name: Sign the installer
         uses: HrMarcussen/release-tools/actions/sign@v1
         with:
@@ -138,6 +149,7 @@ jobs:
             dist/GlassLink-${{ steps.version.outputs.version }}-setup.exe
             dist/GlassLink-${{ steps.version.outputs.version }}-win-x64.zip
             dist/glasslink_du-${{ steps.version.outputs.version }}.bin
+            dist/glasslink_du-p4v3-${{ steps.version.outputs.version }}.bin
           if-no-files-found: error
           retention-days: 7         # a dry run's files; a tag's are kept by the release
       - id: notes
@@ -155,3 +167,4 @@ jobs:
             dist/GlassLink-${{ steps.version.outputs.version }}-setup.exe
             dist/GlassLink-${{ steps.version.outputs.version }}-win-x64.zip
             dist/glasslink_du-${{ steps.version.outputs.version }}.bin
+            dist/glasslink_du-p4v3-${{ steps.version.outputs.version }}.bin

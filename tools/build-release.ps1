@@ -38,11 +38,12 @@ if (-not (Test-Path "$out\SimConnect.dll")) {
 }
 Set-Content "$out\BUILD" $build -Encoding ascii
 Copy-Item "$root\CHANGELOG.md", "$root\LICENSE", "$root\THIRD-PARTY-NOTICES.md" $out
-if (Test-Path "$root\firmware\build\glasslink_du.bin") {
-    New-Item -ItemType Directory -Force "$out\firmware" | Out-Null
-    Copy-Item "$root\firmware\build\glasslink_du.bin" "$out\firmware\"
-} else {
-    Missing "firmware\build\glasslink_du.bin not found: the release cannot update DUs"
+New-Item -ItemType Directory -Force "$out\firmware" | Out-Null
+# one image per chip family: ESP32-P4 v1.x (firmware\build) and v3.x (firmware\build-p4v3), which cannot run each other's (#82)
+foreach ($image in @(@("build", "glasslink_du.bin", "v1.x"), @("build-p4v3", "glasslink_du-p4v3.bin", "v3.x"))) {
+    $source = "$root\firmware\$($image[0])\glasslink_du.bin"
+    if (Test-Path $source) { Copy-Item $source "$out\firmware\$($image[1])" }
+    else { Missing "firmware\$($image[0])\glasslink_du.bin not found: the release cannot update DUs with an ESP32-P4 $($image[2])" }
 }
 Write-Host "built $out ($build)"
 }
