@@ -25,7 +25,8 @@ names it too ("chip revision: v1.3"). **The v3.x image is built but not yet test
 ## Wiring on the bench
 
 - **NANO USB-C**: 5 V power, and flashing / serial console (CH343). The NANO cannot be powered through its Type-A
-  socket (measured).
+  socket (measured). A new NANO gets GlassLink through it from the status page: Display units, **Set up a board**
+  (Identify says its chip revision and which DU it is; Install writes the image for that chip).
 - **NANO Type-A socket**: the P4's high-speed USB port, the link to the sim PC. It also puts out 5 V, so use an
   A-to-A cable with the 5 V wire cut, to a USB 2.0 hub port. Several DUs share a hub without losing frames.
 - DSI flat cable to the Olimex adapter (it carries the LT8912B's I2C on GPIO7/GPIO8), HDMI to the screen.

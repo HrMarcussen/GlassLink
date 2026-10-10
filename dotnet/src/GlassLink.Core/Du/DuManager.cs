@@ -150,7 +150,11 @@ public sealed class DuManager : IDisposable
                     var conn = new DuConnection(_open(path), _log);
                     _connections[serial] = conn;
                     _openErrors.Remove(serial);
-                    conn.InfoReceived += c => Resync(c.Serial);      // mode and layout at once, not at the next scan (#33)
+                    conn.InfoReceived += c =>
+                    {
+                        RememberMac(c.Serial, c.Info?.Mac);
+                        Resync(c.Serial);                            // mode and layout at once, not at the next scan (#33)
+                    };
                     conn.Start();
                     if (Settings(serial).Tiles.Count == 0)
                     {
@@ -528,6 +532,28 @@ public sealed class DuManager : IDisposable
     // -- the user's decisions ---------------------------------------------------------------------------
     public DuSettings Settings(string serial) =>
         _config.Read(root => DuSettings.From((root["modules"] as JsonObject)?[serial] as JsonObject));
+
+    /// <summary>The serial of the DU a board in its bootloader is, by its factory MAC; null for one never seen.</summary>
+    public string? SerialOf(byte[] mac) => _config.Read(root => Flash.BoardIdentity.KnownSerial(root["modules"] as JsonObject, mac));
+
+    /// <summary>Keeps the MAC a DU reports with its settings (saved only when it is new), so that the board setup
+    /// knows the DU in its bootloader later.</summary>
+    private void RememberMac(string serial, string? mac)
+    {
+        if (mac is not { Length: > 0 } reported || _config.Read(root => ((root["modules"] as JsonObject)?[serial] as JsonObject)?["mac"].Text()) == reported)
+        {
+            return;
+        }
+
+        try
+        {
+            _config.Update(root => ConfigFile.Section(ConfigFile.Section(root, "modules"), serial)["mac"] = reported);
+        }
+        catch (IOException ex)
+        {
+            _log?.Invoke($"DU {Short(serial)}: {ex.Message}");
+        }
+    }
 
     /// <summary>Changes what is stored about a DU; null leaves a value as it is. Applies at once if the DU is connected.</summary>
     public DuSettings Assign(string serial, string? display = null, string? label = null, int? brightness = null)

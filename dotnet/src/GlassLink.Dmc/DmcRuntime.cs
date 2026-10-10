@@ -45,6 +45,7 @@ public sealed class DmcRuntime : IDisposable
         Learner = new Learner(Config, Camera, Log) { PauseAuto = paused => { if (Auto is not null) { Auto.Paused = paused; } } };
         Advisor = new Advisor();
         Updater = new Updater(Version, Config, Log);
+        Boards = new BoardSetup(this);
     }
 
     public string ConfigPath { get; }
@@ -114,6 +115,9 @@ public sealed class DmcRuntime : IDisposable
 
     public Updater Updater { get; }
 
+    /// <summary>"Set up a new board": GlassLink's own flasher on a NANO's USB-C port.</summary>
+    public BoardSetup Boards { get; }
+
     public DateTime Started { get; } = DateTime.UtcNow;
 
     public bool BrightnessEnabled => Config.Read(root => (root["brightness"] as JsonObject)?["enabled"] is not { } e || e.GetValueKind() != System.Text.Json.JsonValueKind.False);
@@ -139,6 +143,16 @@ public sealed class DmcRuntime : IDisposable
         var built = Path.Combine(Root, "firmware", v3 ? "build-p4v3" : "build", "glasslink_du.bin");
         return Config.Read(root => (root["firmware"] as JsonObject)?[v3 ? "image_p4v3" : "image"].Text())
                ?? new[] { built, shipped }.FirstOrDefault(File.Exists) ?? built;
+    }
+
+    /// <summary>What "Set up a new board" writes for a chip family: the flash set (flash_args and its files) shipped
+    /// in firmware\flash\v1 or \p4v3 of an installed copy, the firmware build folder in a checkout.</summary>
+    public string FlashSetFolderFor(int chipRevision)
+    {
+        var v3 = chipRevision >= 300;
+        return Installed
+            ? Path.Combine(AppContext.BaseDirectory, "firmware", "flash", v3 ? "p4v3" : "v1")
+            : Path.Combine(Root, "firmware", v3 ? "build-p4v3" : "build");
     }
 
     /// <summary>Installed by the setup program (its uninstaller is next to GlassLink.exe), not run from a checkout.</summary>

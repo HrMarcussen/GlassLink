@@ -30,6 +30,10 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
     /// v1.x and v3.x chips cannot run the same image (#82).</summary>
     public int? ChipRevision { get; init; }
 
+    /// <summary>The chip's factory MAC, 12 lower-case hex digits ("mac", firmware 0.11); "" from older firmware. The
+    /// board setup knows a DU by it in its bootloader, also one whose serial is older than #24.</summary>
+    public string Mac { get; init; } = "";
+
     public static DuInfo? From(JsonElement? json)
     {
         if (json is not { ValueKind: JsonValueKind.Object } j)
@@ -47,6 +51,7 @@ public sealed record DuInfo(string Firmware, string Build, string Hardware, int 
         {
             SignedUpdates = DuJson.Num(j, "signed") == 1,
             ChipRevision = DuJson.Num(j, "chip_rev", -1) is var rev and >= 0 ? (int)rev : null,
+            Mac = DuJson.Str(j, "mac") is { Length: 12 } mac && mac.All(char.IsAsciiHexDigit) ? mac.ToLowerInvariant() : "",
         };
     }
 }

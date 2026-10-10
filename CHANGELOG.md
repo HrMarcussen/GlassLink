@@ -34,7 +34,15 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   with its pop-outs' window titles, commands and popup states). The built-in ToLiss profile is now part of the same
   list as the Fenix and FSLabs, so a profile can change one of its displays or add another X-Plane aircraft (README,
   Aircraft profiles).
-
+- **Set up a board** (Display units tab): GlassLink on a new NANO, or on a DU again, through the NANO's USB-C port,
+  without ESP-IDF or esptool. The DMC's own flasher (Espressif's ROM serial protocol) restarts the board into its
+  bootloader; **Identify** says its chip revision and which DU it is, **Install** writes the bootloader, partition
+  table, boot selection and app for that chip family and checks each with the chip's MD5, then starts it. NVS is not
+  written, so a DU keeps its serial and label. Only the NANO's own serial ports (CH343) are listed, never another
+  serial device. Releases carry the flash sets (`firmware\flash\v1`, `firmware\flash\p4v3`). Installed on DU2 (v1.3)
+  in 24 s.
+- **[DU firmware]** INFO says the chip's factory MAC (`mac`); the DMC keeps it with the DU's settings, so Set up a
+  board knows a DU in its bootloader, also one whose serial is older than #24 (which no MAC gives).
 - **[DU firmware]** An image for ESP32-P4 chip revision v3.x as well (#82): newer NANOs carry the ESP32-P4NRW32X
   (v3.x), which cannot run the image for v1.x chips (Espressif PCN202600801). Releases carry both
   (`glasslink_du-x.y.z.bin` for v1.x, `glasslink_du-p4v3-x.y.z.bin` for v3.x), both signed; CI builds both. A DU

@@ -41,9 +41,18 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: firmware
+          # the app, and what the DMC's "Set up a new board" writes with it (bootloader, partition table, boot selection)
           path: |
+            firmware/build/flash_args
             firmware/build/glasslink_du.bin
+            firmware/build/bootloader/bootloader.bin
+            firmware/build/partition_table/partition-table.bin
+            firmware/build/ota_data_initial.bin
+            firmware/build-p4v3/flash_args
             firmware/build-p4v3/glasslink_du.bin
+            firmware/build-p4v3/bootloader/bootloader.bin
+            firmware/build-p4v3/partition_table/partition-table.bin
+            firmware/build-p4v3/ota_data_initial.bin
           if-no-files-found: error
           retention-days: 1         # only for the next job
 

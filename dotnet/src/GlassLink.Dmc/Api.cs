@@ -32,6 +32,13 @@ public static partial class Api
         app.MapGet("/fonts/inter.woff2", () => Results.File(Path.Combine(statics, "fonts", "inter.woff2"), "font/woff2"));
         app.MapGet("/view/{name}", (string name) => dmc.Displays.Get(name) is null ? Results.NotFound() : Page("viewer.html"));
         app.MapGet("/status", () => Json(Status(dmc)));
+        // "Set up a new board" over a NANO's USB-C port: only ports of NANOs (their CH343 bridge), never another device
+        app.MapGet("/boards", () => Json(dmc.Boards.ToJson()));
+        app.MapPost("/boards/{port}/{action}", (string port, string action) =>
+            action is not ("identify" or "install") ? Plain(404, "identify or install")
+            : !Core.Flash.BoardPorts.IsBoard(port) ? Plain(400, $"{port} is not an ESP32-P4-NANO's serial port")
+            : dmc.Boards.Start(port, action == "install") ? Json(dmc.Boards.ToJson())
+            : Plain(409, "a board is being set up already: wait for it"));
         // logs and the configuration: for this PC only, even where the status page is open to the LAN
         app.MapGet("/diagnostics", (HttpContext http) => RequestGuard.FromThisPc(http.Connection.RemoteIpAddress)
             ? Results.File(Diagnostics.Build(dmc), "application/zip", Diagnostics.FileName)

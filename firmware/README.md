@@ -61,12 +61,18 @@ only" on the status page.
 
 A build from `sdkconfig.defaults` alone, as above, checks nothing: development builds and your own install over USB as
 always, and take a release too. To put your own build on a DU that runs a release, flash it once over the USB-C port
-(`idf.py -p COMx flash`); from then on it updates over USB again. The release key cannot be changed over USB: it is
+(`idf.py -p COMx flash`, or Set up a board with your build in `firmware/build`); from then on it updates over USB
+again. The release key cannot be changed over USB: it is
 the key the running firmware was signed with (`firmware/signing-key.pub.pem`).
 
 ## Flash
 
-- **First time**, over the NANO's USB-C port (CH343 serial): `idf.py -p COMx flash monitor`.
+- **First time**, over the NANO's USB-C port (CH343 serial): on the status page, Display units, **Set up a board**
+  (no ESP-IDF needed: the DMC's own flasher writes the flash set of `firmware/build` or `build-p4v3`, or of an
+  installed copy's `firmware\flash\v1` / `p4v3`, whichever fits the chip), or `idf.py -p COMx flash monitor`.
+  Neither writes NVS (0x9000), so a DU keeps its serial and label. The flasher speaks Espressif's ROM serial protocol
+  itself (`dotnet/src/GlassLink.Core/Flash`), lists only the NANO's CH343 ports and checks every part with the chip's
+  MD5; 24 s for the whole set at 460800 baud on DU2.
 - **After that**, from the status page (Display units, Update) or with the bench tool
   (`GlassLink.Bench update firmware/build/glasslink_du.bin --serial <prefix>`, DMC stopped). The DMC offers an update
   when a DU's firmware is older than `FIRMWARE_VERSION`; it says so up front when a DU running a release would refuse

@@ -55,7 +55,8 @@ static uint32_t s_rx_size = 512 * 1024;
 #define XD_MAX_DRAIN XD_MAX_PAYLOAD        /* larger than this is not a message but garbage: resync (protocol: 4 MiB) */
 
 static char s_serial[33];
-static char s_label[32];    /* the DU's name on the status page (SHOW_IDENT, SET_ASSIGNED), kept in NVS for the screens */
+static char s_mac[13];      /* the factory MAC in hex (INFO "mac"); empty if it could not be read */
+static char s_label[32];   /* the DU's name on the status page (SHOW_IDENT, SET_ASSIGNED), kept in NVS for the screens */
 static volatile uint32_t s_ident_gen;   /* bumped by every SHOW_IDENT, so a new label shows while ident is on */
 /* the screen task's state: 0 picture, 1 picture with the Identify banner, 2 no USB, 3 not assigned, 4 no DMC,
  * 5 waiting for the sim, 6 updating, 7 Identify without a picture (#81) */
@@ -104,11 +105,17 @@ static void load_or_create_serial(void)
     nvs_handle_t nvs;
     bool have = nvs_open("module", NVS_READWRITE, &nvs) == ESP_OK;
     size_t len = sizeof(s_serial);
+    uint8_t mac[6] = {0};
+    bool have_mac = esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY) == ESP_OK;
+    if (have_mac) {
+        /* in INFO: the DMC's board setup knows a DU by it in the bootloader, also one whose serial is older than #24 */
+        for (int i = 0; i < 6; i++) snprintf(s_mac + i * 2, 3, "%02x", mac[i]);
+    }
     if (!have || nvs_get_str(nvs, "serial", s_serial, &len) != ESP_OK || strlen(s_serial) != 24) {
         /* Derived from the chip's factory MAC, so an NVS erase gives the same serial back (#24). Units that already
          * have a stored serial keep it. */
-        uint8_t mac[6] = {0}, digest[16];
-        if (esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY) == ESP_OK) {
+        uint8_t digest[16];
+        if (have_mac) {
             md5_context_t ctx;
             esp_rom_md5_init(&ctx);
             esp_rom_md5_update(&ctx, "glasslink-du", 12);
@@ -234,12 +241,12 @@ static void send_info(void)
     display_info_t di = display_get_info();
     esp_chip_info_t ci;
     esp_chip_info(&ci);                     /* revision as major * 100 + minor: which image fits this DU (#82) */
-    char buf[512];
+    char buf[640];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"chip_rev\":%d,\"display_error\":\"%s\"}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"chip_rev\":%d,\"mac\":\"%s\",\"display_error\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
                      esp_timer_get_time() < s_ident_until_us ? 1 : 0, s_tile_n, (unsigned long)RX_BUF_SIZE, MAX_TILES,
-                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, (int)ci.revision, s_display_error);
+                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, (int)ci.revision, s_mac, s_display_error);
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }

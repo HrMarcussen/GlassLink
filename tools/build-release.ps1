@@ -39,11 +39,18 @@ if (-not (Test-Path "$out\SimConnect.dll")) {
 Set-Content "$out\BUILD" $build -Encoding ascii
 Copy-Item "$root\CHANGELOG.md", "$root\LICENSE", "$root\THIRD-PARTY-NOTICES.md" $out
 New-Item -ItemType Directory -Force "$out\firmware" | Out-Null
-# one image per chip family: ESP32-P4 v1.x (firmware\build) and v3.x (firmware\build-p4v3), which cannot run each other's (#82)
-foreach ($image in @(@("build", "glasslink_du.bin", "v1.x"), @("build-p4v3", "glasslink_du-p4v3.bin", "v3.x"))) {
-    $source = "$root\firmware\$($image[0])\glasslink_du.bin"
-    if (Test-Path $source) { Copy-Item $source "$out\firmware\$($image[1])" }
-    else { Missing "firmware\$($image[0])\glasslink_du.bin not found: the release cannot update DUs with an ESP32-P4 $($image[2])" }
+# one image per chip family: ESP32-P4 v1.x (firmware\build) and v3.x (firmware\build-p4v3), which cannot run each other's (#82);
+# the app for updates over USB, and the whole flash set (flash_args with its files) for "Set up a new board"
+foreach ($image in @(@("build", "glasslink_du.bin", "v1", "v1.x"), @("build-p4v3", "glasslink_du-p4v3.bin", "p4v3", "v3.x"))) {
+    $fwDir = "$root\firmware\$($image[0])"         # not $build: that is the commit, for BUILD and the setup program
+    if (-not (Test-Path "$fwDir\glasslink_du.bin")) { Missing "firmware\$($image[0])\glasslink_du.bin not found: the release cannot update DUs with an ESP32-P4 $($image[3])"; continue }
+    Copy-Item "$fwDir\glasslink_du.bin" "$out\firmware\$($image[1])"
+    $set = "$out\firmware\flash\$($image[2])"
+    foreach ($file in @("flash_args", "glasslink_du.bin", "bootloader\bootloader.bin", "partition_table\partition-table.bin", "ota_data_initial.bin")) {
+        if (-not (Test-Path "$fwDir\$file")) { Missing "firmware\$($image[0])\$file not found: the release cannot set up new boards with an ESP32-P4 $($image[3])"; continue }
+        New-Item -ItemType Directory -Force (Split-Path "$set\$file") | Out-Null
+        Copy-Item "$fwDir\$file" "$set\$file"
+    }
 }
 Write-Host "built $out ($build)"
 }

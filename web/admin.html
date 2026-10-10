@@ -219,6 +219,14 @@
   <section class="tab" data-tab="dus">
   <h2>Display units (DUs)</h2>
   <div id="modules"></div>
+  <h2>Set up a board</h2>
+  <div class="dim" style="max-width:52rem;margin-bottom:.5rem">
+    A new ESP32-P4-NANO, or a DU to put GlassLink on again: connect the NANO's <b>USB-C</b> socket to this PC with a data
+    cable. <b>Identify</b> reads its chip and says which DU it is, changing nothing. <b>Install</b> writes GlassLink for its
+    chip (bootloader, partition table and app; a DU keeps its serial and label) in under a minute; do not unplug it
+    meanwhile. Then connect the NANO's other (Type-A) socket as usual.
+  </div>
+  <div id="boards"></div>
   </section>
 
   <section class="tab" data-tab="system">
@@ -796,6 +804,33 @@
     else setPill('#st-dus', 'ok', `DUs ${alive.length}/${wanted.length}`, 'all display units connected');
   }
 
+  // "Set up a board": the NANOs' USB-C serial ports (only those), Identify / Install, and the job's progress
+  let boardsKey = '';
+  async function renderBoards() {
+    let b;
+    try { b = await (await fetch('/boards', { cache: 'no-store' })).json(); } catch (e) { return; }
+    const job = b.job; const busy = !!(job && job.running);
+    const key = JSON.stringify(b);
+    if (key === boardsKey) return;
+    boardsKey = key;
+    const jobLine = !job ? '' : `<div style="margin:.4rem 0;color:${job.running ? 'var(--fg)' : job.ok ? 'var(--ok)' : 'var(--bad)'}" role="status">
+        <b>${esc(job.port)}</b>: ${esc(job.message)}${job.running && job.kind === 'install' ? ` · ${Math.round(job.progress * 100)} %` : ''}
+        ${job.running && job.kind === 'install' ? `<div style="height:6px;background:var(--line);border-radius:3px;margin-top:4px;max-width:30rem"><div style="height:6px;width:${Math.round(job.progress * 100)}%;background:var(--acc);border-radius:3px"></div></div>` : ''}</div>`;
+    const rows = (b.ports || []).map(p => `<tr data-port="${esc(p.port)}"><td><b>${esc(p.port)}</b><br><span class="dim small">USB-C of an ESP32-P4-NANO</span></td>
+        <td><button class="board-identify" ${busy ? 'disabled' : ''}>Identify</button>
+            <button class="board-install primary" ${busy ? 'disabled' : ''}>Install GlassLink ${esc(b.version || '')}</button></td></tr>`).join('');
+    setHTML($('#boards'), jobLine + (rows ? `<table><tbody>${rows}</tbody></table>`
+      : '<div class="dim">No NANO on a USB-C cable to this PC right now.</div>'));
+    document.querySelectorAll('#boards tr[data-port]').forEach(tr => {
+      const port = tr.dataset.port;
+      tr.querySelector('.board-identify').onclick = () => api(`/boards/${encodeURIComponent(port)}/identify`, 'POST').then(() => { boardsKey = ''; renderBoards(); }).catch(() => {});
+      tr.querySelector('.board-install').onclick = () => {
+        if (confirm(`Install GlassLink ${b.version || ''} on the board at ${port}?\n\nIt is restarted into its bootloader and written for under a minute: do not unplug it meanwhile. A DU keeps its serial and label.`))
+          api(`/boards/${encodeURIComponent(port)}/install`, 'POST').then(() => { boardsKey = ''; renderBoards(); }).catch(() => {});
+      };
+    });
+  }
+
   let modulesHtmlKey = ''; let fwVersion = ''; let fwImage = {}; let lastStatus = null;
   let refreshing = false, again = false;
   async function refresh() {
@@ -816,6 +851,7 @@
       renderLearn(s.learn);
       renderEditor(s.learn);
       renderSystem(s);
+      if (currentTab() === 'dus') renderBoards();
       const sb = $('#strays'); const strays = s.strays || [];
       const sk = strays.map(w => w.hwnd).join(',');
       if (sb.dataset.key !== sk) {
