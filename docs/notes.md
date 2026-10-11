@@ -36,6 +36,15 @@ thing changed; this file says why things are the way they are.
   (30 Sept 2026: the brightest 5 % of the captured PFD went 164, 137, 96, 58, 32, 0 for the knob at 100, 70, 55, 35,
   15, 0 %), so its profile says so and the DMC never dims for it. Its knobs are `L:VC_MIP_CPT_DU_PNL_PFD_BRT_Knob`
   and the like, 0..270.
+- **A dark DU** (measured 11 Oct 2026, for the integrated DU's panel power, #67). Fenix: the knob is
+  `L:A_DISPLAY_BRIGHTNESS_*` (0..1, writable), and `N_DISPLAY_BRIGHTNESS_*` equals it while the DU has power, down to
+  0.001; it is 0 at OFF and in a dark aircraft (engines off on batteries alone, or all off), and the pop-out is black
+  then. Turning a PFD's knob to OFF moves the PFD onto the ND's DU (the A320's automatic transfer) and the Fenix does
+  not move it back when the knob is turned up again, so the ND then shows on the PFD's DU; the ToLiss does the same,
+  and moves the upper ECAM onto the lower. Fenix switches: `L:S_ENG_MASTER_1/2`, `L:S_OH_ELEC_BAT1/2`,
+  `L:S_OH_ELEC_EXT_PWR`, `L:S_OH_ELEC_GEN1/2` (writable). MSFS 2024 sends no variables at all while its Esc menu is open
+  (`Pause_EX1` = 9: full pause + sim pause), so the camera state still says cockpit; an instrument view keeps camera
+  state 2.
 - **FSLabs cameras and buttons.** Its First Officer view is a custom cockpit camera, which the sim counts as an
   instrument view (`CAMERA VIEW TYPE AND INDEX` 2/5), not as pilot view 4 like the Fenix's copilot seat; the camera
   reset action leaves such a view for the pilot's. Push buttons send `K:ROTOR_BRAKE` with the button's id + 0
@@ -74,8 +83,10 @@ thing changed; this file says why things are the way they are.
   override, X-Plane's physics fights the writes and the PFD changes unevenly (7-19). The number of open pop-outs made
   no difference. A flight can be loaded through the API (12.4.0+): `POST /api/v3/flight` with `ramp_start`
   (`airport_id`, `ramp`) and `aircraft.path`; the request may time out while X-Plane starts loading it.
-- **Brightness.** The pop-outs dim with the cockpit knobs themselves (`AirbusFBW/DUBrightness`, 0..1, entries 0 to 5:
-  captain PFD, captain ND, FO PFD, FO ND, upper and lower ECAM), so the DMC does not dim the DUs.
+- **Brightness.** The pop-outs dim with the cockpit knobs themselves (`AirbusFBW/DUBrightness`, 0..1, 8 entries; 0 to
+  5 are captain PFD, captain ND, FO PFD, FO ND, upper and lower ECAM, measured 11 Oct 2026 with the A339 by setting
+  each to 0; 6 and 7 dim none of the six), so the DMC does not dim the DUs. 0 is the DU off: its picture moves to the
+  other DU of the pair.
 - XTextureExtractor (a GPL plugin that reads the displays from the cockpit panel texture) hangs X-Plane 12.4.4 while
   it searches the textures; a plugin of GlassLink's own would have to find the panel without that search.
 

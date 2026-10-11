@@ -54,7 +54,8 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - Panel power for the integrated DU, the DMC's side (#67; the DU's side follows with the carrier board): each aircraft
   profile names, per display, the variable that is 0 when that DU is dark in the cockpit (`du_off`), and a DU whose
   INFO says `panel_power` is told to switch its panel off a second after its cockpit DU went dark, on again at once.
-  Measured 11 Oct 2026: the Fenix's `N_DISPLAY_BRIGHTNESS_*` equals the knob and is 0 only at OFF; the FSLabs' knobs
+  Measured 11 Oct 2026: the Fenix's `N_DISPLAY_BRIGHTNESS_*` equals the knob (`A_DISPLAY_BRIGHTNESS_*`) while the DU
+  has power and is 0 at OFF and in a dark aircraft (engines off on batteries, or everything off); the FSLabs' knobs
   are 0..270, 0 = black; the ToLiss's `AirbusFBW/DUBrightness` entries 0-5 are captain PFD, captain ND, FO PFD, FO
   ND, upper and lower ECAM (live with the A339: the DMC asked for the panel off 1-2 s after the ND knob went to OFF).
   An aircraft without a rule keeps its panels on. `/status` shows each DU's `panel`. The protocol's section 6a is
