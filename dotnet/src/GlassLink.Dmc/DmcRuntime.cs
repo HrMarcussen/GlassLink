@@ -369,6 +369,7 @@ public sealed class DmcRuntime : IDisposable
         var count = Math.Min(64, Environment.ProcessorCount);
         var (cpus, why) = section?["affinity"] switch
         {
+            JsonArray { Count: 0 } => ([], "all CPUs"),
             JsonArray list => (list.Select(n => (int)n.Number(-1)).Where(n => n >= 0 && n < count).ToArray(), "set in config.json"),
             JsonValue v when v.GetValueKind() == System.Text.Json.JsonValueKind.String && v.GetValue<string>() != "auto" => ([], "all CPUs"),
             _ => CpuChoice.Auto(CpuChoice.Read()) is var auto ? (auto.Cpus, auto.Why) : ([], ""),
