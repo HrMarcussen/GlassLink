@@ -117,20 +117,54 @@ offset  size  field
    is stored but not applied yet: the panels are mounted upright.
 5. OTA: dual app partitions; the new image is written to the inactive slot, verified, and booted with rollback protection.
 
-## 6a. Reserved for the hardware track (protocol freeze, 18 Sept 2026)
+## 6a. Panel power and backlight (integrated DU, #66, #67; rewritten 11 Oct 2026, not implemented yet)
 
-Decided before the hardware exists, so that the .NET DMC can be written against a fixed protocol (version stays 1;
-a DU or DMC that does not know these simply ignores them).
+For a DU whose NANO sits on a carrier board with the panel's scaler (one case, one 12 V supply per DU): the carrier
+switches the scaler's 12 V and feeds a PWM into the scaler's VR_ADC input. Protocol version stays 1. A DMC sends
+these messages only to a DU whose `caps` name them: older firmware takes an unknown type as a broken header.
 
-- **Backlight needs no new message.** `SET_BRIGHTNESS` already means "effective DU brightness 0..100". A DU with a
-  backlight output (PWM + RC filter into the scaler's VR_ADC) applies it there and stops dimming the picture; a DU
-  without one keeps blending in the pixel accelerator. INFO reports which: `"dimming": "backlight" | "ppa"`.
-  A DU with a backlight output takes 0 as "backlight off".
-- `0x08 SET_PANEL_POWER` (host -> DU, arg 1 = on, 0 = off): drives the scaler's DC12V_INC_OFF line. The host sends
-  0 when the sim is gone for longer than a configurable time and 1 when it is back; the DU switches on by itself
-  at power-up and whenever a FRAME arrives. INFO reports `"panel_power": true | false` on DUs that have the line
-  (absent otherwise, and the DMC then never sends 0x08).
-- INFO may carry `"caps": ["backlight", "panel_power"]` as the summary of the above.
+Hardware (carrier concept v2, NANO; the FireBeetle variant may move pins): GPIO21 enables the scaler's 12 V switch,
+with a pull-down, so the panel is unpowered while the P4 is in reset, booting, crashed or running firmware that does
+not know the switch (fail dark). GPIO20 = PWM (LEDC, about 20 kHz) into VR_ADC. GPIO23 = carrier strap: low means
+a carrier is there (read with the internal pull-up). Firmware drives GPIO20/21 only when GPIO23 says carrier, so a
+plain NANO never gets an unexpected output; NVS `carrier` overrides that on the bench.
+
+- `0x08 SET_PANEL_POWER` (host -> DU), arg 1 = on, 0 = off. A **state**, not an event: the DMC sends it after INFO
+  and with every `SET_ASSIGNED` heartbeat (2 s), so a DU that restarts has it back within 2 s. It counts only while
+  a sim is connected: then the panel follows the aircraft, off when the profile's "DU off" rule says that DU is dark
+  in the cockpit (its knob at OFF, or the aircraft unpowered: cold and dark) for about 1 s, and off from the moment
+  the sim connects until the rule knows the aircraft's state. Otherwise the DMC says on: no sim (the DU shows
+  "<display> · waiting for the sim" or "Not assigned"), and an aircraft without a rule (nothing could ever turn it
+  on).
+- What the DU does: a black DU is never a mystery, so it powers the panel for its own status screens (Thomas, 11
+  Oct 2026, through the Electronics session):
+
+  | Situation | Panel |
+  |---|---|
+  | Power-up, no USB host yet (PC off or booting, cable missing) | on with "No USB" for 2 minutes, then off |
+  | USB host lost without a `BYE` (cable pulled, PC crashed) | on with "No USB" for 2 minutes, then off |
+  | `BYE` (the DMC quits, a clean PC shutdown) | off at once, until a host or DMC speaks again |
+  | USB host there, no DMC messages | on: "Waiting for the DMC" |
+  | DMC there | as its `SET_PANEL_POWER` says; on with a DMC that never sends it |
+
+  The DU cannot tell a PC that is off from a pulled cable (both are "no host", and VBUS does not tell either, bench
+  test B8), so "No USB" shows for a limited time; the 2 minutes also cover a PC booting after the cockpit's mains
+  comes on.
+  - Off: a black picture and the backlight to its minimum first, then the 12 V off about 100 ms later (the nearest
+    to the panel's own power-down order). On: the 12 V on; pictures simply keep coming (the panel shows them about
+    2 s later). The DU keeps taking and drawing pictures while off, so the right one is there when it comes on.
+- `0x0D SET_DIMMING` (host -> DU), arg 0 = pixels (the default at every boot), 1 = backlight. Sent after INFO and when
+  it changes, only to a DU whose `caps` contain `backlight`. The DMC sends 1 only for an aircraft whose profile asks
+  for it (tested profiles only; GlassLink's default stays pixel dimming). With 1, `SET_BRIGHTNESS` drives the PWM;
+  below the backlight's minimum (this scaler's backlight 0 is dim, not dark) the DU dims the pixels as well. Whether
+  VR_ADC drives the backlight at all is still to be proven on the bench (test B1), and the P4 cannot see whether the
+  VR lead is plugged in, so pixel dimming must stay the fallback.
+- INFO and STATS on such a DU: `"panel_power": "on" | "off"`, `"panel_why"`: `"no_usb"`, `"no_usb_timeout"`, `"bye"`,
+  `"host_no_dmc"`, `"dmc_on"` or `"dmc_off"` (so the status page can say why a DU is dark), `"panel_seen": true |
+  false` (the scaler answers on I2C, EDID at
+  0x50: a check of the switch, given 5 s after switching on; it shows power, not a lit picture, since the scaler's
+  own soft-off still answers), `"dimming": "pixels" | "backlight"`, and `caps` with `panel_power` and `backlight`.
+  The keys are absent on a DU without a carrier.
 
 ## 7. Sizes and rates
 

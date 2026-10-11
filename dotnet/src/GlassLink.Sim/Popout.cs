@@ -22,7 +22,20 @@ public sealed class SimCamera(SimConnectClient sim)
 
     public string Title => _title.Text ?? "";
 
-    public bool InCockpit => _state.Value is { } s && (int)s == StateCockpit;
+    /// <summary>The camera is in the cockpit (the sim's camera state), paused or not.</summary>
+    public bool InCockpitView => _state.Value is { } s && (int)s == StateCockpit;
+
+    /// <summary>In the cockpit and not in the sim's menu. With the Esc menu open the sim is paused ("Pause_EX1" 9 = full
+    /// pause + sim pause) and sends no variables, so the camera state still says cockpit (measured 11 Oct 2026, MSFS
+    /// 2024): a click would land in the menu. Active pause (4) is still the cockpit.</summary>
+    public bool InCockpit => InCockpitView && !InMenu(sim.PauseState);
+
+    public bool MenuOpen => InMenu(sim.PauseState);
+
+    /// <summary>The sim's menu is open (or the sim is fully paused otherwise): no clicks into the cockpit.</summary>
+    public static bool InMenu(uint pauseState) => (pauseState & (FullPause | SimPause)) != 0;
+
+    private const uint FullPause = 1, SimPause = 8;
 
     public double? Zoom => _zoom.Value;
 
@@ -83,8 +96,12 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
     }
 
     /// <summary>Pops out the named displays. Returns the ones that got a window.</summary>
-    /// <summary>Asked before every camera move and click: true = stop, restore the camera, return (the DMC is quitting).</summary>
+    /// <summary>Asked before every camera move and click: true = stop, restore the camera, return (the DMC is quitting,
+    /// or the user left the cockpit or opened the sim's menu: review C3b).</summary>
     public Func<bool> Stop { get; init; } = () => false;
+
+    /// <summary>The DMC is quitting: no waiting for the sim's menu to close before the camera is put back.</summary>
+    public Func<bool> Quitting { get; init; } = () => false;
 
     public IReadOnlyList<string> Run(IReadOnlyList<string> names, AircraftProfile profile)
     {
@@ -150,7 +167,23 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         }
         finally
         {
-            if (moved)                                       // stopped before the first move (the DMC quitting): nothing to undo
+            // The sim's menu opened during the run: the view is put back once it is closed, as a restore sent into the
+            // menu is lost (measured 11 Oct 2026: the camera stayed in the pilot's default view). At most 10 minutes.
+            if (moved && camera.MenuOpen)
+            {
+                for (var i = 0; camera.MenuOpen && !Quitting() && i < 2400; i++)
+                {
+                    Thread.Sleep(250);
+                }
+
+                if (!camera.MenuOpen)
+                {
+                    Thread.Sleep(1000);                      // back in the cockpit view first
+                }
+            }
+
+            // stopped before the first move: nothing to undo; the user went to an outside view: left there, not pulled back
+            if (moved && camera.InCockpitView)
             {
                 Restore(oldView, oldZoom, sim.Handle);
             }
@@ -246,6 +279,12 @@ public sealed class PopoutProcedure(ConfigFile config, SimCamera camera, Action<
         while (Environment.TickCount64 - started < maxSeconds * 1000)
         {
             Thread.Sleep(400);
+            if (Stop())
+            {
+                say("stopped while the camera settled (the sim's menu opened, or the cockpit was left)");
+                return false;
+            }
+
             var current = WindowFinder.CoarseGrey(simWindow);
             if (previous is not null && current is not null && previous.Length == current.Length)
             {

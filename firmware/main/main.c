@@ -91,6 +91,11 @@ static volatile uint32_t s_screen_gen;  /* bumped when what a screen of the DU's
 static struct { esp_ota_handle_t h; const esp_partition_t *part; uint32_t expected; uint32_t got; uint32_t crc;
                 int64_t last_us; bool active; } s_ota;
 static bool s_app_confirmed;        /* this image has shown it works; until then a crash rolls back to the old one */
+/* An unconfirmed image that no host talks to for this long goes back to the image before it (#83): its USB may not
+ * work, and a DU on a supply of its own (integrated behind the MIP) is otherwise never restarted to roll back. */
+#define UNCONFIRMED_ROLLBACK_US (10LL * 60 * 1000000)
+#define ROLLBACK_MAGIC 0x474c5242u
+static RTC_NOINIT_ATTR uint32_t s_rollback_magic;  /* set before such a rollback: the image before it says so to the host */
 
 /* Consecutive boots that did not get as far as a stable unit; kept across software resets, not across power loss.
  * Three in a row start in the safe 768x768 mode (#21). */
@@ -290,6 +295,11 @@ static void report_reset_reason(void)
                     : s_reset_reason == ESP_RST_BROWNOUT ? "a brownout (the supply voltage dipped)"
                     : NULL;
     if (why) send_log(2, "restarted after %s", why);
+    if (s_rollback_magic == ROLLBACK_MAGIC) {
+        s_rollback_magic = 0;
+        send_log(2, "back on this image: the update after it heard from no host for %d minutes and was rolled back",
+                 (int)(UNCONFIRMED_ROLLBACK_US / 60000000));
+    }
 }
 
 /* ---- OTA ------------------------------------------------------------------------------------- */
@@ -801,13 +811,24 @@ static void protocol_task(void *arg)
             ota_fail(6);                     /* the host went away mid-update (also unplugged): give the flash slot back */
         }
         /* A minute without a crash confirms a new image only once a host has talked to it: an image whose USB does not
-         * work (a host cannot bind it) must still roll back at the next restart, not need a serial cable (review 9 Oct
-         * 2026). The crash counter starts again after a stable minute, also on an image confirmed long ago. */
+         * work (a host cannot bind it) must still roll back, not need a serial cable (review 9 Oct 2026); it does so
+         * itself after UNCONFIRMED_ROLLBACK_US (#83). The crash counter starts again after a stable minute, also on an
+         * image confirmed long ago. */
         if (esp_timer_get_time() > 60000000) {
             if (!s_app_confirmed && s_host_seen) {
                 confirm_app("a minute without a crash, with a host");
             }
             s_boot_count = 0;
+        }
+        static bool rollback_tried;
+        if (!s_app_confirmed && !s_host_seen && !s_ota.active && !rollback_tried && esp_timer_get_time() > UNCONFIRMED_ROLLBACK_US) {
+            rollback_tried = true;
+            ESP_LOGW(TAG, "no host for %lld s on an unconfirmed image: rolling back", UNCONFIRMED_ROLLBACK_US / 1000000);
+            s_rollback_magic = ROLLBACK_MAGIC;
+            s_boot_count = 0;               /* a planned restart, not a crash */
+            esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();    /* returns only if there is nothing to go back to */
+            s_rollback_magic = 0;
+            ESP_LOGE(TAG, "no image to roll back to (%s): staying on this one", esp_err_to_name(err));
         }
         if (!connected) {
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -1057,6 +1078,7 @@ void app_main(void)
     if (s_boot_magic != BOOT_MAGIC || esp_reset_reason() == ESP_RST_POWERON) {
         s_boot_magic = BOOT_MAGIC;
         s_boot_count = 0;
+        s_rollback_magic = 0;               /* RTC memory holds anything after power-on */
     }
     s_boot_count++;
     int mode = nvs_get_int("mode", 0);

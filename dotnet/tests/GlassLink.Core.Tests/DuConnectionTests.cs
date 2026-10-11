@@ -212,6 +212,28 @@ public class DuConnectionTests
     }
 
     [Fact]
+    public void Panel_power_is_a_state_sent_with_every_heartbeat_and_only_to_a_DU_that_has_the_switch()
+    {
+        var carrier = new FakeDu { InfoJson = """{"fw":"0.11.0","panel":[768,768],"caps":["mode","tiles","band","panel_power"]}""" };
+        using var conn = new DuConnection(carrier);
+        conn.Start();
+        Until(() => carrier.Of(MessageType.SetPanelPower).Count > 0);
+        Assert.Equal(1u, carrier.Of(MessageType.SetPanelPower)[0].Arg);           // on until the DMC knows better
+
+        conn.PanelOn = false;                                                      // the cockpit's DU went dark
+        Until(() => carrier.Of(MessageType.SetPanelPower).Any(m => m.Arg == 0));
+        var count = carrier.Of(MessageType.SetPanelPower).Count;
+        Until(() => carrier.Of(MessageType.SetPanelPower).Count > count, 4000);   // repeated: a restarted DU gets it back
+        Assert.Equal(0u, carrier.Of(MessageType.SetPanelPower).Last().Arg);
+
+        var plain = new FakeDu();                                                  // a NANO without a carrier board
+        using var other = new DuConnection(plain) { PanelOn = false };
+        other.Start();
+        Until(() => plain.Of(MessageType.SetAssigned).Count >= 2, 4000);
+        Assert.Empty(plain.Of(MessageType.SetPanelPower));                         // older firmware would take it as a broken header
+    }
+
+    [Fact]
     public void Survives_stale_bytes_and_a_lost_info_answer()
     {
         var stale = Enumerable.Range(0, 100).Select(i => (byte)i).ToArray();

@@ -47,6 +47,10 @@ public interface ISimulator
 
     BrightnessStatus BrightnessStatus();
 
+    /// <summary>Whether the cockpit's DU of a display is dark (its knob at OFF, the aircraft unpowered): true dark,
+    /// false lit, null not known (no sim, no rule for this aircraft or display), when an integrated DU keeps its panel on.</summary>
+    bool? DuDark(string display);
+
     /// <summary>Another window a display may be in this sim (X-Plane: the profile's pop-out); null for none.</summary>
     WindowRule? Rule(string display);
 }
@@ -81,6 +85,8 @@ public sealed class MsfsSim(SimConnectClient sim, SimCamera camera, BrightnessLi
     public double? Brightness(string display) => brightness.For(display);
 
     public BrightnessStatus BrightnessStatus() => brightness.Status();
+
+    public bool? DuDark(string display) => brightness.DarkFor(display);
 
     public WindowRule? Rule(string display) => null;          // the configured window (GlassLink:<name>) is the one
 }
@@ -143,6 +149,40 @@ public sealed class XPlaneSim(XPlaneClient xplane, ConfigFile config, Func<XPlan
 
     public BrightnessStatus BrightnessStatus() =>
         new(true, xplane.AircraftName, new Dictionary<string, string>(), Profile?.DimmingName ?? "X-Plane: the aircraft's pop-outs show its own brightness");
+
+    private (long At, IReadOnlyDictionary<string, double[]?> Values) _duValues = (long.MinValue / 2, new Dictionary<string, double[]?>());
+    private int _duReading;
+
+    /// <summary>By the profile's "du_off" dataref entry (the ToLiss: AirbusFBW/DUBrightness, entries 0..5 = captain PFD,
+    /// captain ND, FO PFD, FO ND, upper and lower ECAM, measured 11 Oct 2026 with the A339; 0 = the DU off, its picture
+    /// moves to the other DU of the pair). Read in the background at most twice a second, as the DU manager asks every
+    /// 100 ms under its lock and X-Plane may take seconds to answer; dark until the first value is in.</summary>
+    public bool? DuDark(string display)
+    {
+        if (!xplane.Connected || Profile is not { } profile || !profile.DuOff.TryGetValue(display, out var rule))
+        {
+            return null;
+        }
+
+        var cached = _duValues;
+        if (Environment.TickCount64 - cached.At > 500 && Interlocked.Exchange(ref _duReading, 1) == 0)
+        {
+            Task.Run(() =>
+            {
+                try
+                {
+                    _duValues = (Environment.TickCount64, profile.DuOff.Values.Select(r => r.Dataref).Distinct()
+                        .ToDictionary(d => d, d => xplane.Numbers(d) ?? (xplane.Number(d) is { } n ? [n] : null)));
+                }
+                finally
+                {
+                    Volatile.Write(ref _duReading, 0);
+                }
+            });
+        }
+
+        return cached.Values.GetValueOrDefault(rule.Dataref) is not { } values || rule.Index >= values.Length || values[rule.Index] <= 0;
+    }
 
     public WindowRule? Rule(string display) => Profile?.Rule(display);
 }

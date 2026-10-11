@@ -25,6 +25,10 @@ public sealed record XPlaneProfile(string Key, IReadOnlyDictionary<string, XPlan
     public WindowRule? Rule(string display) => Displays.TryGetValue(display, out var d)
         ? new WindowRule(new WindowMatch(XPlaneClient.Process, XPlaneProfiles.WindowClass, null, d.Title, null, null), Frame, ToolWindow: true)
         : null;
+
+    /// <summary>"du_off": per display, the dataref (an array entry as "name[i]") that is 0 when the cockpit's DU is
+    /// dark; an integrated DU switches its panel off then (usb-protocol.md 6a).</summary>
+    public IReadOnlyDictionary<string, (string Dataref, int Index)> DuOff { get; init; } = new Dictionary<string, (string, int)>();
 }
 
 /// <summary>The X-Plane profiles: the "sim": "xplane" entries of <see cref="Profiles"/>, built-in and from config.json.</summary>
@@ -55,8 +59,18 @@ public static class XPlaneProfiles
             }
         }
 
+        var duOff = new Dictionary<string, (string, int)>();
+        foreach (var (name, node) in o["du_off"] as JsonObject ?? [])
+        {
+            if (node.Text() is { Length: > 0 } text)
+            {
+                var entry = System.Text.RegularExpressions.Regex.Match(text, @"^(.+)\[(\d+)\]$");
+                duOff[name] = entry.Success ? (entry.Groups[1].Value, int.Parse(entry.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)) : (text, 0);
+            }
+        }
+
         var dim = o["popout_dimming"] as JsonObject;
         return new XPlaneProfile(key, displays, o["reinstate_command"].Text(), o["state_array"].Text(),
-            Math.Max(0, (int)o["frame"].Number(0)), dim?["name"].Text() ?? "the aircraft dims its pop-outs itself");
+            Math.Max(0, (int)o["frame"].Number(0)), dim?["name"].Text() ?? "the aircraft dims its pop-outs itself") { DuOff = duOff };
     }
 }

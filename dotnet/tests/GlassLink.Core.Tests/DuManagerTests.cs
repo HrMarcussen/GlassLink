@@ -53,6 +53,32 @@ public class DuManagerTests
     }
 
     [Fact]
+    public void An_integrated_DU_goes_dark_a_second_after_its_cockpit_DU_and_lights_at_once()
+    {
+        var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"label":"DU1","display":"pfd"}}}""",
+            """{"fw":"0.11.0","panel":[768,768],"caps":["mode","tiles","band","panel_power"]}""");
+        using var _m = manager;
+        bool? dark = null;                                            // no sim: cannot tell, the panel stays on
+        manager.SimDuDark = d => d == "pfd" ? dark : null;
+        manager.ScanOnce();
+        Until(() => dus.Count == 1 && dus[0].Of(MessageType.SetPanelPower).Count > 0);
+        List<uint> Power() => dus[0].Of(MessageType.SetPanelPower).Select(m => m.Arg).ToList();
+        manager.BrightnessTick();
+        Assert.All(Power(), a => Assert.Equal(1u, a));
+
+        dark = true;                                                  // the knob at OFF
+        manager.BrightnessTick();
+        Assert.All(Power(), a => Assert.Equal(1u, a));                // not yet: a knob passing through OFF must not blink it
+        Thread.Sleep(1100);
+        manager.BrightnessTick();
+        Until(() => Power()[^1] == 0);
+
+        dark = false;                                                 // turned up again
+        manager.BrightnessTick();
+        Until(() => Power()[^1] == 1);
+    }
+
+    [Fact]
     public void A_du_that_takes_a_band_gets_its_tiles_as_one_picture_but_test_cards_per_tile()
     {
         var (manager, dus, _, _, _) = Make("""{"modules":{"SERIAL":{"label":"MIP","screen":4,"tiles":{"pfd":{"x":40,"y":156},"nd":{"x":1100,"y":156}}}}}""",

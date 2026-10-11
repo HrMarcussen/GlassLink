@@ -289,6 +289,29 @@ public class SimTests
     }
 
     [Fact]
+    public void The_profiles_say_which_variable_is_0_when_a_cockpit_DU_is_dark()
+    {
+        var config = new JsonObject();
+        Assert.Equal("N_DISPLAY_BRIGHTNESS_CO", Profiles.Select(config, "FenixA320 CFM SL")!.DuOff["pfd"]);    // = the knob, 0 at OFF (measured 11 Oct 2026)
+        Assert.Equal("VC_PED_ECP_LR_DSP_LT_Knob", Profiles.Select(config, "FSLabs A321-251NX")!.DuOff["ecam_lower"]);  // 0..270, 0 = black
+        Assert.Equal(6, Profiles.Select(config, "FSLabs A321-251NX")!.DuOff.Count);
+
+        var mine = (JsonObject)JsonNode.Parse("""{"popout":{"profiles":{"My A320":{"du_off":{"pfd":"MY_PFD_POWER"}}}}}""")!;
+        Assert.Equal("MY_PFD_POWER", Profiles.Select(mine, "My A320 Test")!.DuOff["pfd"]);
+        Assert.Empty(Profiles.Select(new JsonObject { ["popout"] = new JsonObject { ["profiles"] = new JsonObject { ["Plain"] = new JsonObject() } } }, "Plain")!.DuOff);   // no rule: panels stay on
+    }
+
+    [Fact]
+    public void The_sims_menu_is_not_the_cockpit_though_the_camera_state_still_says_so()
+    {
+        Assert.True(SimCamera.InMenu(9));          // Esc menu, MSFS 2024 (measured 11 Oct 2026): full pause + sim pause
+        Assert.True(SimCamera.InMenu(1));
+        Assert.True(SimCamera.InMenu(8));
+        Assert.False(SimCamera.InMenu(0));         // running
+        Assert.False(SimCamera.InMenu(4));         // active pause: still the cockpit, clicks work
+    }
+
+    [Fact]
     public void Window_rules_and_the_client_crop()
     {
         var w = new WindowInfo(1, "GlassLink:pfd", "AceApp", "FlightSimulator2024.exe", false,

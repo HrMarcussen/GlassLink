@@ -150,6 +150,12 @@ part of the aircraft's `.acf` path, for an aircraft whose displays are pop-out w
 `state_array` (leave both out if the aircraft has none: GlassLink then only sends the command), `frame` the frame
 X-Plane draws inside the window.
 
+A profile of either sim may name, per display, the variable that is 0 when that DU is dark in the cockpit (its
+brightness knob at OFF): `"du_off": {"pfd": "N_DISPLAY_BRIGHTNESS_CO"}` (an MSFS `L:` variable, without the `L:`) or
+`{"pfd": "AirbusFBW/DUBrightness[0]"}` (an X-Plane dataref, an array entry in brackets). A DU with its own panel power
+(the integrated DU) then switches its panel off with the cockpit's; the built-in Fenix, FSLabs and ToLiss profiles
+have it.
+
 ## HTTP API
 
 The status page uses these; they are also handy for scripts. Changes (POST, DELETE) come from this PC only unless

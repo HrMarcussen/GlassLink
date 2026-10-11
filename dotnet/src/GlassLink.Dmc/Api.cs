@@ -389,6 +389,8 @@ public static partial class Api
                 ["ping_ms"] = d.PingMs is { } ping ? Math.Round(ping, 1) : null,
                 ["ota"] = new JsonObject { ["state"] = d.Ota.State.ToString().ToLowerInvariant(), ["progress"] = Math.Round(d.Ota.Progress, 3), ["message"] = d.Ota.Message },
                 ["fw_outdated"] = Firmware.IsOutdated(d.Info?.Firmware, dmc.FirmwareVersion),
+                // an integrated DU's panel power (usb-protocol.md 6a): what the DMC asks for, and whether the DU has the switch
+                ["panel"] = conn is null ? null : new JsonObject { ["switch"] = conn.SupportsPanelPower, ["on"] = conn.PanelOn },
                 ["brightness"] = new JsonObject { ["sent"] = d.BrightnessSent, ["sim"] = d.BrightnessSim is { } s ? Math.Round(s, 3) : null, ["source"] = d.BrightnessSim is null ? "manual" : "sim" },
                 ["connected_s"] = conn is null ? null : Math.Round((DateTime.UtcNow - conn.ConnectedAt).TotalSeconds, 1),
                 ["last_msg_age_s"] = conn is null ? null : Math.Round((DateTime.UtcNow - conn.LastMessageAt).TotalSeconds, 1),

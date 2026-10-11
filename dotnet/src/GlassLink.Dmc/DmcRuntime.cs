@@ -37,6 +37,7 @@ public sealed class DmcRuntime : IDisposable
         Dus = DuManager.ForWinUsb(Config, Displays.Slot, Log);
         Dus.BandFactory = (name, width, height, parts) => new BandComposer(name, width, height, parts);
         Dus.SimBrightness = display => BrightnessEnabled ? ActiveSim.Brightness(display) : null;
+        Dus.SimDuDark = display => ActiveSim.DuDark(display);        // an integrated DU's panel power (usb-protocol.md 6a)
         // The size of the picture a display really publishes (after max_size); its configured client_size before the
         // first frame (#27).
         Dus.DisplaySize = display => Displays.Slot(display) is { Width: > 0, Height: > 0 } slot ? (slot.Width, slot.Height)

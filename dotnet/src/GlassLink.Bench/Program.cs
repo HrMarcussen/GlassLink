@@ -65,8 +65,8 @@ if (command == "sim")
             Thread.Sleep(500);
         }
 
-        Console.WriteLine($"connected {sim.Connected}  '{title.Text}'  camera state {state.Value} view {viewType.Value}/{viewIndex.Value} zoom {zoom.Value:0}  " +
-                          $"sim {sim.SimFps:0.0} fps  brightness {string.Join(" ", knobs.Select(k => k.Value is { } v ? v.ToString("0.00") : "-"))}");
+        Console.WriteLine($"connected {sim.Connected}  '{title.Text}'  pause {sim.PauseState}  camera state {state.Value} view {viewType.Value}/{viewIndex.Value} zoom {zoom.Value:0}  " +
+                          $"sim {sim.SimFps:0.0} fps  brightness {string.Join(" ", knobs.Select(k => k.Value is { } v ? v.ToString("0.000") : "-"))}");
     }
 
     return 0;

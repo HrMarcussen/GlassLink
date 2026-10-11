@@ -54,7 +54,12 @@ public sealed record ClickPoint(double X, double Y, CameraSpec Camera, double? A
 /// dims its own pop-outs.</summary>
 public sealed record AircraftProfile(string Key, double Zoom, IReadOnlyDictionary<string, ClickPoint> Points,
     IReadOnlyDictionary<string, string> Brightness, string? DimmingFile, string? DimmingTag, string? DimmingOnValue, string? DimmingName,
-    string? Detect = null, CameraSpec? CopilotCamera = null, bool DimmingAlways = false);
+    string? Detect = null, CameraSpec? CopilotCamera = null, bool DimmingAlways = false)
+{
+    /// <summary>"du_off": per display, the variable that is 0 when the cockpit's DU is dark (its knob at OFF). An
+    /// integrated DU switches its panel off then (usb-protocol.md 6a); a display without one keeps its panel on.</summary>
+    public IReadOnlyDictionary<string, string> DuOff { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>
 /// Built-in profiles merged with "popout.profiles" of config.json (the configuration wins, points and displays merge
@@ -86,6 +91,10 @@ public static class Profiles
           "pfd": "N_DISPLAY_BRIGHTNESS_CO", "nd": "N_DISPLAY_BRIGHTNESS_CI", "ecam_upper": "N_DISPLAY_BRIGHTNESS_ECAM_U",
           "ecam_lower": "N_DISPLAY_BRIGHTNESS_ECAM_L", "fo_pfd": "N_DISPLAY_BRIGHTNESS_FO", "fo_nd": "N_DISPLAY_BRIGHTNESS_FI"
         },
+        "du_off": {
+          "pfd": "N_DISPLAY_BRIGHTNESS_CO", "nd": "N_DISPLAY_BRIGHTNESS_CI", "ecam_upper": "N_DISPLAY_BRIGHTNESS_ECAM_U",
+          "ecam_lower": "N_DISPLAY_BRIGHTNESS_ECAM_L", "fo_pfd": "N_DISPLAY_BRIGHTNESS_FO", "fo_nd": "N_DISPLAY_BRIGHTNESS_FI"
+        },
         "popout_dimming": {
           "file": "C:\\ProgramData\\Fenix\\FenixSim A320\\persistancy.xml", "xml_tag": "homeCockpitMode", "on_value": "true",
           "name": "Fenix Home Cockpit Mode"
@@ -100,6 +109,10 @@ public static class Profiles
           "pfd": [0.4902, 0.8056], "nd": [0.5902, 0.8056], "ecam_upper": [0.7715, 0.7944], "ecam_lower": [0.7809, 0.9556],
           "fo_nd": [0.9340, 0.8056],
           "fo_pfd": {"xy": [0.5559, 0.7000], "camera": {"mode": "view", "type": 2, "index": 5}}
+        },
+        "du_off": {
+          "pfd": "VC_MIP_CPT_DU_PNL_PFD_BRT_Knob", "nd": "VC_MIP_CPT_DU_PNL_ND_BRT_Knob", "ecam_upper": "VC_PED_ECP_UP_DSP_LT_Knob",
+          "ecam_lower": "VC_PED_ECP_LR_DSP_LT_Knob", "fo_pfd": "VC_MIP_FO_DU_PNL_PFD_BRT_Knob", "fo_nd": "VC_MIP_FO_DU_PNL_ND_BRT_Knob"
         },
         "popout_dimming": {"always": true, "name": "the FSLabs dims its pop-outs itself"}
       },
@@ -116,6 +129,10 @@ public static class Profiles
         "reinstate_command": "toliss_airbus/reinstatePopups",
         "state_array": "AirbusFBW/PopUpStateArray",
         "frame": 15,
+        "du_off": {
+          "pfd": "AirbusFBW/DUBrightness[0]", "nd": "AirbusFBW/DUBrightness[1]", "fo_pfd": "AirbusFBW/DUBrightness[2]",
+          "fo_nd": "AirbusFBW/DUBrightness[3]", "ecam_upper": "AirbusFBW/DUBrightness[4]", "ecam_lower": "AirbusFBW/DUBrightness[5]"
+        },
         "popout_dimming": {"always": true, "name": "the ToLiss dims its pop-outs itself"}
       }
     }
@@ -208,6 +225,9 @@ public static class Profiles
             dim?["file"].Text(), dim?["xml_tag"].Text(), dim?["on_value"].Text(), dim?["name"].Text(),
             o["detect"] is { } detect && detect.GetValueKind() == JsonValueKind.String ? detect.GetValue<string>() : null,
             o["copilot_camera"] is JsonObject seat ? CameraSpec.From(seat) : null,    // the FO seat's view, if not the sim's copilot seat
-            dim?["always"] is { } always && always.GetValueKind() == JsonValueKind.True);   // the aircraft always dims its pop-outs itself
+            dim?["always"] is { } always && always.GetValueKind() == JsonValueKind.True)    // the aircraft always dims its pop-outs itself
+        {
+            DuOff = (o["du_off"] as JsonObject ?? []).Where(kv => kv.Value.Text() is not null).ToDictionary(kv => kv.Key, kv => kv.Value.Text()!),
+        };
     }
 }

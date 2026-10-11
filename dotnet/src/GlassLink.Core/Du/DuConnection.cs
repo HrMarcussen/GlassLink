@@ -198,6 +198,34 @@ public sealed class DuConnection : IDisposable
     /// displays are best sent as one band instead of a TILE each.</summary>
     public bool SupportsBand => Has("band");
 
+    /// <summary>The DU switches its panel's power (an integrated DU's carrier board, usb-protocol.md 6a).</summary>
+    public bool SupportsPanelPower => Has("panel_power");
+
+    private volatile bool _panelOn = true;
+
+    /// <summary>Whether the panel is to be powered: the cockpit's DU is on, or the DMC cannot tell. Sent when it changes
+    /// and with every SET_ASSIGNED, so a DU that restarted has it back within 2 s; only to a DU that has the switch.</summary>
+    public bool PanelOn
+    {
+        get => _panelOn;
+        set
+        {
+            if (_panelOn != value)
+            {
+                _panelOn = value;
+                SendPanelPower();
+            }
+        }
+    }
+
+    private void SendPanelPower()
+    {
+        if (SupportsPanelPower)
+        {
+            Send(MessageType.SetPanelPower, arg: _panelOn ? 1u : 0u);
+        }
+    }
+
     /// <summary>The HDMI mode the DU runs (INFO), null before the first INFO.</summary>
     public int? Mode => InfoJson is { } j && j.ValueKind == JsonValueKind.Object && j.TryGetProperty("mode", out var m) && m.ValueKind == JsonValueKind.Number && m.TryGetInt32(out var v) ? v : null;
 
@@ -300,6 +328,7 @@ public sealed class DuConnection : IDisposable
         var names = string.Join(" · ", sources.Select(s => s.Title).Distinct());
         _assignedSentAt = Environment.TickCount64;
         Send(MessageType.SetAssigned, Encoding.UTF8.GetBytes($"{Utf8Prefix(Label, 31)}\n{names}"), arg: state);
+        SendPanelPower();
     }
 
     /// <summary>The DMC is quitting: the DU shows "waiting for the DMC" at once and keeps no picture of this session.</summary>

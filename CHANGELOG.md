@@ -48,6 +48,25 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   (`glasslink_du-x.y.z.bin` for v1.x, `glasslink_du-p4v3-x.y.z.bin` for v3.x), both signed; CI builds both. A DU
   says its chip in INFO (`chip_rev`, 103 = v1.3), the DMC offers it the matching image and refuses to send one whose
   header names other revisions. The v3.x image is built but not yet tested on a v3.x board.
+- **[DU firmware]** An update that no DMC has talked to for 10 minutes rolls itself back to the image before it, which
+  tells the DMC so (#83): its USB may not work, and an integrated DU on a supply of its own is otherwise never
+  restarted to roll back. Tested on DU2 with a 60 s build.
+- Panel power for the integrated DU, the DMC's side (#67; the DU's side follows with the carrier board): each aircraft
+  profile names, per display, the variable that is 0 when that DU is dark in the cockpit (`du_off`), and a DU whose
+  INFO says `panel_power` is told to switch its panel off a second after its cockpit DU went dark, on again at once.
+  Measured 11 Oct 2026: the Fenix's `N_DISPLAY_BRIGHTNESS_*` equals the knob and is 0 only at OFF; the FSLabs' knobs
+  are 0..270, 0 = black; the ToLiss's `AirbusFBW/DUBrightness` entries 0-5 are captain PFD, captain ND, FO PFD, FO
+  ND, upper and lower ECAM (live with the A339: the DMC asked for the panel off 1-2 s after the ND knob went to OFF).
+  An aircraft without a rule keeps its panels on. `/status` shows each DU's `panel`. The protocol's section 6a is
+  rewritten to the rules agreed with the hardware side (status screens on the DU's own power, "No USB" for 2
+  minutes, dark after the DMC's BYE, the DMC deciding only while a sim is connected).
+
+### Fixed
+- The automatic pop-out stops when the sim's menu opens or the camera leaves the cockpit during a run, and puts the
+  view back once the menu is closed (review C3b). MSFS 2024 sends no data while its Esc menu is open, so the camera
+  state still said "cockpit" and the clicks would have gone into the menu; the DMC now also follows the sim's pause
+  state (the menu = full pause + sim pause). Tested with the Fenix: the menu opened one second into a run stopped it
+  before any click, and the view came back 25 s later when the menu closed.
 
 ### Changed
 - The DMC talks to "the sim that runs" through one interface for MSFS and X-Plane (status, top bar, brightness,

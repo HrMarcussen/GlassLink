@@ -39,6 +39,28 @@ public sealed class BrightnessLink(ConfigFile config, SimConnectClient sim, SimC
         }
     }
 
+    /// <summary>Whether the cockpit's DU of a display is dark, by the profile's "du_off" variable (0 = dark): dark too
+    /// while the sim has not sent its value yet (Thomas, 11 Oct 2026: off from the sim's start until the aircraft's
+    /// state is known). Null without the sim, or for an aircraft or display without such a rule: the panel stays on.</summary>
+    public bool? DarkFor(string display)
+    {
+        var profile = sim.Connected ? Profile() : null;
+        if (profile is null || !profile.DuOff.TryGetValue(display, out var name))
+        {
+            return null;
+        }
+
+        lock (_variables)
+        {
+            if (!_variables.TryGetValue(name, out var variable))
+            {
+                _variables[name] = variable = sim.Number("L:" + name);
+            }
+
+            return variable.Value is not { } value || value <= 0;
+        }
+    }
+
     public BrightnessStatus Status()
     {
         var profile = Profile();

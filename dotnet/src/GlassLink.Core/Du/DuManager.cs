@@ -46,6 +46,13 @@ public sealed class DuManager : IDisposable
     /// Set by the brightness link (layer 3).</summary>
     public Func<string, double?> SimBrightness { get; set; } = _ => null;
 
+    /// <summary>Whether the cockpit's DU of a display is dark (its knob at OFF, or the aircraft unpowered): true dark,
+    /// false lit, null not known. An integrated DU switches its panel off when all its displays have been dark for a
+    /// second (usb-protocol.md 6a); while it cannot be told, the panel stays on.</summary>
+    public Func<string, bool?> SimDuDark { get; set; } = _ => null;
+
+    private readonly Dictionary<string, long> _darkSince = [];
+
     /// <summary>A display's picture size (its client_size), for the size of its tile; null = 768x768.</summary>
     public Func<string, (int Width, int Height)?> DisplaySize { get; set; } = _ => null;
 
@@ -521,12 +528,29 @@ public sealed class DuManager : IDisposable
                     conn.SetBrightness(percent);
                     _brightnessSent[serial] = percent;
                 }
+
+                conn.PanelOn = !DarkForASecond(serial, settings);
             }
         }
         finally
         {
             Monitor.Exit(_gate);
         }
+    }
+
+    /// <summary>All displays of the DU dark in the cockpit for a second (a knob passing through OFF does not blink the
+    /// panel); lit again at once. A DU with nothing assigned, or a display the DMC cannot tell about, is not dark.</summary>
+    private bool DarkForASecond(string serial, DuSettings settings)
+    {
+        var displays = settings.Tiles.Count > 0 ? settings.Tiles.Select(t => t.Display).ToList() : settings.Display.Length > 0 ? [settings.Display] : [];
+        if (displays.Count == 0 || !displays.All(d => SimDuDark(d) == true))
+        {
+            _darkSince.Remove(serial);
+            return false;
+        }
+
+        var now = Environment.TickCount64;
+        return now - (_darkSince.TryGetValue(serial, out var since) ? since : _darkSince[serial] = now) >= 1000;
     }
 
     // -- the user's decisions ---------------------------------------------------------------------------

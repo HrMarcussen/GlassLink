@@ -122,6 +122,25 @@ public class XPlaneTests
     }
 
     [Fact]
+    public void A_ToLiss_DU_is_dark_when_its_DUBrightness_entry_is_0_and_until_the_first_value_is_in()
+    {
+        var (fake, client, popout, _, _, _, _) = Make();
+        Assert.Equal(("AirbusFBW/DUBrightness", 5), XPlaneProfiles.ToLiss.DuOff["ecam_lower"]);
+        fake.Values["AirbusFBW/DUBrightness"] = new JsonArray(0.8, 0.0, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8);    // the captain's ND knob at OFF
+        var sim = new XPlaneSim(client, new GlassLink.Core.Config.ConfigFile(new JsonObject()), () => popout);
+        Assert.True(sim.DuDark("pfd"));                                       // nothing read yet: dark until it is known
+        var deadline = Environment.TickCount64 + 3000;
+        while (sim.DuDark("pfd") != false && Environment.TickCount64 < deadline)
+        {
+            Thread.Sleep(20);                                                 // read in the background
+        }
+
+        Assert.False(sim.DuDark("pfd"));
+        Assert.True(sim.DuDark("nd"));
+        Assert.Null(sim.DuDark("mcdu"));                                      // no rule: the panel stays on
+    }
+
+    [Fact]
     public void After_loading_the_last_flights_pop_outs_are_reinstated_once_and_again_if_x_plane_did_not_take_it()
     {
         var (fake, _, popout, _, tick, _, _) = Make();

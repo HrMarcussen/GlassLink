@@ -97,6 +97,11 @@ public sealed class SimConnectClient : IDisposable
     /// <summary>Frames the sim renders per second (its own count, before any frame generation).</summary>
     public double? SimFps { get; private set; }
 
+    /// <summary>The sim's pause state ("Pause_EX1": 0 running, 1 full pause, 2 pause with sound, 4 active pause, 8 sim
+    /// pause), as last reported; 0 until the first change. While the sim is paused it sends no variable data at all, so
+    /// the variables keep their last values (measured 11 Oct 2026 with the Esc menu open: camera state still "cockpit").</summary>
+    public uint PauseState { get; private set; }
+
     public void Start() => _thread.Start();
 
     /// <summary>Registers a numeric variable, e.g. ("COCKPIT CAMERA ZOOM", "Percent") or ("L:N_DISPLAY_BRIGHTNESS_CO", "Number").
@@ -168,6 +173,7 @@ public sealed class SimConnectClient : IDisposable
                         _registered = 0;
                         _lastMessage = Environment.TickCount64;
                         Native.SimConnect_SubscribeToSystemEvent(_handle, 1, "Frame");     // under the lock like every call (#43)
+                        Native.SimConnect_SubscribeToSystemEvent(_handle, 2, "Pause_EX1");
                     }
 
                     _log?.Invoke("SimConnect: connected");
@@ -312,6 +318,9 @@ public sealed class SimConnectClient : IDisposable
                 case Native.RECV_EVENT_FRAME when size >= 28:
                     SimFps = *(float*)((byte*)data + 24);
                     break;
+                case Native.RECV_EVENT when size >= 24 && header[4] == 2:          // group, event id, data
+                    PauseState = header[5];
+                    break;
                 case Native.RECV_QUIT:
                     _log?.Invoke("SimConnect: the sim closed the connection");
                     Disconnect();
@@ -345,6 +354,7 @@ public sealed class SimConnectClient : IDisposable
                 Native.SimConnect_Close(_handle);
                 _handle = 0;
                 SimFps = null;
+                PauseState = 0;
                 foreach (var v in _variables)
                 {
                     (v.Value, v.Text) = (null, null);        // stale values must not look like live ones
@@ -356,7 +366,7 @@ public sealed class SimConnectClient : IDisposable
     private static class Native
     {
         public const uint FLOAT64 = 4, STRING256 = 9, PERIOD_SIM_FRAME = 3, PERIOD_SECOND = 4, FLAG_CHANGED = 1;
-        public const uint RECV_EXCEPTION = 1, RECV_QUIT = 3, RECV_EVENT_FRAME = 7, RECV_SIMOBJECT_DATA = 8;
+        public const uint RECV_EXCEPTION = 1, RECV_QUIT = 3, RECV_EVENT = 4, RECV_EVENT_FRAME = 7, RECV_SIMOBJECT_DATA = 8;
 
         [DllImport("SimConnect.dll")]
         public static extern int SimConnect_GetLastSentPacketID(nint handle, out uint sendId);

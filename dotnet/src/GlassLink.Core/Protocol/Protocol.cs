@@ -15,11 +15,12 @@ public enum MessageType : byte
     ShowIdent = 0x05,
     Ping = 0x06,
     SetAssigned = 0x07,
-    SetPanelPower = 0x08,       // reserved for the hardware track (usb-protocol.md 6a); nothing sends it yet
+    SetPanelPower = 0x08,       // arg 1 on / 0 off, a state repeated with SetAssigned; only to caps "panel_power" (6a)
     SetMode = 0x09,             // HDMI mode 0..4; the DU stores it and restarts
     SetLayout = 0x0A,           // tiles, 8 bytes each (uint16 x, y, w, h); arg bit 0 = show test cards
     Tile = 0x0B,                // a JPEG for one tile (arg = tile index); answered with READY like Frame
     Bye = 0x0C,                 // the DMC quits: the DU shows "waiting for the DMC" at once (#81)
+    SetDimming = 0x0D,          // arg 0 pixels / 1 backlight; only to caps "backlight" (6a)
     OtaBegin = 0x10,
     OtaData = 0x11,
     OtaEnd = 0x12,

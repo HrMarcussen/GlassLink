@@ -254,7 +254,7 @@ public sealed class AutoPopout : IDisposable
         try
         {
             Notice($"GlassLink is popping out {what}: hands off mouse and keyboard until your view is back");
-            done = new PopoutProcedure(_config, _camera, m => _log($"pop-out: {m}")) { Stop = () => _stopping }.Run(todo, profile);
+            done = new PopoutProcedure(_config, _camera, m => _log($"pop-out: {m}")) { Stop = () => _stopping || !_camera.InCockpit, Quitting = () => _stopping }.Run(todo, profile);
         }
         finally
         {
