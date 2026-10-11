@@ -29,6 +29,28 @@ public class AdvisorTests
     }
 
     [Fact]
+    public void Set_up_a_board_finds_the_shipped_flash_set_in_an_installed_or_unpacked_copy_and_a_checkouts_own_build()
+    {
+        var root = Directory.CreateTempSubdirectory("glasslink-flashsets").FullName;
+        try
+        {
+            var shipped = Path.Combine(root, "firmware", "flash", "v1");
+            var built = Path.Combine(root, "firmware", "build");
+            Directory.CreateDirectory(shipped);
+            File.WriteAllText(Path.Combine(shipped, "flash_args"), "--flash_size keep");
+            Assert.Equal(shipped, DmcRuntime.FlashSetFolder(installed: false, shipped, built));   // the release zip, unpacked: no build
+            Directory.CreateDirectory(built);
+            File.WriteAllText(Path.Combine(built, "flash_args"), "--flash_size 16MB");
+            Assert.Equal(built, DmcRuntime.FlashSetFolder(installed: false, shipped, built));     // a checkout: its own build
+            Assert.Equal(shipped, DmcRuntime.FlashSetFolder(installed: true, shipped, built));    // installed: only what came with it
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void A_throttled_display_in_use_is_reported_after_a_while_not_at_once()
     {
         var advisor = Make(new GpuFacts(["AMD Radeon RX 7900 XTX"], true, false, true, false, false), new SimFacts(1, "FSRFG"));

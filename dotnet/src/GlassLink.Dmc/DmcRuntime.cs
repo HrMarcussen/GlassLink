@@ -148,14 +148,18 @@ public sealed class DmcRuntime : IDisposable
     }
 
     /// <summary>What "Set up a new board" writes for a chip family: the flash set (flash_args and its files) shipped
-    /// in firmware\flash\v1 or \p4v3 of an installed copy, the firmware build folder in a checkout.</summary>
+    /// in firmware\flash\v1 or \p4v3 of an installed copy (or of the release zip, unpacked); in a checkout its firmware
+    /// build folder, when it has one.</summary>
     public string FlashSetFolderFor(int chipRevision)
     {
         var v3 = chipRevision >= 300;
-        return Installed
-            ? Path.Combine(AppContext.BaseDirectory, "firmware", "flash", v3 ? "p4v3" : "v1")
-            : Path.Combine(Root, "firmware", v3 ? "build-p4v3" : "build");
+        return FlashSetFolder(Installed, Path.Combine(AppContext.BaseDirectory, "firmware", "flash", v3 ? "p4v3" : "v1"),
+            Path.Combine(Root, "firmware", v3 ? "build-p4v3" : "build"));
     }
+
+    /// <summary>The shipped flash set for an installed copy, and for any copy without a build of its own.</summary>
+    public static string FlashSetFolder(bool installed, string shipped, string built) =>
+        installed || !File.Exists(Path.Combine(built, "flash_args")) && File.Exists(Path.Combine(shipped, "flash_args")) ? shipped : built;
 
     /// <summary>Installed by the setup program (its uninstaller is next to GlassLink.exe), not run from a checkout.</summary>
     public static bool Installed => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
