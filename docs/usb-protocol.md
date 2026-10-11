@@ -1,5 +1,8 @@
 # GlassLink DMC <-> DU USB protocol (draft 1, 2026-09-08)
 
+Protocol version 1, frozen for GlassLink 1.0 including section 6a: from 1.0 on a change that an older DMC or DU would
+misread means a new version in the header, not a changed meaning (CHANGELOG, versioning).
+
 Applies to the ESP32-P4 display modules and to the DMC's USB output path (`dotnet/`; the original Python DMC was
 retired in 0.8.0).
 The WebSocket path (`/ws/<name>`) is unchanged and stays available for browsers, Pis and testing.

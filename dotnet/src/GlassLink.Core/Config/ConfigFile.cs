@@ -25,6 +25,17 @@ public sealed class ConfigFile
     /// <summary>True when config.json was empty or broken and the copy of the last good save was used instead.</summary>
     public bool LoadedFromBackup { get; private init; }
 
+    /// <summary>The format of config.json this GlassLink reads and writes, saved as "config_version" (review A6, for
+    /// 1.0). It goes up only for a change an older GlassLink would misread (a key that means something else now); new
+    /// keys alone do not need it, as unknown keys are kept on every save.</summary>
+    public const int FormatVersion = 1;
+
+    /// <summary>The format the file says ("config_version"); 0 for a file from before it said.</summary>
+    public int FileFormat => Read(root => root["config_version"] is { } v && v.GetValueKind() == JsonValueKind.Number ? (int)v.AsDouble() : 0);
+
+    /// <summary>Written by a newer GlassLink: what it changed may be misread here.</summary>
+    public bool FromNewerVersion => FileFormat > FormatVersion;
+
     public static ConfigFile Load(string path)
     {
         if (!File.Exists(path))
@@ -83,6 +94,11 @@ public sealed class ConfigFile
             {
                 Restore(before);                             // an edit that gave up halfway leaves nothing behind
                 throw;
+            }
+
+            if (Root["config_version"] is null)
+            {
+                Root["config_version"] = FormatVersion;      // said from the first save on; a newer GlassLink's number stays
             }
 
             if (_path is null)

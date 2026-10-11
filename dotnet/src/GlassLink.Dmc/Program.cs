@@ -133,6 +133,11 @@ internal static class Program
             dmc.Log($"{configPath} was empty or broken: the last good save (config.json.bak) is used");
         }
 
+        if (dmc.Config.FromNewerVersion)
+        {
+            dmc.Log($"{configPath} was written by a newer GlassLink (config_version {dmc.Config.FileFormat}, this one reads {ConfigFile.FormatVersion}): settings it changed may be read wrongly; nothing is removed");
+        }
+
         var server = dmc.Config.Read(root => root["server"]?.DeepClone() as JsonObject);
         var host = server?["host"].Text() ?? "0.0.0.0";
         var port = int.TryParse(Option("--port"), out var p) ? p : DmcRuntime.PortFrom(server);

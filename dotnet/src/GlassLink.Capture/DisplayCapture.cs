@@ -43,6 +43,10 @@ public sealed class DisplayCapture : IDisposable
     private readonly JpegEncoder _encoder;
     private readonly Timer _watch;
     private readonly object _gate = new();
+    // The JPEG of a picture only a band reads is made when someone asks for it, on the asker's thread and under the
+    // slot's lock (which the capture's _gate must never wait behind): so it has an encoder and a lock of its own.
+    private readonly object _lazyGate = new();
+    private JpegEncoder? _lazyEncoder;
     private WindowCapture? _capture;
     private WindowRule? _rule;
     private List<Rect> _monitors = [];
@@ -92,16 +96,42 @@ public sealed class DisplayCapture : IDisposable
         {
             _disposed = true;
             _watch.Dispose();
-            _capture?.Dispose();
-            _capture = null;
-            _encoder.Dispose();
+            Retire();
+            _encoder.Dispose();                              // a frame still on its way checks _disposed under the lock first
+        }
+
+        DisposeRetired();
+        lock (_lazyGate)
+        {
+            _lazyEncoder?.Dispose();
+            _lazyEncoder = null;
         }
     }
 
-    /// <summary>Once a second: is the window there, is the capture running?</summary>
+    /// <summary>Once a second: is the window there, is the capture running? Skipped while the last look still runs: a
+    /// look that hangs must not have a new thread queue up behind it every second (11 Oct 2026: 3,800 of them, and
+    /// with no thread left the status page and every request hung).</summary>
     private void Watch()
     {
-        lock (_gate)
+        if (!Monitor.TryEnter(_gate))
+        {
+            return;
+        }
+
+        try
+        {
+            WatchLocked();
+        }
+        finally
+        {
+            Monitor.Exit(_gate);
+        }
+
+        DisposeRetired();
+    }
+
+    private void WatchLocked()
+    {
         {
             if (_disposed)
             {
@@ -138,6 +168,8 @@ public sealed class DisplayCapture : IDisposable
                                     Stop($"window of '{Name}' was closed");
                                 }
                             }
+
+                            DisposeRetired();
                         }
                         catch (Exception ex)                 // on a pool thread an exception would end the DMC with its captures open
                         {
@@ -170,10 +202,45 @@ public sealed class DisplayCapture : IDisposable
             {
                 Error = $"{ex.GetType().Name}: {ex.Message}";
                 _log?.Invoke($"[{Name}] {Error}");
-                _capture?.Dispose();
-                _capture = null;
+                Retire();
                 Window = null;                               // e.g. the window was closed while the capture was being set up
             }
+        }
+    }
+
+    // Captures that were stopped under _gate, disposed once it is released. Disposing one under _gate deadlocked (11 Oct
+    // 2026, the sim quitting): the session's Close waits for the frame callback that is running, and that callback's
+    // encode step waits for _gate (OnPixels' action).
+    private readonly List<WindowCapture> _retired = [];
+
+    /// <summary>Under _gate: the capture is no longer this display's; disposed by <see cref="DisposeRetired"/>.</summary>
+    private void Retire()
+    {
+        if (_capture is not null)
+        {
+            _retired.Add(_capture);
+            _capture = null;
+        }
+    }
+
+    /// <summary>Outside _gate: closes the captures stopped meanwhile.</summary>
+    private void DisposeRetired()
+    {
+        List<WindowCapture> retired;
+        lock (_gate)
+        {
+            if (_retired.Count == 0)
+            {
+                return;
+            }
+
+            retired = [.. _retired];
+            _retired.Clear();
+        }
+
+        foreach (var capture in retired)
+        {
+            capture.Dispose();
         }
     }
 
@@ -184,8 +251,7 @@ public sealed class DisplayCapture : IDisposable
             return;
         }
 
-        _capture.Dispose();
-        _capture = null;
+        Retire();
         Window = null;
         _rule = null;
         Error = "window not found";
@@ -343,14 +409,58 @@ public sealed class DisplayCapture : IDisposable
 
     private void EncodeAndPublish(byte[] picture, int w, int h)
     {
+        var (pixels, pw, ph) = Downscale.Fit(picture, w, h, w * 4, _settings.MaxSize) ?? (picture, w, h);      // max_size: a smaller picture, sent as such
+        if (_slot.WantsPixels)
+        {
+            // a band on a DU reads the raw pixels: the JPEG is made only if someone asks (a DU showing the display on
+            // its own, a viewer, a snapshot), not for every picture (review U1)
+            _slot.PublishLazy(EncodeLater, pw, ph, pixels.AsSpan(0, pw * ph * 4));
+        }
+        else
         {
             var started = Stopwatch.GetTimestamp();
-            var (pixels, pw, ph) = Downscale.Fit(picture, w, h, w * 4, _settings.MaxSize) ?? (picture, w, h);      // max_size: a smaller picture, sent as such
             var jpeg = _encoder.Encode(pixels, pw, ph, pw * 4);
-            _encodeMs = _encodeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
-            _jpegBytes = jpeg.Length;
-            _slot.Publish(jpeg, pw, ph, _slot.WantsPixels ? pixels.AsSpan(0, pw * ph * 4) : default);     // a band on a DU uses them
-            _published++;
+            Encoded(started, jpeg.Length);
+            _slot.Publish(jpeg, pw, ph);
         }
+
+        _published++;
+    }
+
+    /// <summary>The JPEG of a picture only a band read so far: under the slot's lock, with the pixels it keeps.</summary>
+    private ReadOnlyMemory<byte> EncodeLater(ReadOnlySpan<byte> pixels, (int Width, int Height) size)
+    {
+        lock (_lazyGate)
+        {
+            if (_disposed)
+            {
+                return default;                              // the display went away: nothing to send
+            }
+
+            try
+            {
+                var started = Stopwatch.GetTimestamp();
+                _lazyEncoder ??= new JpegEncoder(_settings.Quality, _settings.Subsample420);
+                var jpeg = _lazyEncoder.Encode(pixels, size.Width, size.Height, size.Width * 4);
+                Encoded(started, jpeg.Length);
+                return jpeg;
+            }
+            catch (Exception ex)                             // on the asker's thread (a DU's, a viewer's): an empty picture, not a crash
+            {
+                if (ex.Message != _encodeError)
+                {
+                    _encodeError = ex.Message;
+                    _log?.Invoke($"[{Name}] encode failed: {ex.GetType().Name}: {ex.Message}");
+                }
+
+                return default;
+            }
+        }
+    }
+
+    private void Encoded(long started, int bytes)
+    {
+        _encodeMs = _encodeMs * 0.9 + Stopwatch.GetElapsedTime(started).TotalMilliseconds * 0.1;
+        _jpegBytes = bytes;
     }
 }

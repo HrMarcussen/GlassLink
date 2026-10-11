@@ -87,4 +87,35 @@ public class CaptureTests
         band.Dispose();
         Assert.False(raw.WantsPixels);
     }
+
+    [Fact]
+    public void A_picture_only_a_band_reads_gets_its_jpeg_only_when_someone_asks_and_only_once()
+    {
+        var slot = new FrameSlot("pfd");
+        slot.AddPixelUser();                                         // a band reads it
+        var encodes = 0;
+        ReadOnlyMemory<byte> Encode(ReadOnlySpan<byte> pixels, (int Width, int Height) size)
+        {
+            encodes++;
+            return new byte[] { pixels[0], (byte)size.Width };       // stands for a JPEG of exactly these pixels
+        }
+
+        slot.PublishLazy(Encode, 16, 16, Enumerable.Repeat((byte)7, 16 * 16 * 4).ToArray());
+        var first = slot.Latest!;
+        Assert.True(slot.ReadPixels(first.Seq, (px, size) => Assert.Equal((7, 16), (px[0], size.Width))));    // the band draws from the pixels
+        Assert.Equal(0, encodes);                                    // and no JPEG was made for it
+        Assert.False(first.Encoded);
+
+        Assert.Equal(new byte[] { 7, 16 }, first.Jpeg.ToArray());   // a viewer, a snapshot or a DU showing it alone asks
+        Assert.Equal(new byte[] { 7, 16 }, first.Jpeg.ToArray());
+        Assert.Equal(1, encodes);                                    // made once, whoever asks
+
+        slot.PublishLazy(Encode, 16, 16, Enumerable.Repeat((byte)9, 16 * 16 * 4).ToArray());
+        slot.PublishLazy(Encode, 16, 16, Enumerable.Repeat((byte)11, 16 * 16 * 4).ToArray());
+        Assert.Equal(3u, slot.Latest!.Seq);
+        Assert.Equal(1, encodes);                                    // pictures nobody asked for cost nothing
+        Assert.Equal(11, slot.Latest.Jpeg.Span[0]);
+        slot.Publish(new byte[] { 1, 2, 3 });                        // a slot nobody reads raw: the JPEG comes ready
+        Assert.True(slot.Latest!.Encoded);
+    }
 }

@@ -581,6 +581,12 @@ public sealed class DuConnection : IDisposable
     /// on another thread must not be followed by a picture meant for the old one), and only if the DU can take it.</summary>
     private bool SendPicture(Screen screen, MessageType type, Frame frame, uint arg, Action<uint> sent, bool waiting = false)
     {
+        if (frame.Jpeg.IsEmpty)                              // made on demand here, outside the screen lock; empty if it could not be
+        {
+            sent(frame.Seq);
+            return false;
+        }
+
         if (frame.Jpeg.Length > MaxFrame)
         {
             sent(frame.Seq);                                 // skip it; the next frame may fit (#16)

@@ -81,14 +81,16 @@ what helps.
 1. Run `GlassLink-<version>-setup.exe` (from a release, or built with `tools\build-release.ps1`). GlassLink sits in
    the notification area; its menu opens the status page and offers "Start with Windows" and "Start and stop with
    the simulator".
-2. Plug in the DUs. A new DU shows NOT ASSIGNED with its serial; on the status page press **Identify** to see which
+2. A new NANO first gets GlassLink through its USB-C socket: status page, Display units, **Set up a board**, then
+   Install (under a minute, no other tools; see [Hardware](docs/hardware.md)).
+3. Plug in the DUs. A new DU shows NOT ASSIGNED with its serial; on the status page press **Identify** to see which
    one it is and choose its display (Display units tab, or "Put on a DU" on a display's card).
-3. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, a notice over the
+4. Start the sim and load the Fenix or the FSLabs. About ten seconds after you are in the cockpit, a notice over the
    sim counts down from 3, then GlassLink pops the displays out (about 35 s for six; do not touch mouse or keyboard
    meanwhile) and the DUs show them. "Automatic pop-out" in the tray menu (or the Setup tab) switches this off while
    you need the camera; "Pop out missing displays now" works either way.
-4. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
-5. X-Plane 12 with the ToLiss, once: in the ToLiss menu (ISCS) switch on "Use popout windows for popups" and "Save
+5. For another aircraft: Setup tab, **Learn** on each display, then Right-Alt + click that display once in the sim.
+6. X-Plane 12 with the ToLiss, once: in the ToLiss menu (ISCS) switch on "Use popout windows for popups" and "Save
    popup config on quit", then click each display in the cockpit and pop its popup out with the button at the right
    end of its title bar. From then on GlassLink opens them by itself, within a minute of loading a flight.
 

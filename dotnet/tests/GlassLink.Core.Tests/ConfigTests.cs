@@ -31,6 +31,21 @@ public class ConfigTests
     }
 
     [Fact]
+    public void The_file_says_its_format_from_the_first_save_and_a_newer_ones_number_stays()
+    {
+        var old = new ConfigFile((JsonObject)JsonNode.Parse("""{"server":{"port":8765}}""")!);
+        Assert.Equal(0, old.FileFormat);                              // from before 0.11: says nothing
+        old.Update(root => root["server"]!["port"] = 8766);
+        Assert.Equal(ConfigFile.FormatVersion, old.FileFormat);
+        Assert.False(old.FromNewerVersion);
+
+        var newer = new ConfigFile((JsonObject)JsonNode.Parse("""{"config_version":2,"server":{"port":8765}}""")!);
+        Assert.True(newer.FromNewerVersion);
+        newer.Update(root => root["server"]!["port"] = 8766);
+        Assert.Equal(2, newer.FileFormat);                            // never lowered by an older GlassLink
+    }
+
+    [Fact]
     public void A_failed_save_takes_the_edit_back()
     {
         var dir = Directory.CreateTempSubdirectory("glasslink-config").FullName;

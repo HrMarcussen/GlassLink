@@ -46,7 +46,7 @@ public static partial class Api
 
         // -- pictures ----------------------------------------------------------------------------------
         app.MapGet("/snapshot/{file}", (string file) =>
-            dmc.Displays.Slot(Path.GetFileNameWithoutExtension(file))?.Latest is { } frame ? Results.Bytes(frame.Jpeg.ToArray(), "image/jpeg") : Results.NotFound());
+            dmc.Displays.Slot(Path.GetFileNameWithoutExtension(file))?.Latest is { Jpeg.IsEmpty: false } frame ? Results.Bytes(frame.Jpeg.ToArray(), "image/jpeg") : Results.NotFound());
         app.MapGet("/stream/{name}", (string name, HttpContext http) => Mjpeg(dmc, name, http));
         app.Map("/ws/{name}", (string name, HttpContext http) => Viewer(dmc, name, http));
 

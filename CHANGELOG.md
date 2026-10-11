@@ -8,7 +8,13 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   the git commit it was built from as `build`.
 - While the project is 0.x: **minor** (0.2 -> 0.3) for new features or any change to the USB protocol or the
   config format, **patch** (0.2.0 -> 0.2.1) for fixes and internal work. 1.0.0 is reserved for the first version
-  that runs a full cockpit day to day.
+  that runs a full cockpit day to day. From 1.0 on, the USB protocol, config.json (`config_version`) and the aircraft
+  profile format stay compatible within a major version: a change that breaks them means 2.0. 1.0 needs: signed DU
+  firmware (done in 0.10.0); no developer tools for a new user (the installer, and Set up a board for a new NANO);
+  a signed Windows installer and program (code signing); the formats frozen (protocol 1 with panel power,
+  `config_version`, the profile format); DUs with the newer ESP32-P4 v3.x tested (#82); a week of normal flying with
+  a full cockpit without help; no open high or medium bugs. The GitHub milestone "1.0" lists what is left. The
+  integrated DU (#66, #67) and further aircraft can follow in 1.x.
 - Every released version is a git tag `vX.Y.Z`. Work in progress is collected under "Unreleased".
 - Entries that need the DUs reflashed say so: **[DU firmware]**, and such a release also sets `FIRMWARE_VERSION`
   to its own number. The status page marks a DU as outdated only if its firmware is older than that, so releases
@@ -69,6 +75,10 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   went away without one ("Waiting for the DMC" after 6 s).
 
 ### Fixed
+- The DMC could hang when the sim closed its pop-outs: stopping a capture under the display's lock waited for the
+  capture's last frame, which waited for that lock (seen 11 Oct 2026: the windows went with the sim, and 3,800
+  once-a-second checks queued up behind it until no thread was left for the status page). A stopped capture is now
+  closed outside the lock, and a check that still runs is not queued again.
 - The automatic pop-out stops when the sim's menu opens or the camera leaves the cockpit during a run, and puts the
   view back once the menu is closed (review C3b). MSFS 2024 sends no data while its Esc menu is open, so the camera
   state still said "cockpit" and the clicks would have gone into the menu; the DMC now also follows the sim's pause
@@ -76,6 +86,14 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   before any click, and the view came back 25 s later when the menu closed.
 
 ### Changed
+- A display that reaches its DU only inside a band (a 1080p screen, or a screen larger than the display) is no longer
+  JPEG-encoded on its own for every picture; its JPEG is made only when something asks for it (a DU showing it alone,
+  a viewer, a snapshot) (review U1). Measured 11 Oct 2026 with the Fenix turning, PFD on DU1 and the ND in a band on
+  DU2 at 1024x768: the DMC went from 29.6 % to 23.0 % of one CPU core, the DUs' 19 fps unchanged; about 3 ms less per
+  picture before the band sees it.
+- config.json says its format (`"config_version": 1`, written on the next save); a DMC that finds a newer number logs
+  that settings may be read wrongly and removes nothing (review A6, for 1.0). The README's first steps include Set up a
+  board.
 - The DMC talks to "the sim that runs" through one interface for MSFS and X-Plane (status, top bar, brightness,
   closing a pop-out, finding an X-Plane pop-out), instead of asking in each place whether X-Plane runs. `/status`
   lists `aircraft` and `profile` for MSFS too. Tested on X-Plane 12.4.4 with the A339: its six pop-outs found by the

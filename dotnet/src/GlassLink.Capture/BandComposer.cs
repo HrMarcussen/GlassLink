@@ -143,10 +143,14 @@ public sealed class BandComposer : IFrameSource, IDisposable
     /// <summary>One display into its box: centred like the DU centres a tile, cut to the box if it is larger.</summary>
     private void Draw(BandPart part, Frame frame)
     {
-        if (part.Source is FrameSlot slot && slot.ReadPixels(frame.Seq, (pixels, size) => Blit(part, pixels, size.Width, size.Height, size.Width * 4)))
+        // its own pixels, or a newer picture's that replaced them meanwhile: a display only a band reads has no JPEG made
+        // unless someone asks (review U1), and making one here only to decode it again would cost twice
+        if (part.Source is FrameSlot slot && (slot.ReadPixels(frame.Seq, Into) || slot.Latest is { } newer && slot.ReadPixels(newer.Seq, Into)))
         {
             return;
         }
+
+        void Into(ReadOnlySpan<byte> pixels, (int Width, int Height) size) => Blit(part, pixels, size.Width, size.Height, size.Width * 4);
 
         var bgra = _decoder.Decompress(frame.Jpeg.ToArray(), TJPixelFormat.BGRA, TJFlags.None, out var w, out var h, out var stride);
         Blit(part, bgra, w, h, stride);

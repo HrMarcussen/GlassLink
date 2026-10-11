@@ -2,8 +2,51 @@ using System.Buffers;
 
 namespace GlassLink.Core.Du;
 
-/// <summary>One encoded picture of a display. Seq increases by one for every picture that differs from the last.</summary>
-public sealed record Frame(uint Seq, ReadOnlyMemory<byte> Jpeg);
+/// <summary>One picture of a display. Seq increases by one for every picture that differs from the last. Its JPEG
+/// may be made only when someone first asks for it: a display that is seen only inside a band (a 1080p screen) is
+/// never sent as a JPEG of its own, and encoding it anyway cost about 3 ms per picture (review U1, measured 11 Oct
+/// 2026: two displays at 19 fps = 11 % of a core).</summary>
+public sealed class Frame
+{
+    private readonly object _gate = new();
+    private Func<ReadOnlyMemory<byte>>? _encode;
+    private ReadOnlyMemory<byte> _jpeg;
+    private volatile bool _encoded;
+
+    public Frame(uint seq, ReadOnlyMemory<byte> jpeg) => (Seq, _jpeg, _encoded) = (seq, jpeg, true);
+
+    /// <summary>A picture whose JPEG <paramref name="encode"/> makes on the first ask (once, whoever asks).</summary>
+    public Frame(uint seq, Func<ReadOnlyMemory<byte>> encode) => (Seq, _encode) = (seq, encode);
+
+    public uint Seq { get; }
+
+    /// <summary>The JPEG; empty if it could not be made (the display went away before anyone asked).</summary>
+    public ReadOnlyMemory<byte> Jpeg
+    {
+        get
+        {
+            if (_encoded)
+            {
+                return _jpeg;
+            }
+
+            lock (_gate)
+            {
+                if (!_encoded)
+                {
+                    _jpeg = _encode!();
+                    _encode = null;
+                    _encoded = true;
+                }
+
+                return _jpeg;
+            }
+        }
+    }
+
+    /// <summary>The JPEG has been made (or was given).</summary>
+    public bool Encoded => _encoded;
+}
 
 /// <summary>
 /// Where a DU gets its pictures from: the newest frame of one display. The same object is kept for as long as the
@@ -169,7 +212,23 @@ public sealed class FrameSlot(string name) : IFrameSource
 
     /// <summary>Publishes a new picture; returns its sequence number. <paramref name="pixels"/> (tight BGRA of
     /// width x height) is kept for <see cref="ReadPixels"/> when given.</summary>
-    public uint Publish(ReadOnlyMemory<byte> jpeg, int width = 0, int height = 0, ReadOnlySpan<byte> pixels = default)
+    public uint Publish(ReadOnlyMemory<byte> jpeg, int width = 0, int height = 0, ReadOnlySpan<byte> pixels = default) =>
+        Publish(seq => new Frame(seq, jpeg), width, height, pixels);
+
+    /// <summary>Publishes a picture whose JPEG is made only when someone asks for it: <paramref name="encode"/> gets the
+    /// pixels kept with it (or a newer picture's, if one came in the meantime). For a display only a band reads.</summary>
+    public uint PublishLazy(Func<ReadOnlySpan<byte>, (int Width, int Height), ReadOnlyMemory<byte>> encode, int width, int height, ReadOnlySpan<byte> pixels) =>
+        Publish(seq => new Frame(seq, () => EncodeKept(encode)), width, height, pixels);
+
+    private ReadOnlyMemory<byte> EncodeKept(Func<ReadOnlySpan<byte>, (int Width, int Height), ReadOnlyMemory<byte>> encode)
+    {
+        lock (_gate)
+        {
+            return _pixelWidth == 0 ? default : encode(_pixels.AsSpan(0, _pixelWidth * _pixelHeight * 4), (_pixelWidth, _pixelHeight));
+        }
+    }
+
+    private uint Publish(Func<uint, Frame> frame, int width, int height, ReadOnlySpan<byte> pixels)
     {
         uint seq;
         lock (_gate)
@@ -193,7 +252,7 @@ public sealed class FrameSlot(string name) : IFrameSource
                 _times.Dequeue();
             }
 
-            _latest = new Frame((_latest?.Seq ?? 0) + 1, jpeg);
+            _latest = frame((_latest?.Seq ?? 0) + 1);
             Monitor.PulseAll(_gate);
             seq = _latest.Seq;
         }
