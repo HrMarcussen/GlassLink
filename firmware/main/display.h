@@ -47,3 +47,5 @@ void display_diag_set_dsi(bool pn_swap, bool lane_swap);
 void display_diag_test_pattern(void);
 void display_diag_set_dvi(bool dvi);
 void display_set_rotation(int degrees);
+/* Whether a device answers at a 7-bit address on the bridge's I2C bus (GPIO7/8); false before the display is up. */
+bool display_i2c_probe(uint8_t addr);

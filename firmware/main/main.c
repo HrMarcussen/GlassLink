@@ -30,6 +30,7 @@
 #include "display.h"
 #include "ident.h"
 #include "screens.h"
+#include "panel_power.h"
 
 static const char *TAG = "main";
 
@@ -215,7 +216,7 @@ static bool send_msg(uint8_t type, const void *payload, uint32_t len, uint32_t s
     /* One message, one USB transfer (all of the DU's messages are small): it goes out whole or not at all. As two, a
      * header could be queued while no host reads and its payload time out, and the next host session read that header
      * with the next message's bytes as its payload, losing the INFO it waits for (review F6). */
-    static uint8_t buf[sizeof(xd_header_t) + 512];    /* under s_tx_mutex */
+    static uint8_t buf[sizeof(xd_header_t) + 1024];   /* under s_tx_mutex; INFO, the longest, is about 500 bytes */
     xd_header_t h = {{XD_MAGIC0, XD_MAGIC1}, XD_PROTO_VERSION, type, len, seq, arg};
     xSemaphoreTake(s_tx_mutex, portMAX_DELAY);
     bool ok;
@@ -241,17 +242,30 @@ static void send_log(int level, const char *fmt, ...)
     if (n > 0) send_msg(XD_T_LOG, buf, (uint32_t)n, 0, level);
 }
 
+/* An integrated DU's panel power for INFO and STATS (6a): ',"panel_power":"on",...', empty on a plain NANO. */
+static void panel_json(char *out, size_t size)
+{
+    if (!panel_power_present()) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, size, ",\"panel_power\":\"%s\",\"panel_why\":\"%s\",\"panel_seen\":%s", panel_power_is_on() ? "on" : "off",
+             panel_power_why(), panel_power_seen() ? "true" : "false");
+}
+
 static void send_info(void)
 {
     display_info_t di = display_get_info();
     esp_chip_info_t ci;
     esp_chip_info(&ci);                     /* revision as major * 100 + minor: which image fits this DU (#82) */
-    char buf[640];
+    char panel[96];
+    panel_json(panel, sizeof(panel));
+    char buf[768];
     int n = snprintf(buf, sizeof(buf),
-                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"chip_rev\":%d,\"mac\":\"%s\",\"display_error\":\"%s\"}",
+                     "{\"fw\":\"%s\",\"build\":\"%s\",\"hw\":\"%s\",\"panel\":[%d,%d],\"decoder\":\"hw\",\"uptime_s\":%lld,\"serial\":\"%s\",\"mode\":%d,\"ident\":%d,\"caps\":[\"mode\",\"tiles\",\"band\"%s],\"tiles\":%d,\"max_frame\":%lu,\"max_tiles\":%d,\"slot\":\"%s\",\"confirmed\":%d,\"signed\":%d,\"chip_rev\":%d,\"mac\":\"%s\"%s,\"display_error\":\"%s\"}",
                      FW_VERSION, FW_BUILD, HW_NAME, di.width, di.height, (long long)(esp_timer_get_time() / 1000000), s_serial, di.mode,
-                     esp_timer_get_time() < s_ident_until_us ? 1 : 0, s_tile_n, (unsigned long)RX_BUF_SIZE, MAX_TILES,
-                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, (int)ci.revision, s_mac, s_display_error);
+                     esp_timer_get_time() < s_ident_until_us ? 1 : 0, panel_power_present() ? ",\"panel_power\"" : "", s_tile_n, (unsigned long)RX_BUF_SIZE, MAX_TILES,
+                     esp_ota_get_running_partition() ? esp_ota_get_running_partition()->label : "?", s_app_confirmed ? 1 : 0, SIGNED_UPDATES, (int)ci.revision, s_mac, panel, s_display_error);
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     send_msg(XD_T_INFO, buf, (uint32_t)n, 0, 0);
 }
@@ -260,14 +274,16 @@ static void send_stats(void)
 {
     int64_t now = esp_timer_get_time();
     double secs = (now - s_last_stats_us) / 1e6;
-    char buf[160];
-    int n = snprintf(buf, sizeof(buf), "{\"fps\":%.1f,\"decode_ms\":%.1f,\"draw_ms\":%.1f,\"rx_ms\":%.1f,\"dropped\":%lu,\"free_psram\":%u,\"ident\":%d}",
+    char panel[96];
+    panel_json(panel, sizeof(panel));
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf), "{\"fps\":%.1f,\"decode_ms\":%.1f,\"draw_ms\":%.1f,\"rx_ms\":%.1f,\"dropped\":%lu,\"free_psram\":%u,\"ident\":%d%s}",
                      secs > 0 ? s_frames / secs : 0.0,
                      s_decode_n ? (double)s_decode_ms_acc / s_decode_n : 0.0,
                      s_decode_n ? (double)s_draw_us_acc / s_decode_n / 1000.0 : 0.0,
                      s_decode_n ? (double)s_rx_us_acc / s_decode_n / 1000.0 : 0.0,
                      (unsigned long)s_dropped, (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                     now < s_ident_until_us ? 1 : 0);
+                     now < s_ident_until_us ? 1 : 0, panel);
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
     send_msg(XD_T_STATS, buf, (uint32_t)n, 0, 0);
     s_frames = 0; s_decode_ms_acc = 0; s_decode_n = 0; s_draw_us_acc = 0; s_rx_us_acc = 0;
@@ -620,10 +636,13 @@ static void picture_task(void *arg)
 }
 
 static bool s_host_seen;               /* a host has sent a valid message to this image: its USB works */
+static volatile bool s_bye;            /* the last DMC said BYE: an integrated DU stays dark until a host speaks again */
+static volatile int s_dmc_panel = -1;  /* the DMC's SET_PANEL_POWER: -1 not said (yet, in this session), 0 off, 1 on */
 
 static void handle_message(const xd_header_t *h, const uint8_t *payload)
 {
     s_host_seen = true;
+    if (h->type != XD_T_BYE) s_bye = false;
     switch (h->type) {
     case XD_T_FRAME:
     case XD_T_TILE:
@@ -676,8 +695,14 @@ static void handle_message(const xd_header_t *h, const uint8_t *payload)
         s_assign = a;
         break;
     }
+    case XD_T_SET_PANEL_POWER: s_dmc_panel = h->arg ? 1 : 0; break;
+    case XD_T_SET_DIMMING:
+        if (h->arg == 1) send_log(1, "no backlight output on this DU: the brightness stays in the picture");
+        break;
     case XD_T_BYE:                          /* the DMC quits: "waiting for the DMC", and nothing of its session stays */
         s_host_us = 0;
+        s_bye = true;                       /* an integrated DU goes dark until a host or DMC is back (6a) */
+        s_dmc_panel = -1;
         s_assign = 0;
         s_display_name[0] = 0;
         forget_pictures(true);
@@ -746,6 +771,7 @@ static bool type_known(uint8_t type)
     switch (type) {
     case XD_T_FRAME: case XD_T_GET_INFO: case XD_T_SET_BRIGHTNESS: case XD_T_SET_ROTATION: case XD_T_SHOW_IDENT:
     case XD_T_PING: case XD_T_SET_ASSIGNED: case XD_T_SET_MODE: case XD_T_SET_LAYOUT: case XD_T_TILE: case XD_T_BYE: case XD_T_OTA_BEGIN: case XD_T_OTA_DATA: case XD_T_OTA_END: case XD_T_REBOOT:
+    case XD_T_SET_PANEL_POWER: case XD_T_SET_DIMMING:
         return true;
     default:
         return false;
@@ -800,6 +826,8 @@ static void protocol_task(void *arg)
             forget_pictures(true);          /* a new host session starts without the old one's layout (#17) or pictures (#81) */
             s_assign = 0;
             s_host_us = 0;
+            s_bye = false;                  /* a host is back: no longer dark because of the last DMC's BYE (6a) */
+            s_dmc_panel = -1;
             s_display_name[0] = 0;
             s_screen_gen++;
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -819,6 +847,12 @@ static void protocol_task(void *arg)
                 confirm_app("a minute without a crash, with a host");
             }
             s_boot_count = 0;
+        }
+        {
+            int64_t now = esp_timer_get_time();
+            bool dmc = s_host_us && now - s_host_us < HOST_TIMEOUT_US;
+            if (!dmc) s_dmc_panel = -1;     /* a DMC that comes back says again what it wants */
+            panel_power_update(usb_link_host_present(), dmc, s_bye, s_dmc_panel);
         }
         static bool rollback_tried;
         if (!s_app_confirmed && !s_host_seen && !s_ota.active && !rollback_tried && esp_timer_get_time() > UNCONFIRMED_ROLLBACK_US) {
@@ -923,6 +957,15 @@ static bool show_screen(screen_kind_t kind, int progress)
         xSemaphoreGive(s_frame_mutex);
     }
     return ok;
+}
+
+/* Black on the panel just before its power goes (panel_power.c); the next picture is drawn as usual. */
+static void blackout(void)
+{
+    if (display_ready() && xSemaphoreTake(s_frame_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
+        display_fill(0x000000);
+        xSemaphoreGive(s_frame_mutex);
+    }
 }
 
 static void screen_task(void *arg)
@@ -1115,6 +1158,8 @@ void app_main(void)
     }
     display_set_brightness(nvs_get_int("brightness", 100));
     display_set_rotation(nvs_get_int("rotation", 0));
+    panel_power_set_blackout(blackout);
+    panel_power_init();                     /* an integrated DU's panel switch, if the carrier board is there (#67) */
     /* The image is confirmed (rollback cancelled) only once it has shown a picture, or after a minute without a
      * crash: a new image that fails before that is rolled back by the bootloader (#20). One that was confirmed on
      * an earlier boot stays confirmed. */

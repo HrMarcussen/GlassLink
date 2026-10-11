@@ -60,6 +60,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   An aircraft without a rule keeps its panels on. `/status` shows each DU's `panel`. The protocol's section 6a is
   rewritten to the rules agreed with the hardware side (status screens on the DU's own power, "No USB" for 2
   minutes, dark after the DMC's BYE, the DMC deciding only while a sim is connected).
+- **[DU firmware]** The DU's side of panel power (#67): with a carrier board (GPIO23 strapped low, or NVS `carrier` 1)
+  the DU switches the scaler's 12 V on GPIO21 by those rules, draws black 100 ms before the power goes, says
+  `panel_power` in its caps and `panel_power`, `panel_why` and `panel_seen` (the scaler's EDID answers on I2C) in INFO
+  and STATS; the status page says "panel off" and why. A plain NANO touches none of those pins and reports nothing
+  new. Tested on DU2 with the switch forced on: the DMC's on and off, BYE (dark at once and staying dark), a DMC that
+  went away without one ("Waiting for the DMC" after 6 s).
 
 ### Fixed
 - The automatic pop-out stops when the sim's menu opens or the camera leaves the cockpit during a run, and puts the

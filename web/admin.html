@@ -881,7 +881,12 @@
         if (!tr) continue;
         const st = x.stats || {};
         const h = x.health || {};
-        setHTML(tr.querySelector('.stats'), !x.alive ? '<span class="dim">-</span>' : !showsOf(x).length ? '<span class="dim">nothing assigned</span>'
+        // an integrated DU with its panel switched off (usb-protocol.md 6a): say why instead of a picture rate
+        const darkWhy = { dmc_off: "its display is off in the cockpit (knob at OFF, or no power)", bye: 'the DMC was closed',
+          no_usb_timeout: 'no USB for 2 minutes', host_no_dmc: 'no DMC' };
+        setHTML(tr.querySelector('.stats'), !x.alive ? '<span class="dim">-</span>'
+          : st.panel_power === 'off' ? pill('panel off', '') + `<br><span class="dim small">${esc(darkWhy[st.panel_why] || st.panel_why || '')}</span>`
+          : !showsOf(x).length ? '<span class="dim">nothing assigned</span>'
           : (h.bad ? pill('not keeping up', 'warn') + `<br><span class="dim small">${esc((h.reasons || []).join('; '))}</span>`
              : `${st.fps > 0 ? st.fps + ' fps' : 'still picture'}<br><span class="dim small" title="time the DU needs per picture: transfer + decode + draw">${st.fps > 0 ? Math.round((st.rx_ms || 0) + (st.decode_ms || 0) + (st.draw_ms || 0)) + ' ms per picture' : ''}</span>`));
         const sent = tr.querySelector('.sent'); if (sent) sent.textContent = ` · ${x.frames_sent || 0} pictures sent`;

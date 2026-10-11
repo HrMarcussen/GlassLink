@@ -117,7 +117,11 @@ offset  size  field
    is stored but not applied yet: the panels are mounted upright.
 5. OTA: dual app partitions; the new image is written to the inactive slot, verified, and booted with rollback protection.
 
-## 6a. Panel power and backlight (integrated DU, #66, #67; rewritten 11 Oct 2026, not implemented yet)
+## 6a. Panel power and backlight (integrated DU, #66, #67; rewritten 11 Oct 2026)
+
+Panel power is implemented in the DMC and the DU (firmware 0.11; tested on a NANO without a carrier with the switch
+forced on in a test build: the DMC's on and off, BYE, a DMC that went away; not yet on a carrier board). Backlight
+dimming is not implemented: a DU never says `backlight`, so no DMC sends `SET_DIMMING`.
 
 For a DU whose NANO sits on a carrier board with the panel's scaler (one case, one 12 V supply per DU): the carrier
 switches the scaler's 12 V and feeds a PWM into the scaler's VR_ADC input. Protocol version stays 1. A DMC sends

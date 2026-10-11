@@ -82,5 +82,6 @@ the key the running firmware was signed with (`firmware/signing-key.pub.pem`).
 
 - Serial console without resetting the DU: `firmware/seriallog.py COMx <seconds> <file>` with the IDF Python.
 - A panic address: `riscv32-esp-elf-addr2line -e firmware/build/glasslink_du.elf <address>`.
-- NVS keys for bench work: `diag` (cycle DSI variants per boot), `dsivar` (0..3), `mode` (0..4);
+- NVS keys for bench work: `diag` (cycle DSI variants per boot), `dsivar` (0..3), `mode` (0..4), `carrier` (1: an
+  integrated DU's carrier board is there, 0: it is not; without the key GPIO23 low says so; `panel_power.c`);
   `display_diag_test_pattern()` shows the bridge's own test pattern.

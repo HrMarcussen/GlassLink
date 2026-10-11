@@ -78,6 +78,13 @@ static int s_rotation = 0;
 static void lt_write(esp_lcd_panel_io_handle_t io, uint8_t reg, uint8_t val);
 static void stamp_overlay(uint8_t *bgr, int w, int h);
 
+static i2c_master_bus_handle_t s_i2c;  /* the bridge's bus; an integrated DU's scaler answers on it too (#67) */
+
+bool display_i2c_probe(uint8_t addr)
+{
+    return s_i2c && i2c_master_probe(s_i2c, addr, 50) == ESP_OK;
+}
+
 static esp_err_t make_panel(int mode, int dsivar)
 {
     /* DSI PHY power */
@@ -96,6 +103,7 @@ static esp_err_t make_panel(int mode, int dsivar)
         .flags.enable_internal_pullup = true,
     };
     ESP_RETURN_ON_ERROR(i2c_new_master_bus(&i2c_cfg, &i2c), TAG, "i2c");
+    s_i2c = i2c;
 
     esp_lcd_panel_io_handle_t io_main = NULL, io_cec = NULL, io_avi = NULL;
     esp_lcd_panel_io_i2c_config_t c_main = LT8912B_IO_CFG(I2C_SPEED_HZ, LT8912B_IO_I2C_MAIN_ADDRESS);

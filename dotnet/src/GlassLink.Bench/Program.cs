@@ -392,6 +392,23 @@ switch (command)
         Thread.Sleep(1000);
         break;
     }
+
+    case "panel":
+    {
+        // an integrated DU's panel power as the DMC would ask for it (usb-protocol.md 6a); STATS show what the DU did
+        var prefix = Text("--serial") ?? throw new InvalidOperationException("--serial <prefix> is needed");
+        var du = connections.First(c => c.Serial.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        Thread.Sleep(1500);                                   // INFO first (caps)
+        du.PanelOn = args.Length > 1 && args[1] == "on";
+        du.Send(GlassLink.Core.Protocol.MessageType.SetPanelPower, arg: du.PanelOn ? 1u : 0u);
+        for (var i = 0; i < Option("--seconds", 6); i++)
+        {
+            Thread.Sleep(1000);
+            Console.WriteLine($"{du.Short}: asked {(du.PanelOn ? "on" : "off")}, DU stats {du.StatsJson}");
+        }
+
+        break;
+    }
 }
 
 foreach (var c in connections)
