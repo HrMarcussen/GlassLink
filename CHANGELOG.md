@@ -23,6 +23,18 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-11
+
+In short: a new NANO gets GlassLink from the status page (Set up a board, no other tools), and DUs keep a recovery
+copy of their firmware that updates never touch. A notice warns before the automatic pop-out moves the camera, a
+switch turns it off, and the pop-out now stops when the sim's menu opens. The DMC no longer hangs when the sim closes
+its pop-outs, uses less CPU for displays sent inside a band, and picks its CPU cores by the CPU's layout (hybrid Intel
+CPUs and dual-chiplet X3Ds included). Diagnostics go into one zip. For the coming integrated DU: panel power on both
+sides, from each aircraft's DU knobs. Tested before release: MSFS 2024 with the Fenix (all six displays popped out on
+the first try in 38 s, the DUs at 18-19 frames a second while the aircraft turned, the DMC at 17.5 % of one core, the
+sim closed with the DMC answering throughout) and X-Plane 12.4.4 with the ToLiss A339 (all six pop-outs, the DU-off
+rule live). After updating: the DUs update over USB as usual; the recovery copy needs one Set up a board per DU.
+
 ### Added
 - A notice over the sim before the automatic pop-out moves the camera: "GlassLink pops out 6 displays in 3 s: hands
   off mouse and keyboard", counting down, then "is popping out ... until your view is back" while it runs. It never
@@ -63,7 +75,7 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   DMC so. Needs one cable install per DU (a new partition table; updates over USB keep the old one). Tested on DU2: a
   test update that crashed 5 s after every start went back to the factory image on its fourth crash. The status page
   now also sees an update confirm itself (the DMC asks again a minute after an unconfirmed image started).
-- Panel power for the integrated DU, the DMC's side (#67; the DU's side follows with the carrier board): each aircraft
+- Panel power for the integrated DU, the DMC's side (#67): each aircraft
   profile names, per display, the variable that is 0 when that DU is dark in the cockpit (`du_off`), and a DU whose
   INFO says `panel_power` is told to switch its panel off a second after its cockpit DU went dark, on again at once.
   Measured 11 Oct 2026: the Fenix's `N_DISPLAY_BRIGHTNESS_*` equals the knob (`A_DISPLAY_BRIGHTNESS_*`) while the DU
