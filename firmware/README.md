@@ -78,6 +78,19 @@ the key the running firmware was signed with (`firmware/signing-key.pub.pem`).
   when a DU's firmware is older than `FIRMWARE_VERSION`; it says so up front when a DU running a release would refuse
   an unsigned image.
 
+## Slots and recovery (#83)
+
+`partitions.csv`: two update slots (`ota_0` at 0x20000, `ota_1`, 4 MB each) and a `factory` slot at 0x820000. A cable
+install (Set up a board, `idf.py flash`) writes the app into `factory` and clears the boot selection, so a new DU runs
+from `factory`; updates over USB go to the update slots and never touch it, so it stays as the recovery copy.
+
+- A new update that has not confirmed itself (a picture shown, or a minute with a DMC) is rolled back by the
+  bootloader when it restarts, and rolls itself back after 10 minutes without a DMC.
+- A confirmed update that crashes 4 times in a row (panic or watchdog; no restart the firmware asked for, no power
+  loss) starts the factory image; it tells the DMC so ("the update kept crashing"), and the DMC can update it again.
+- A DU from before the factory slot (an older partition table) gets it with one cable install; updates over USB keep
+  the table it has.
+
 ## Diagnostics
 
 - Serial console without resetting the DU: `firmware/seriallog.py COMx <seconds> <file>` with the IDF Python.

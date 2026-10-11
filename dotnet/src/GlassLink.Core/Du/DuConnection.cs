@@ -198,6 +198,10 @@ public sealed class DuConnection : IDisposable
     /// displays are best sent as one band instead of a TILE each.</summary>
     public bool SupportsBand => Has("band");
 
+    /// <summary>How long after its INFO an unconfirmed image is asked again whether it has confirmed itself (it does a
+    /// minute after its start).</summary>
+    public int ConfirmRecheckMs { get; init; } = 70_000;
+
     /// <summary>The DU switches its panel's power (an integrated DU's carrier board, usb-protocol.md 6a).</summary>
     public bool SupportsPanelPower => Has("panel_power");
 
@@ -430,6 +434,13 @@ public sealed class DuConnection : IDisposable
                 if (Info is null && Environment.TickCount64 - infoAsked > 2000)
                 {
                     // the answer can be lost behind the tail of a stale message from an earlier host session
+                    Send(MessageType.GetInfo);
+                    infoAsked = Environment.TickCount64;
+                }
+                else if (Info is not null && InfoJson is { } j && DuJson.Num(j, "confirmed", 1) == 0 && Environment.TickCount64 - infoAsked > ConfirmRecheckMs)
+                {
+                    // a new image confirms itself a minute after its start (with a host): asked again, so the status
+                    // page does not keep saying "can still roll back" until the next reconnect
                     Send(MessageType.GetInfo);
                     infoAsked = Environment.TickCount64;
                 }

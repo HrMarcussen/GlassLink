@@ -98,6 +98,15 @@ static bool s_app_confirmed;        /* this image has shown it works; until then
 #define ROLLBACK_MAGIC 0x474c5242u
 static RTC_NOINIT_ATTR uint32_t s_rollback_magic;  /* set before such a rollback: the image before it says so to the host */
 
+/* Crashes in a row (a panic or a watchdog: not a restart the firmware or the bench console asked for, not power), kept
+ * across the resets in RTC memory and cleared after a stable minute. A confirmed image that keeps crashing goes back
+ * to the factory image, the recovery copy that only a cable install writes (#83). */
+#define CRASHES_TO_FACTORY 4
+#define CRASH_MAGIC 0x474c4352u
+#define FACTORY_MAGIC 0x474c4641u
+static RTC_NOINIT_ATTR uint32_t s_crash_magic, s_crash_count;
+static RTC_NOINIT_ATTR uint32_t s_factory_magic;    /* set before such a switch: the factory image says so to the host */
+
 /* Consecutive boots that did not get as far as a stable unit; kept across software resets, not across power loss.
  * Three in a row start in the safe 768x768 mode (#21). */
 #define BOOT_MAGIC 0x474c4254u
@@ -290,6 +299,31 @@ static void send_stats(void)
     s_last_stats_us = now;
 }
 
+static void to_factory_after_crashes(void)
+{
+    esp_reset_reason_t why = esp_reset_reason();
+    bool crash = why == ESP_RST_PANIC || why == ESP_RST_TASK_WDT || why == ESP_RST_INT_WDT || why == ESP_RST_WDT;
+    if (s_crash_magic != CRASH_MAGIC || !crash) {
+        s_crash_magic = CRASH_MAGIC;
+        s_crash_count = 0;
+    }
+    if (!crash) return;
+    s_crash_count++;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_partition_t *factory = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_FACTORY, NULL);
+    esp_app_desc_t desc;
+    if (s_crash_count < CRASHES_TO_FACTORY || !running || !factory || running == factory
+        || esp_ota_get_partition_description(factory, &desc) != ESP_OK) {
+        return;                                /* not yet; already there; or no recovery copy (a table from before #83) */
+    }
+    ESP_LOGE(TAG, "%lu crashes in a row: starting the factory image (%s)", (unsigned long)s_crash_count, desc.version);
+    s_crash_count = 0;
+    s_boot_count = 0;
+    s_factory_magic = FACTORY_MAGIC;
+    if (esp_ota_set_boot_partition(factory) == ESP_OK) esp_restart();
+    s_factory_magic = 0;
+}
+
 static void send_ready(void)
 {
     send_msg(XD_T_READY, NULL, 0, s_last_seq, 0);
@@ -311,6 +345,11 @@ static void report_reset_reason(void)
                     : s_reset_reason == ESP_RST_BROWNOUT ? "a brownout (the supply voltage dipped)"
                     : NULL;
     if (why) send_log(2, "restarted after %s", why);
+    if (s_factory_magic == FACTORY_MAGIC) {
+        s_factory_magic = 0;
+        send_log(2, "the update kept crashing (%d times in a row): running the factory image; update again from the DMC",
+                 CRASHES_TO_FACTORY);
+    }
     if (s_rollback_magic == ROLLBACK_MAGIC) {
         s_rollback_magic = 0;
         send_log(2, "back on this image: the update after it heard from no host for %d minutes and was rolled back",
@@ -847,6 +886,7 @@ static void protocol_task(void *arg)
                 confirm_app("a minute without a crash, with a host");
             }
             s_boot_count = 0;
+            s_crash_count = 0;               /* a stable minute: the crashes before it were not in a row */
         }
         {
             int64_t now = esp_timer_get_time();
@@ -1122,7 +1162,9 @@ void app_main(void)
         s_boot_magic = BOOT_MAGIC;
         s_boot_count = 0;
         s_rollback_magic = 0;               /* RTC memory holds anything after power-on */
+        s_factory_magic = 0;
     }
+    to_factory_after_crashes();
     s_boot_count++;
     int mode = nvs_get_int("mode", 0);
     if (s_boot_count >= 3 && mode != 0) {
@@ -1164,7 +1206,9 @@ void app_main(void)
      * crash: a new image that fails before that is rolled back by the bootloader (#20). One that was confirmed on
      * an earlier boot stays confirmed. */
     esp_ota_img_states_t ota_state;
-    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &ota_state) == ESP_OK && ota_state != ESP_OTA_IMG_PENDING_VERIFY) {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if ((running && running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY)     /* the recovery copy: nothing to roll back to */
+        || (esp_ota_get_state_partition(running, &ota_state) == ESP_OK && ota_state != ESP_OTA_IMG_PENDING_VERIFY)) {
         s_app_confirmed = true;
     }
 

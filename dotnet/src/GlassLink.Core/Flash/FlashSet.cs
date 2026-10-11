@@ -8,8 +8,9 @@ public sealed record FlashPart(uint Offset, string Name, byte[] Data);
 
 /// <summary>
 /// What "Set up a new board" writes: the files ESP-IDF's build lists in its flash_args (bootloader at 0x2000,
-/// partition table at 0x8000, the boot selection at 0xf000, the app at 0x20000), one set per chip family (v1.x and
-/// v3.x, #82). The board's NVS (0x9000) is not among them, so a DU that is flashed again keeps its serial and label.
+/// partition table at 0x8000, the boot selection at 0xf000, the app into the factory slot at 0x820000, the recovery
+/// copy that updates never overwrite, #83), one set per chip family (v1.x and v3.x, #82). The board's NVS (0x9000) is
+/// not among them, so a DU that is flashed again keeps its serial and label.
 /// </summary>
 public sealed record FlashSet(string Folder, IReadOnlyList<FlashPart> Parts, int FlashSize, FirmwareImage App)
 {

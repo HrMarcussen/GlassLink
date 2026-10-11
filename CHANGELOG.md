@@ -57,6 +57,12 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
 - **[DU firmware]** An update that no DMC has talked to for 10 minutes rolls itself back to the image before it, which
   tells the DMC so (#83): its USB may not work, and an integrated DU on a supply of its own is otherwise never
   restarted to roll back. Tested on DU2 with a 60 s build.
+- **[DU firmware]** A recovery copy of the firmware (#83): a `factory` slot (0x820000) that a cable install (Set up a
+  board) writes and updates never touch; a new DU runs from it, updates go to the two update slots as before. A
+  confirmed update that crashes 4 times in a row (panic or watchdog only) starts the factory image, which tells the
+  DMC so. Needs one cable install per DU (a new partition table; updates over USB keep the old one). Tested on DU2: a
+  test update that crashed 5 s after every start went back to the factory image on its fourth crash. The status page
+  now also sees an update confirm itself (the DMC asks again a minute after an unconfirmed image started).
 - Panel power for the integrated DU, the DMC's side (#67; the DU's side follows with the carrier board): each aircraft
   profile names, per display, the variable that is 0 when that DU is dark in the cockpit (`du_off`), and a DU whose
   INFO says `panel_power` is told to switch its panel off a second after its cockpit DU went dark, on again at once.

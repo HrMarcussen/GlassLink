@@ -249,6 +249,20 @@ public class DuConnectionTests
     }
 
     [Fact]
+    public void An_image_that_can_still_roll_back_is_asked_again_until_it_says_it_confirmed_itself()
+    {
+        var du = new FakeDu { InfoJson = """{"fw":"0.11.0","panel":[768,768],"slot":"ota_0","confirmed":0}""" };
+        using var conn = new DuConnection(du) { ConfirmRecheckMs = 300 };
+        conn.Start();
+        Until(() => du.Of(MessageType.GetInfo).Count >= 2);          // asked again while it says "not confirmed"
+        du.InfoJson = """{"fw":"0.11.0","panel":[768,768],"slot":"ota_0","confirmed":1}""";
+        Until(() => conn.InfoJson is { } j && j.GetProperty("confirmed").GetInt32() == 1);
+        var asked = du.Of(MessageType.GetInfo).Count;
+        Thread.Sleep(800);
+        Assert.Equal(asked, du.Of(MessageType.GetInfo).Count);       // confirmed: no more asking
+    }
+
+    [Fact]
     public void Ident_ping_and_brightness_reach_the_du()
     {
         var du = new FakeDu();
