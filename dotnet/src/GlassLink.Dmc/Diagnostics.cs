@@ -112,7 +112,12 @@ public static partial class Diagnostics
         s.AppendLine($"GlassLink DMC {dmc.Version} ({dmc.Build}), firmware offered {dmc.FirmwareVersion}, {(DmcRuntime.Installed ? "installed" : "run from a checkout")}");
         s.AppendLine($"Windows: {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
         s.AppendLine($".NET: {RuntimeInformation.FrameworkDescription}");
-        s.AppendLine($"Logical CPUs: {Environment.ProcessorCount}; DMC priority {dmc.Process.Priority}, CPUs [{string.Join(",", dmc.Process.Affinity)}]");
+        s.AppendLine($"Logical CPUs: {Environment.ProcessorCount}; DMC priority {dmc.Process.Priority}, CPUs [{string.Join(",", dmc.Process.Affinity)}] ({dmc.Process.Why})");
+        if (OperatingSystem.IsWindows())
+        {
+            s.AppendLine("CPU layout: " + string.Join("; ", GlassLink.Core.Platform.CpuChoice.Read().Select(c =>
+                $"[{string.Join(",", c.Logical)}] class {c.EfficiencyClass} L3 #{c.Cache} {c.CacheSize / 1048576} MB")));
+        }
         using (var me = System.Diagnostics.Process.GetCurrentProcess())
         {
             s.AppendLine($"DMC: up {DateTime.UtcNow - dmc.Started:d\\.hh\\:mm\\:ss}, {me.WorkingSet64 / (1024 * 1024)} MB, {me.TotalProcessorTime.TotalSeconds:0} s CPU");

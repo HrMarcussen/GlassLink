@@ -92,6 +92,11 @@ Versions follow [Semantic Versioning](https://semver.org/) with one version for 
   before any click, and the view came back 25 s later when the menu closed.
 
 ### Changed
+- The DMC's CPUs ("auto") are picked by the CPU's layout as Windows reports it, not by counting: the efficiency
+  cores of a hybrid Intel CPU (the performance cores stay the sim's); on a dual-chiplet X3D (7900X3D, 7950X3D,
+  9950X3D) cores of the chiplet without the 3D V-cache, so the sim keeps the cache; otherwise the last third of the
+  cores, whole cores; no pinning at all below six cores (a 4-core CPU gave the DMC one core before). `/status`, the
+  log and the diagnostics say which and why; the diagnostics also list the layout. Unchanged on a 6-core i7-8700K.
 - A display that reaches its DU only inside a band (a 1080p screen, or a screen larger than the display) is no longer
   JPEG-encoded on its own for every picture; its JPEG is made only when something asks for it (a DU showing it alone,
   a viewer, a snapshot) (review U1). Measured 11 Oct 2026 with the Fenix turning, PFD on DU1 and the ND in a band on

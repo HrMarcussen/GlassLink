@@ -286,7 +286,7 @@ public static partial class Api
             ["firmware_version"] = dmc.FirmwareVersion,
             ["update"] = dmc.Updater.ToJson(),
             ["firmware_image"] = FirmwareSummary(dmc),
-            ["process"] = new JsonObject { ["priority"] = dmc.Process.Priority, ["affinity"] = new JsonArray([.. dmc.Process.Affinity.Select(c => (JsonNode)c)]) },
+            ["process"] = new JsonObject { ["priority"] = dmc.Process.Priority, ["affinity"] = new JsonArray([.. dmc.Process.Affinity.Select(c => (JsonNode)c)]), ["affinity_why"] = dmc.Process.Why },
             ["displays"] = Displays(dmc),
             ["modules"] = Modules(dmc),
             ["usb"] = new JsonObject { ["enabled"] = true, ["scan_error"] = dmc.Dus.LastScanError },

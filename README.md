@@ -128,7 +128,7 @@ page says where each display is shown, on DUs and in viewers: "Shown on DU1 · i
 | `popout` | `auto` (the tray menu's switch), `warn_s` (the notice before the camera moves, 3 s; 0 = none), `zoom`, `grace_s`, `retry_s`, `max_attempts`, `camera_restore_key` (e.g. `shift+f1`), `profiles` |
 | `brightness` | `enabled`: the DUs follow the cockpit's display brightness knobs where the pop-outs do not dim themselves (the Fenix, through SimConnect); the FSLabs and the ToLiss dim their own |
 | `updates` | `check` (default true): look for a newer GlassLink on GitHub every six hours; `repository` (`owner/name`, for a fork) |
-| `process` | `priority` (`below_normal` by default, `normal`, `idle`) and `affinity` (`"auto"`, the default: the last third of the logical CPUs on a PC with eight or more; a list of CPU numbers; `[]` for all) |
+| `process` | `priority` (`below_normal` by default, `normal`, `idle`) and `affinity`: `"auto"` (the default) picks by the CPU's layout: the efficiency cores of a hybrid Intel CPU, on a dual-chiplet X3D cores of the chiplet without the extra cache (the sim keeps it), otherwise the last third of the cores, and none at all with fewer than six cores; or a list of CPU numbers; `"all"` for all. The status page and the diagnostics say what was picked and why |
 | `firmware.image` | the DU firmware a checkout offers the DUs (default: its own build); an installed copy offers only the one installed with it |
 
 ### Aircraft profiles

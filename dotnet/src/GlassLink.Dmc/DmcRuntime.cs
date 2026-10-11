@@ -4,6 +4,7 @@ using GlassLink.Capture;
 using GlassLink.Capture.Windows;
 using GlassLink.Core.Config;
 using GlassLink.Core.Du;
+using GlassLink.Core.Platform;
 using GlassLink.Sim;
 
 namespace GlassLink.Dmc;
@@ -61,7 +62,7 @@ public sealed class DmcRuntime : IDisposable
 
     public ConfigFile Config { get; }
 
-    public (string Priority, int[] Affinity) Process { get; }
+    public (string Priority, int[] Affinity, string Why) Process { get; }
 
     public SimConnectClient Sim { get; }
 
@@ -351,9 +352,9 @@ public sealed class DmcRuntime : IDisposable
     public static int PortFrom(JsonNode? server) =>
         server?["port"].Number(8765) is var p && p is >= 1 and <= 65535 ? (int)p : 8765;
 
-    /// <summary>Keep out of the simulator's way: below-normal priority, and only the last third of the logical CPUs on
-    /// machines with eight or more ("process" section of the configuration: priority, affinity "auto" | [cpus] | null).</summary>
-    private (string, int[]) TuneProcess()
+    /// <summary>Keep out of the simulator's way: below-normal priority, and the CPUs <see cref="CpuChoice.Auto"/> picks by
+    /// the CPU's layout ("process" section of the configuration: priority, affinity "auto" | [cpus] | []).</summary>
+    private (string, int[], string) TuneProcess()
     {
         var section = Config.Read(root => root["process"]?.DeepClone() as JsonObject);
         var priority = section?["priority"].Text() ?? "below_normal";
@@ -365,20 +366,18 @@ public sealed class DmcRuntime : IDisposable
             _ => ProcessPriorityClass.BelowNormal,
         };
 
-        var count = Environment.ProcessorCount;
-        int[] cpus = section?["affinity"] switch
+        var count = Math.Min(64, Environment.ProcessorCount);
+        var (cpus, why) = section?["affinity"] switch
         {
-            JsonArray list => list.Select(n => (int)n.Number(-1)).Where(n => n >= 0 && n < count).ToArray(),
-            JsonValue v when v.GetValueKind() == System.Text.Json.JsonValueKind.String && v.GetValue<string>() == "auto" && count >= 8
-                => Enumerable.Range(count - count / 3, count / 3).ToArray(),
-            null when count >= 8 => Enumerable.Range(count - count / 3, count / 3).ToArray(),
-            _ => [],
+            JsonArray list => (list.Select(n => (int)n.Number(-1)).Where(n => n >= 0 && n < count).ToArray(), "set in config.json"),
+            JsonValue v when v.GetValueKind() == System.Text.Json.JsonValueKind.String && v.GetValue<string>() != "auto" => ([], "all CPUs"),
+            _ => CpuChoice.Auto(CpuChoice.Read()) is var auto ? (auto.Cpus, auto.Why) : ([], ""),
         };
         if (cpus.Length > 0)
         {
             me.ProcessorAffinity = (nint)cpus.Aggregate(0L, (mask, cpu) => mask | (1L << cpu));
         }
 
-        return (priority, cpus);
+        return (priority, cpus, why);
     }
 }
